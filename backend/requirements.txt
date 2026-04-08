@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+aiogram
+python-dotenv
+httpx
+faster-whisper
+moviepy
+ffmpeg-python
+celery
+redis
+pydantic
+pydantic-settings
+sqlalchemy
+yt-dlp
+python-multipart
+psycopg2-binary
+requests

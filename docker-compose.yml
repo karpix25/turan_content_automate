@@ -1,0 +1,101 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: content_studio
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - content-network
+
+  redis:
+    image: redis:7-alpine
+    networks:
+      - content-network
+
+  api:
+    build:
+      context: ./backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    volumes:
+      - ./backend:/app
+      - ./database/media:/app/database/media
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/content_studio
+      - REDIS_URL=redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+    networks:
+      - content-network
+
+  worker:
+    build:
+      context: ./backend
+    command: celery -A app.worker.celery_app worker --loglevel=info
+    volumes:
+      - ./backend:/app
+      - ./database/media:/app/database/media
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/content_studio
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+    networks:
+      - content-network
+
+  beat:
+    build:
+      context: ./backend
+    command: celery -A app.worker.celery_app beat --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/content_studio
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+    networks:
+      - content-network
+
+  bot:
+    build:
+      context: ./bot
+    volumes:
+      - ./bot:/app
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/content_studio
+      - REDIS_URL=redis://redis:6379/0
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    depends_on:
+      - db
+      - redis
+    networks:
+      - content-network
+
+  frontend:
+    build:
+      context: ./frontend
+    networks:
+      - content-network
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --url http://frontend:80
+    networks:
+      - content-network
+    depends_on:
+      - frontend
+
+networks:
+  content-network:
+    driver: bridge
+
+volumes:
+  postgres_data:

@@ -1,0 +1,12 @@
+.env
+.env.*
+node_modules/
+dist/
+__pycache__/
+*.pyc
+database/media/
+*.db
+.DS_Store
+.ipynb_checkpoints/
+.vscode/
+.idea/
