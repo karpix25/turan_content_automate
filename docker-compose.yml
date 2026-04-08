@@ -46,9 +46,13 @@ services:
     command: celery -A app.worker.celery_app worker --loglevel=info
     volumes:
       - media_data:/app/database/media
+      - hf_cache:/root/.cache/huggingface
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-content_studio}
       - REDIS_URL=redis://redis:6379/0
+      - HF_HOME=/root/.cache/huggingface
+      - HF_HUB_CACHE=/root/.cache/huggingface/hub
+      - TRANSFORMERS_CACHE=/root/.cache/huggingface/transformers
       - VIZARD_API_KEY=${VIZARD_API_KEY}
       - SCRAPE_CREATORS_API_KEY=${SCRAPE_CREATORS_API_KEY}
       - POSTMYPOST_API_KEY=${POSTMYPOST_API_KEY}
@@ -106,3 +110,4 @@ networks:
 volumes:
   postgres_data:
   media_data:
+  hf_cache:
