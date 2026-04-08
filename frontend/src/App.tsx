@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Image as ImageIcon, Video, Type, Save, Check, Upload } from 'lucide-react';
+import { Settings, Image as ImageIcon, Video, Type, Save, Check, Upload, Smartphone, Monitor, Palette } from 'lucide-react';
 import axios from 'axios';
 
 type UserSettings = {
@@ -49,28 +49,20 @@ const App = () => {
 
   useEffect(() => {
     const webApp = window.Telegram?.WebApp;
-    if (webApp?.ready) {
-      webApp.ready();
-    }
-    if (webApp?.expand) {
-      webApp.expand();
-    }
+    if (webApp?.ready) webApp.ready();
+    if (webApp?.expand) webApp.expand();
 
     const tgUserId = webApp?.initDataUnsafe?.user?.id;
     if (tgUserId) {
       setTelegramId(String(tgUserId));
-      return;
+    } else {
+      setTelegramId('12345678');
+      setStatusText('Using Demo ID: 12345678');
     }
-
-    setTelegramId('12345678');
-    setStatusText('Telegram user id not found. Using fallback id 12345678.');
   }, []);
 
   useEffect(() => {
-    if (!telegramId) {
-      return;
-    }
-
+    if (!telegramId) return;
     const loadSettings = async () => {
       try {
         const response = await axios.get<UserSettings>(`${API_BASE}/settings/${telegramId}`);
@@ -79,46 +71,24 @@ const App = () => {
         setFontColor(response.data.font_color ? `#${response.data.font_color.replace('#', '')}` : '#FFFFFF');
         setSelectedPlateId(response.data.selected_plate_id ?? null);
       } catch (error) {
-        setStatusText('Failed to load saved settings.');
+        setStatusText('Load failed. Settings default values applied.');
       }
     };
-
-    void loadSettings();
+    loadSettings();
   }, [telegramId]);
 
-  useEffect(() => {
-    return () => {
-      if (platePreviewUrl) {
-        URL.revokeObjectURL(platePreviewUrl);
-      }
-    };
-  }, [platePreviewUrl]);
-
-  const handlePickFile = () => {
-    fileInputRef.current?.click();
-  };
+  const handlePickFile = () => fileInputRef.current?.click();
 
   const handlePlateSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
-    if (!telegramId) {
-      setStatusText('Telegram id is not ready yet.');
-      return;
-    }
+    if (!file || !telegramId) return;
+    
     if (!['image/png', 'image/webp'].includes(file.type)) {
-      setStatusText('Only PNG or WEBP files are supported.');
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      setStatusText('File is too large. Max 5MB.');
+      setStatusText('Error: Please use PNG or WEBP (transparent support).');
       return;
     }
 
-    if (platePreviewUrl) {
-      URL.revokeObjectURL(platePreviewUrl);
-    }
+    if (platePreviewUrl) URL.revokeObjectURL(platePreviewUrl);
     const objectUrl = URL.createObjectURL(file);
     setPlatePreviewUrl(objectUrl);
     setPlateFile(file);
@@ -126,20 +96,16 @@ const App = () => {
     const formData = new FormData();
     formData.append('file', file);
     setUploadingPlate(true);
-    setStatusText('Uploading plate...');
 
     try {
       const response = await axios.post<{ plate_id: number }>(
         `${API_BASE}/upload/plate/${telegramId}`,
         formData,
-        {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        }
+        { headers: { 'Content-Type': 'multipart/form-data' } }
       );
       setSelectedPlateId(response.data.plate_id);
-      setStatusText('Plate uploaded. Save settings to apply it.');
     } catch (error) {
-      setStatusText('Failed to upload plate.');
+      setStatusText('Upload failed. Try again.');
     } finally {
       setUploadingPlate(false);
       event.target.value = '';
@@ -147,13 +113,8 @@ const App = () => {
   };
 
   const handleSave = async () => {
-    if (!telegramId) {
-      setStatusText('Telegram id is not ready yet.');
-      return;
-    }
-
+    if (!telegramId) return;
     setLoading(true);
-    setStatusText('');
     try {
       await axios.post(`${API_BASE}/settings/${telegramId}/update`, {
         font_name: font,
@@ -162,197 +123,241 @@ const App = () => {
         selected_plate_id: selectedPlateId,
       });
       setSaved(true);
-      setStatusText('Settings saved.');
       setTimeout(() => setSaved(false), 3000);
     } catch (error) {
-      setStatusText('Failed to save settings.');
+      setStatusText('Save failed.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen p-4 max-w-md mx-auto pb-32">
-      <header className="flex justify-between items-center mb-8 pt-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Content Studio</h1>
-          <p className="text-gray-400 text-sm">Customize your social clips</p>
-        </div>
-        <div className="bg-blue-500/10 p-2 rounded-full">
-          <Settings className="text-blue-500" size={20} />
-        </div>
-      </header>
+    <div className="max-w-7xl mx-auto px-4 py-8 lg:px-8">
+      <div className="flex flex-col lg:flex-row gap-12">
+        {/* Left Col: Settings */}
+        <div className="flex-1 space-y-8 animate-in fade-in slide-in-from-left duration-700">
+          <header className="flex items-center gap-4 mb-8">
+            <div className="p-3 bg-blue-500/10 rounded-2xl">
+              <Monitor className="text-blue-500" size={24} />
+            </div>
+            <div>
+              <h1 className="text-3xl font-extrabold tracking-tight">Content Studio <span className="text-xs font-medium px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full align-middle ml-2">BETA</span></h1>
+              <p className="text-slate-400">Professional branding for your social clips</p>
+            </div>
+          </header>
 
-      <div className="flex bg-black/30 rounded-2xl p-1 mb-6">
-        <button
-          onClick={() => setActiveTab('branding')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl transition-all ${activeTab === 'branding' ? 'bg-blue-500 text-white shadow-lg' : 'text-gray-400'}`}
-        >
-          <ImageIcon size={18} /> <span className="text-sm font-medium">Branding</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('subtitles')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl transition-all ${activeTab === 'subtitles' ? 'bg-blue-500 text-white shadow-lg' : 'text-gray-400'}`}
-        >
-          <Type size={18} /> <span className="text-sm font-medium">Subtitles</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('cta')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl transition-all ${activeTab === 'cta' ? 'bg-blue-500 text-white shadow-lg' : 'text-gray-400'}`}
-        >
-          <Video size={18} /> <span className="text-sm font-medium">CTA</span>
-        </button>
-      </div>
-
-      <div className="glass-card p-6 min-h-[420px] relative overflow-hidden">
-        <AnimatePresence mode="wait">
-          {activeTab === 'branding' && (
-            <motion.div
-              key="branding"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="space-y-6"
-            >
-              <h3 className="text-lg font-semibold">Overlay Plate</h3>
-              <p className="text-gray-400 text-sm">Upload your plate and preview how it overlays a video frame.</p>
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/png,image/webp"
-                onChange={handlePlateSelected}
-                className="hidden"
-              />
-
+          <div className="flex bg-slate-900/50 p-1.5 rounded-2xl border border-white/5 backdrop-blur-md">
+            {[
+              { id: 'branding', icon: ImageIcon, label: 'Branding' },
+              { id: 'subtitles', icon: Type, label: 'Subtitles' },
+              { id: 'cta', icon: Video, label: 'CTA Manager' }
+            ].map(tab => (
               <button
-                type="button"
-                onClick={handlePickFile}
-                disabled={uploadingPlate}
-                className="w-full border-2 border-dashed border-gray-700 rounded-3xl p-8 flex flex-col items-center justify-center gap-4 bg-black/20 hover:border-blue-500/50 transition-colors cursor-pointer disabled:opacity-60"
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex-1 flex items-center justify-center gap-2.5 py-3 rounded-xl transition-all duration-300 ${activeTab === tab.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
               >
-                <div className="bg-blue-500/20 p-4 rounded-full">
-                  <Upload className="text-blue-500" />
-                </div>
-                <div className="text-center">
-                  <p className="font-medium">{uploadingPlate ? 'Uploading...' : 'Click to upload plate'}</p>
-                  <p className="text-xs text-gray-500 mt-1">PNG or WEBP, max 5MB</p>
-                </div>
+                <tab.icon size={18} />
+                <span className="text-sm font-semibold">{tab.label}</span>
               </button>
+            ))}
+          </div>
 
-              <div className="rounded-2xl overflow-hidden border border-gray-700">
-                <div className="h-44 bg-gradient-to-br from-slate-700 via-slate-800 to-black relative">
-                  <div className="absolute inset-0 opacity-30 bg-[radial-gradient(circle_at_center,_rgba(255,255,255,0.2)_0,_transparent_60%)]" />
-                  <div className="absolute bottom-3 left-3 right-3 text-xs text-white/80 font-medium">
-                    Video preview: plate placement simulation
+          <div className="glass-panel p-8 rounded-[32px] min-h-[500px]">
+            <AnimatePresence mode="wait">
+              {activeTab === 'branding' && (
+                <motion.div
+                  key="branding"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="space-y-8"
+                >
+                  <div>
+                    <h3 className="text-xl font-bold mb-2">Overlay Plate</h3>
+                    <p className="text-slate-400 text-sm">Upload a PNG/WEBP with transparency. This will be placed in the top corner of your videos.</p>
                   </div>
-                  {platePreviewUrl && (
-                    <img
-                      src={platePreviewUrl}
-                      alt="Plate preview"
-                      className="absolute right-4 top-4 max-h-16 max-w-[45%] object-contain"
-                    />
-                  )}
-                </div>
-              </div>
 
-              <div className="text-xs text-gray-400">
-                {plateFile ? `Selected file: ${plateFile.name}` : 'No plate selected yet.'}
-              </div>
-            </motion.div>
-          )}
+                  <input ref={fileInputRef} type="file" accept="image/png,image/webp" onChange={handlePlateSelected} className="hidden" />
 
-          {activeTab === 'subtitles' && (
-            <motion.div
-              key="subtitles"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="space-y-6"
-            >
-              <h3 className="text-lg font-semibold">Subtitles Design</h3>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="text-sm text-gray-400 mb-2 block">Font Family</label>
-                  <select
-                    value={font}
-                    onChange={(e) => setFont(e.target.value)}
-                    className="w-full input-field text-white"
+                  <div 
+                    onClick={handlePickFile}
+                    className="group w-full aspect-video rounded-3xl border-2 border-dashed border-slate-800 bg-white/[0.02] flex flex-col items-center justify-center gap-4 hover:border-blue-500/50 hover:bg-blue-500/[0.02] transition-all cursor-pointer relative overflow-hidden"
                   >
-                    <option>Montserrat</option>
-                    <option>Inter</option>
-                    <option>Bangers</option>
-                    <option>Roboto</option>
-                    <option>Outfit</option>
-                  </select>
-                </div>
-
-                <div>
-                  <div className="flex justify-between mb-2">
-                    <label className="text-sm text-gray-400">Size</label>
-                    <span className="text-sm font-mono text-blue-500">{fontSize}px</span>
+                    <div className="bg-blue-500/10 p-5 rounded-full group-hover:scale-110 transition-transform duration-500">
+                      <Upload className="text-blue-500" />
+                    </div>
+                    <div className="text-center">
+                      <p className="font-bold text-lg">{uploadingPlate ? 'Processing...' : 'Click to Upload Plate'}</p>
+                      <p className="text-xs text-slate-500 mt-1 uppercase tracking-widest">Max file size 5MB</p>
+                    </div>
                   </div>
-                  <input
-                    type="range"
-                    min="20"
-                    max="100"
-                    value={fontSize}
-                    onChange={(e) => setFontSize(parseInt(e.target.value, 10))}
-                    className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                  />
-                </div>
+                  
+                  {plateFile && (
+                    <div className="flex items-center gap-3 p-4 bg-white/[0.03] rounded-2xl border border-white/5">
+                      <div className="p-2 bg-green-500/10 rounded-lg">
+                        <Check className="text-green-500" size={16} />
+                      </div>
+                      <span className="text-sm text-slate-300 font-medium truncate">{plateFile.name}</span>
+                    </div>
+                  )}
+                </motion.div>
+              )}
 
-                <div>
-                  <label className="text-sm text-gray-400 mb-2 block">Font Color</label>
-                  <input
-                    type="color"
-                    value={fontColor}
-                    onChange={(e) => setFontColor(e.target.value)}
-                    className="w-full h-10 rounded-lg bg-transparent border border-gray-700"
-                  />
-                </div>
+              {activeTab === 'subtitles' && (
+                <motion.div
+                  key="subtitles"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="space-y-10"
+                >
+                  <div>
+                    <h3 className="text-xl font-bold mb-2">Typography & Style</h3>
+                    <p className="text-slate-400 text-sm">Fine-tune the look and feel of your automated captions.</p>
+                  </div>
 
-                <div className="mt-8 p-6 rounded-2xl bg-black border border-gray-800 flex items-center justify-center min-h-[120px]">
-                  <p style={{ fontFamily: font, fontSize: `${fontSize / 2}px`, color: fontColor }} className="text-center font-bold tracking-wide">
-                    Subtitle style preview
-                  </p>
+                  <div className="grid gap-8 lg:grid-cols-2">
+                    <div className="space-y-3">
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Font Family</label>
+                      <select value={font} onChange={(e) => setFont(e.target.value)} className="w-full input-field text-white appearance-none cursor-pointer">
+                        {['Montserrat', 'Inter', 'Outfit', 'Bangers', 'Roboto'].map(f => (
+                          <option key={f} className="bg-slate-900 border-none">{f}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="space-y-3">
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Text Color</label>
+                      <div className="flex items-center gap-4">
+                        <input type="color" value={fontColor} onChange={(e) => setFontColor(e.target.value)} className="h-10 w-16 bg-transparent border-none p-0 cursor-pointer" />
+                        <span className="font-mono text-sm uppercase text-slate-400">{fontColor}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="flex justify-between items-center">
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Font Size</label>
+                      <span className="text-xl font-black text-blue-500">{fontSize}<small className="text-[10px] ml-1">PX</small></span>
+                    </div>
+                    <input type="range" min="20" max="120" value={fontSize} onChange={(e) => setFontSize(parseInt(e.target.value, 10))} className="w-full" />
+                  </div>
+                </motion.div>
+              )}
+
+              {activeTab === 'cta' && (
+                <motion.div
+                  key="cta"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="flex flex-col items-center justify-center min-h-[300px] text-center"
+                >
+                  <div className="p-6 bg-yellow-500/10 rounded-3xl mb-4">
+                    <Palette className="text-yellow-500" size={32} />
+                  </div>
+                  <h3 className="text-xl font-bold mb-2">Coming Soon</h3>
+                  <p className="text-slate-400 text-sm max-w-xs">Dynamic Call-to-Action video manager is currently under development.</p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            {statusText && (
+              <p className="text-sm text-slate-400 text-center animate-pulse">{statusText}</p>
+            )}
+            <button
+              onClick={handleSave}
+              disabled={loading}
+              className="w-full btn-primary flex items-center justify-center gap-3 group relative overflow-hidden"
+            >
+              {loading ? (
+                <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+              ) : saved ? (
+                <><Check size={20} className="animate-bounce" /> Configuration Saved!</>
+              ) : (
+                <><Save size={20} className="group-hover:scale-110 transition-transform" /> Sync All Changes</>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Right Col: Live Preview */}
+        <div className="lg:w-1/3 flex flex-col items-center">
+          <div className="sticky top-8 space-y-6 flex flex-col items-center">
+            <div className="flex items-center gap-2 mb-2 px-4 py-1.5 bg-slate-900/80 border border-white/5 rounded-full backdrop-blur-xl">
+              <Smartphone size={14} className="text-blue-500" />
+              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Live 9:16 Preview</span>
+            </div>
+
+            <div className="phone-frame animate-in fade-in zoom-in duration-1000">
+              <div className="phone-notch"></div>
+              
+              {/* Background Layer */}
+              <div className="absolute inset-0 bg-slate-800">
+                <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80')] bg-cover bg-center brightness-50 contrast-125" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/20" />
+              </div>
+
+              {/* Plate Overlay Layer */}
+              <div className="absolute top-8 left-0 right-0 px-6 flex justify-end">
+                {platePreviewUrl ? (
+                  <img src={platePreviewUrl} className="max-w-[40%] h-auto drop-shadow-2xl animate-in fade-in duration-500" />
+                ) : (
+                  <div className="w-16 h-16 bg-white/10 rounded-xl border border-white/5 backdrop-blur-md flex items-center justify-center">
+                    <ImageIcon className="text-white/20" size={20} />
+                  </div>
+                )}
+              </div>
+
+              {/* Subtitles Layer */}
+              <div className="absolute inset-0 flex items-center justify-center px-6 pointer-events-none">
+                <div className="w-full text-center">
+                   <motion.div
+                     key={`${font}-${fontSize}-${fontColor}`}
+                     initial={{ opacity: 0, scale: 0.9 }}
+                     animate={{ opacity: 1, scale: 1 }}
+                     style={{ 
+                       fontFamily: font, 
+                       fontSize: `${fontSize / 3.5}vw`, 
+                       color: fontColor,
+                       textShadow: '0 4px 12px rgba(0,0,0,0.5), 0 0 40px rgba(0,0,0,0.2)'
+                     }}
+                     className="font-black leading-tight tracking-tight uppercase"
+                   >
+                     Make your content<br />
+                     <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-blue-600">Stand out</span><br />
+                     In 2026
+                   </motion.div>
                 </div>
               </div>
-            </motion.div>
-          )}
 
-          {activeTab === 'cta' && (
-            <motion.div
-              key="cta"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="space-y-4"
-            >
-              <h3 className="text-lg font-semibold">CTA Clips</h3>
-              <p className="text-gray-400 text-sm">CTA upload UI is next in line. Branding and subtitle settings are ready now.</p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+              {/* UI Emulation Bottom */}
+              <div className="absolute bottom-12 left-0 right-0 px-6 space-y-4">
+                 <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-slate-400 border border-white/20" />
+                    <div className="flex-1 space-y-1">
+                       <div className="w-20 h-2 bg-white/20 rounded" />
+                       <div className="w-12 h-1.5 bg-white/10 rounded" />
+                    </div>
+                 </div>
+                 <div className="flex gap-4">
+                    <div className="w-8 h-8 rounded-full bg-white/10 backdrop-blur-lg flex items-center justify-center">
+                       <div className="w-4 h-4 rounded-full border border-white/20" />
+                    </div>
+                    <div className="w-8 h-8 rounded-full bg-white/10 backdrop-blur-lg" />
+                 </div>
+              </div>
+            </div>
 
-      {statusText && <div className="mt-4 text-sm text-gray-300">{statusText}</div>}
-
-      <div className="fixed bottom-8 left-4 right-4">
-        <button
-          onClick={handleSave}
-          disabled={loading}
-          className="w-full btn-primary flex items-center justify-center gap-2 shadow-2xl shadow-blue-500/20 disabled:opacity-70"
-        >
-          {loading ? (
-            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-          ) : saved ? (
-            <><Check size={20} /> Settings Saved</>
-          ) : (
-            <><Save size={20} /> Save Changes</>
-          )}
-        </button>
+            <div className="text-center space-y-1 opacity-40">
+              <p className="text-[10px] font-bold uppercase tracking-widest">Auto-Rendering Engine v2.4</p>
+              <p className="text-[8px] font-medium uppercase tracking-tighter">Real-time sync enabled</p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
