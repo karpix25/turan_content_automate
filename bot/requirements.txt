@@ -1,6 +1,6 @@
 fastapi
 uvicorn
-aiogram
+aiogram==2.25.1
 python-dotenv
 httpx
 faster-whisper
