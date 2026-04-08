@@ -21,9 +21,9 @@ services:
     build:
       context: ./backend
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    # No code volume in production! It overwrites the built image.
     volumes:
-      - ./backend:/app
-      - ./database/media:/app/database/media
+      - media_data:/app/database/media
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-content_studio}
       - REDIS_URL=redis://redis:6379/0
@@ -33,6 +33,7 @@ services:
       - WHISPER_MODEL=${WHISPER_MODEL:-large-v3}
       - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
       - WHISPER_DEVICE=cpu
+      - PYTHONPATH=.
     depends_on:
       - db
       - redis
@@ -44,8 +45,7 @@ services:
       context: ./backend
     command: celery -A app.worker.celery_app worker --loglevel=info
     volumes:
-      - ./backend:/app
-      - ./database/media:/app/database/media
+      - media_data:/app/database/media
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-content_studio}
       - REDIS_URL=redis://redis:6379/0
@@ -55,6 +55,7 @@ services:
       - WHISPER_MODEL=${WHISPER_MODEL:-large-v3}
       - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
       - WHISPER_DEVICE=cpu
+      - PYTHONPATH=.
     depends_on:
       - db
       - redis
@@ -68,6 +69,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-content_studio}
       - REDIS_URL=redis://redis:6379/0
+      - PYTHONPATH=.
     depends_on:
       - db
       - redis
@@ -77,13 +79,13 @@ services:
   bot:
     build:
       context: ./bot
-    volumes:
-      - ./bot:/app
+    # No code volume!
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-content_studio}
       - REDIS_URL=redis://redis:6379/0
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - WEBAPP_URL=${WEBAPP_URL}
+      - PYTHONPATH=.
     depends_on:
       - db
       - redis
@@ -102,3 +104,4 @@ networks:
 
 volumes:
   postgres_data:
+  media_data:
