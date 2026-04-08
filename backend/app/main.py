@@ -1,14 +1,18 @@
-from fastapi import FastAPI, Depends, UploadFile, File, BackgroundTasks
+from fastapi import FastAPI, Depends, UploadFile, File, HTTPException
 from sqlalchemy.orm import Session
 from .database import engine, SessionLocal, Base
 from . import models, schemas
 import os
+import logging
+from celery import Celery
 from dotenv import load_dotenv
 
 load_dotenv()
 
 # Initialize DB
 models.Base.metadata.create_all(bind=engine)
+
+celery_client = Celery("api_client", broker=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
 
 app = FastAPI(title="Content Processing API")
 
@@ -48,6 +52,33 @@ def update_settings(telegram_id: str, settings: schemas.UserSettingsUpdate, db: 
             setattr(user, key, value)
         db.commit()
     return {"status": "updated"}
+
+@app.post("/tasks/{telegram_id}")
+def create_task(telegram_id: str, payload: schemas.VideoTaskCreate, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+    if not user:
+        user = models.User(telegram_id=telegram_id)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    new_task = models.VideoTask(
+        user_id=user.id,
+        source_url=payload.source_url,
+        type=payload.type,
+        status="pending",
+    )
+    db.add(new_task)
+    db.commit()
+    db.refresh(new_task)
+
+    try:
+        celery_client.send_task("process_content_task", args=[new_task.id])
+    except Exception as e:
+        logging.error(f"Failed to enqueue task {new_task.id}: {e}")
+        raise HTTPException(status_code=500, detail="Task created but queue enqueue failed")
+
+    return {"status": "queued", "task_id": new_task.id, "type": payload.type}
 
 # File Uploads (Plates & CTA)
 @app.post("/upload/plate/{telegram_id}")

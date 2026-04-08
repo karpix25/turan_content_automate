@@ -1,30 +1,31 @@
 import os
 import logging
+import httpx
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from sqlalchemy.orm import Session
-from backend.app.database import SessionLocal
-from backend.app import models
-from backend.app.worker import process_content_task
 from dotenv import load_dotenv
 
 load_dotenv()
 
 API_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 WEBAPP_URL = os.getenv("WEBAPP_URL")
+BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://api:8000")
 
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
-def get_db():
-    db = SessionLocal()
-    try:
-        return db
-    finally:
-        db.close()
+def detect_task_type(url: str) -> str:
+    task_type = "youtube"
+    if "instagram.com" in url:
+        return "instagram"
+    if "youtube.com" in url or "youtu.be" in url:
+        if "/shorts/" in url:
+            return "youtube"
+        return "vizard"
+    return task_type
 
 @dp.message_handler(commands=['start', 'help'])
 async def send_welcome(message: types.Message):
@@ -46,49 +47,21 @@ async def send_welcome(message: types.Message):
 async def handle_link(message: types.Message):
     url = message.text
     user_id = str(message.from_user.id)
-    
-    db = SessionLocal()
+    task_type = detect_task_type(url)
+
     try:
-        # Get or create user
-        user = db.query(models.User).filter(models.User.telegram_id == user_id).first()
-        if not user:
-            user = models.User(telegram_id=user_id)
-            db.add(user)
-            db.commit()
-            db.refresh(user)
-
-        # Detect type
-        task_type = "youtube"
-        if "instagram.com" in url:
-            task_type = "instagram"
-        elif "youtube.com" in url or "youtu.be" in url:
-            # Check if it's long or short (simplified)
-            if "/shorts/" in url:
-                task_type = "youtube"
-            else:
-                task_type = "vizard"
-
-        # Create Task
-        new_task = models.VideoTask(
-            user_id=user.id,
-            source_url=url,
-            type=task_type,
-            status="pending"
-        )
-        db.add(new_task)
-        db.commit()
-        db.refresh(new_task)
-
-        # Trigger Celery
-        process_content_task.delay(new_task.id)
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.post(
+                f"{BACKEND_API_URL}/tasks/{user_id}",
+                json={"source_url": url, "type": task_type},
+            )
+        response.raise_for_status()
 
         await message.reply(f"🚀 Task received! Type: {task_type.upper()}. I'll notify you when it's ready.")
 
     except Exception as e:
         logging.error(f"Error handling link: {e}")
         await message.reply("❌ Sorry, something went wrong while creating the task.")
-    finally:
-        db.close()
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)

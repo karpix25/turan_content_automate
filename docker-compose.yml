@@ -81,6 +81,7 @@ services:
       context: ./bot
     # No code volume!
     environment:
+      - BACKEND_API_URL=${BACKEND_API_URL:-http://api:8000}
       - DATABASE_URL=postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-content_studio}
       - REDIS_URL=redis://redis:6379/0
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
