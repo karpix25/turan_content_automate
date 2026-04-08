@@ -149,7 +149,7 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 8px 16px 24px 16px;
   display: flex;
   justify-content: space-around;
-  z-index: 50;
+  z-index: 40;
 }
 
 .nav-item {
@@ -158,6 +158,10 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: center;
   gap: 4px;
   color: #8e8e93;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
   transition: color 0.2s ease;
 }
 
@@ -168,4 +172,58 @@ input[type="range"]::-webkit-slider-thumb {
 .nav-label {
   font-size: 10px;
   font-weight: 500;
+}
+
+/* Preview Overlay */
+.preview-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.fab-preview {
+  position: fixed;
+  bottom: 100px;
+  right: 20px;
+  width: 56px;
+  height: 56px;
+  background: var(--accent);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 16px rgba(36, 161, 222, 0.4);
+  z-index: 30;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.fab-preview:active {
+  transform: scale(0.9);
+}
+
+.close-btn {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
 }

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Image as ImageIcon, Video, Type, Save, Check, Upload, Smartphone, CalendarClock, RefreshCcw, LayoutGrid, ChevronRight } from 'lucide-react';
+import { Image as ImageIcon, Video, Type, Save, Check, Upload, Smartphone, CalendarClock, RefreshCcw, LayoutGrid, ChevronRight, X, Eye } from 'lucide-react';
 import axios from 'axios';
 
 type UserSettings = {
@@ -55,7 +55,7 @@ const App = () => {
   const [activeTab, setActiveTab] = useState('branding');
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [statusText, setStatusText] = useState('');
+  const [showPreview, setShowPreview] = useState(false);
 
   const [font, setFont] = useState('Montserrat');
   const [fontSize, setFontSize] = useState(60);
@@ -121,7 +121,6 @@ const App = () => {
         }, {})
       );
     } catch (error) {
-      setStatusText('Connection error');
     } finally {
       setTasksLoading(false);
     }
@@ -206,158 +205,180 @@ const App = () => {
     }
   };
 
+  const getStatusLabel = (status: string) => {
+    const labels: Record<string, string> = {
+      'published': 'Опубликовано',
+      'scheduled': 'Запланировано',
+      'not_published': 'Не опубликовано',
+      'in_progress': 'Публикуется',
+      'failed': 'Ошибка'
+    };
+    return labels[status] || status;
+  };
+
   return (
     <div className="min-h-screen pb-32 flex flex-col items-center">
       {/* Header */}
       <header className="w-full bg-white px-4 py-3 flex items-center justify-between border-b sticky top-0 z-50">
-        <h1 className="text-[17px] font-bold">Content Studio</h1>
+        <h1 className="text-[17px] font-bold">Студия контента</h1>
         <button onClick={handleSave} disabled={loading} className="text-[16px] font-semibold text-[#24a1de] disabled:opacity-50">
-          {loading ? '...' : saved ? 'Saved' : 'Save'}
+          {loading ? '...' : saved ? 'Сохранено' : 'Сохранить'}
         </button>
       </header>
 
-      <main className="w-full max-w-4xl px-4 py-6 flex flex-col lg:flex-row gap-8 items-center lg:items-start">
-        {/* Settings Column */}
-        <div className="w-full lg:flex-1 space-y-6">
-          <AnimatePresence mode="wait">
-            {activeTab === 'branding' && (
-              <motion.div key="branding" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
-                <div className="tg-card overflow-hidden">
-                  <div className="p-4 border-b">
-                    <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Image Overlay</h3>
-                  </div>
-                  <div className="p-0">
-                    <button 
-                      onClick={handlePickFile}
-                      className="w-full flex items-center gap-4 p-4 hover:bg-slate-50 transition-colors active:bg-slate-100"
-                    >
-                      <div className="p-3 bg-blue-50 text-[#24a1de] rounded-xl">
-                        <Upload size={20} />
-                      </div>
-                      <div className="flex-1 text-left">
-                        <p className="font-semibold text-[16px]">{uploadingPlate ? 'Uploading...' : 'Upload Branding Plate'}</p>
-                        <p className="text-xs text-[#707579]">{plateFile ? plateFile.name : 'PNG or WebP with transparency'}</p>
-                      </div>
-                      <ChevronRight size={18} className="text-[#c7c7cc]" />
-                    </button>
-                    <input ref={fileInputRef} type="file" accept="image/png,image/webp" onChange={handlePlateSelected} className="hidden" />
-                  </div>
+      <main className="w-full max-w-2xl px-4 py-6">
+        <AnimatePresence mode="wait">
+          {activeTab === 'branding' && (
+            <motion.div key="branding" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
+              <div className="tg-card overflow-hidden">
+                <div className="p-4 border-b">
+                  <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Наложение логотипа</h3>
                 </div>
-              </motion.div>
-            )}
+                <div className="p-0">
+                  <button 
+                    onClick={handlePickFile}
+                    className="w-full flex items-center gap-4 p-4 hover:bg-slate-50 transition-colors active:bg-slate-100"
+                  >
+                    <div className="p-3 bg-blue-50 text-[#24a1de] rounded-xl">
+                      <Upload size={20} />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className="font-semibold text-[16px]">{uploadingPlate ? 'Загрузка...' : 'Загрузить плашку'}</p>
+                      <p className="text-xs text-[#707579]">{plateFile ? plateFile.name : 'PNG или WebP с прозрачностью'}</p>
+                    </div>
+                    <ChevronRight size={18} className="text-[#c7c7cc]" />
+                  </button>
+                  <input ref={fileInputRef} type="file" accept="image/png,image/webp" onChange={handlePlateSelected} className="hidden" />
+                </div>
+              </div>
+            </motion.div>
+          )}
 
-            {activeTab === 'subtitles' && (
-              <motion.div key="subtitles" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
-                <div className="tg-card">
-                  <div className="p-4 border-b">
-                    <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Typography</h3>
+          {activeTab === 'subtitles' && (
+            <motion.div key="subtitles" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
+              <div className="tg-card">
+                <div className="p-4 border-b">
+                  <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Типографика</h3>
+                </div>
+                <div className="p-4 space-y-8">
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center text-sm font-medium">
+                      <span className="text-[#707579]">Семейство шрифта</span>
+                      <span className="text-[#24a1de] uppercase tracking-wider text-xs">{font}</span>
+                    </div>
+                    <select value={font} onChange={(e) => setFont(e.target.value)} className="w-full input-field appearance-none">
+                      {['Montserrat', 'Inter', 'Outfit', 'Bangers', 'Roboto'].map(f => (<option key={f}>{f}</option>))}
+                    </select>
                   </div>
-                  <div className="p-4 space-y-8">
-                    <div className="space-y-3">
-                      <div className="flex justify-between items-center text-sm font-medium">
-                        <span className="text-[#707579]">Font Family</span>
-                        <span className="text-[#24a1de] uppercase tracking-wider text-xs">{font}</span>
-                      </div>
-                      <select value={font} onChange={(e) => setFont(e.target.value)} className="w-full input-field appearance-none">
-                        {['Montserrat', 'Inter', 'Outfit', 'Bangers', 'Roboto'].map(f => (<option key={f}>{f}</option>))}
-                      </select>
-                    </div>
 
-                    <div className="space-y-4">
-                      <div className="flex justify-between items-center text-sm font-medium">
-                        <span className="text-[#707579]">Size</span>
-                        <span className="text-[#24a1de]">{fontSize}px</span>
-                      </div>
-                      <input type="range" min="20" max="120" value={fontSize} onChange={(e) => setFontSize(parseInt(e.target.value, 10))} className="w-full" />
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center text-sm font-medium">
+                      <span className="text-[#707579]">Размер текста</span>
+                      <span className="text-[#24a1de]">{fontSize}px</span>
                     </div>
+                    <input type="range" min="20" max="120" value={fontSize} onChange={(e) => setFontSize(parseInt(e.target.value, 10))} className="w-full" />
+                  </div>
 
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-[#707579]">Color</span>
-                      <div className="flex items-center gap-3">
-                         <span className="text-xs font-mono text-[#707579]">{fontColor.toUpperCase()}</span>
-                         <input type="color" value={fontColor} onChange={(e) => setFontColor(e.target.value)} className="w-8 h-8 rounded-full overflow-hidden p-0 border-none cursor-pointer" />
-                      </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-[#707579]">Цвет текста</span>
+                    <div className="flex items-center gap-3">
+                       <span className="text-xs font-mono text-[#707579]">{fontColor.toUpperCase()}</span>
+                       <input type="color" value={fontColor} onChange={(e) => setFontColor(e.target.value)} className="w-8 h-8 rounded-full overflow-hidden p-0 border-none cursor-pointer" />
                     </div>
                   </div>
                 </div>
-              </motion.div>
-            )}
+              </div>
+            </motion.div>
+          )}
 
-            {activeTab === 'schedule' && (
-              <motion.div key="schedule" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
-                <div className="tg-card overflow-hidden">
-                   <div className="p-4 border-b flex items-center justify-between">
-                      <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Channels</h3>
-                      <button onClick={() => telegramId && loadPublishAccounts(telegramId)} className="text-[#24a1de]"><RefreshCcw size={16} /></button>
-                   </div>
-                   <div className="divide-y">
-                      {publishAccounts.map(acc => (
-                        <div key={acc.account_id} className="p-4 flex items-center justify-between">
-                           <div>
-                              <p className="font-semibold text-[15px]">{acc.account_name}</p>
-                              <p className="text-[12px] text-[#707579]">{acc.channel_name || 'Instagram/TikTok'}</p>
-                           </div>
-                           <button onClick={() => togglePublishAccount(acc.account_id)} className={`w-12 h-6 rounded-full transition-all flex items-center p-1 ${acc.enabled ? 'bg-[#34c759]' : 'bg-[#e9e9eb]'}`}>
-                              <div className={`w-4 h-4 bg-white rounded-full shadow-sm transform transition-all ${acc.enabled ? 'translate-x-6' : 'translate-x-0'}`} />
-                           </button>
-                        </div>
-                      ))}
-                   </div>
-                </div>
-
-                <div className="tg-card">
-                  <div className="p-4 border-b flex items-center justify-between">
-                    <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Publishing Queue</h3>
-                    <button onClick={() => telegramId && loadTasks(telegramId)} className="text-[#24a1de]"><RefreshCcw size={16} /></button>
-                  </div>
-                  <div className="divide-y overflow-auto max-h-[500px]">
-                    {tasks.map(task => (
-                      <div key={task.id} className="p-4 space-y-3">
-                         <div className="flex justify-between items-start">
-                            <div className="flex-1 min-w-0 mr-4">
-                               <p className="text-xs font-bold text-[#707579] uppercase truncate">ID #{task.id} · {task.status}</p>
-                               <p className="text-sm font-medium text-slate-900 truncate mt-1">{task.source_url}</p>
-                            </div>
-                            <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full uppercase ${task.publishing_status === 'published' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'}`}>
-                               {task.publishing_status}
-                            </span>
+          {activeTab === 'schedule' && (
+            <motion.div key="schedule" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
+              <div className="tg-card overflow-hidden">
+                 <div className="p-4 border-b flex items-center justify-between">
+                    <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Каналы публикации</h3>
+                    <button onClick={() => telegramId && loadPublishAccounts(telegramId)} className="text-[#24a1de]"><RefreshCcw size={16} /></button>
+                 </div>
+                 <div className="divide-y">
+                    {publishAccounts.map(acc => (
+                      <div key={acc.account_id} className="p-4 flex items-center justify-between">
+                         <div>
+                            <p className="font-semibold text-[15px]">{acc.account_name}</p>
+                            <p className="text-[12px] text-[#707579]">{acc.channel_name || 'Instagram/TikTok'}</p>
                          </div>
-                         <div className="flex gap-2">
-                            <input
-                              type="datetime-local"
-                              value={scheduleInputs[task.id] || ''}
-                              onChange={(e) => setScheduleInputs(prev => ({ ...prev, [task.id]: e.target.value }))}
-                              className="input-field text-xs h-9 flex-1 py-1"
-                            />
-                            <button 
-                              onClick={() => saveTaskSchedule(task.id)}
-                              className="h-9 px-4 bg-blue-50 text-[#24a1de] text-xs font-bold rounded-lg"
-                            >
-                              Set
-                            </button>
-                         </div>
+                         <button onClick={() => togglePublishAccount(acc.account_id)} className={`w-12 h-6 rounded-full transition-all flex items-center p-1 ${acc.enabled ? 'bg-[#34c759]' : 'bg-[#e9e9eb]'}`}>
+                            <div className={`w-4 h-4 bg-white rounded-full shadow-sm transform transition-all ${acc.enabled ? 'translate-x-6' : 'translate-x-0'}`} />
+                         </button>
                       </div>
                     ))}
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+                 </div>
+              </div>
 
-        {/* Live Preview Column */}
-        <div className="w-full lg:w-[320px] shrink-0">
-          <div className="sticky top-20 flex flex-col items-center gap-4">
-            <div className="phone-frame">
+              <div className="tg-card">
+                <div className="p-4 border-b flex items-center justify-between">
+                  <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Очередь публикаций</h3>
+                  <button onClick={() => telegramId && loadTasks(telegramId)} className="text-[#24a1de]"><RefreshCcw size={16} /></button>
+                </div>
+                <div className="divide-y overflow-auto max-h-[500px]">
+                  {tasks.map(task => (
+                    <div key={task.id} className="p-4 space-y-3">
+                       <div className="flex justify-between items-start">
+                          <div className="flex-1 min-w-0 mr-4">
+                             <p className="text-xs font-bold text-[#707579] uppercase truncate">ID #{task.id} · {task.status}</p>
+                             <p className="text-sm font-medium text-slate-900 truncate mt-1">{task.source_url}</p>
+                          </div>
+                          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full uppercase ${task.publishing_status === 'published' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'}`}>
+                             {getStatusLabel(task.publishing_status)}
+                          </span>
+                       </div>
+                       <div className="flex gap-2">
+                          <input
+                            type="datetime-local"
+                            value={scheduleInputs[task.id] || ''}
+                            onChange={(e) => setScheduleInputs(prev => ({ ...prev, [task.id]: e.target.value }))}
+                            className="input-field text-xs h-9 flex-1 py-1"
+                          />
+                          <button 
+                            onClick={() => saveTaskSchedule(task.id)}
+                            className="h-9 px-4 bg-blue-50 text-[#24a1de] text-xs font-bold rounded-lg"
+                          >
+                            Задать
+                          </button>
+                       </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </main>
+
+      {/* Floating Preview Toggle */}
+      <button onClick={() => setShowPreview(true)} className="fab-preview">
+        <Eye size={24} />
+      </button>
+
+      {/* Preview Overlay */}
+      <AnimatePresence>
+        {showPreview && (
+          <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            exit={{ opacity: 0 }}
+            className="preview-overlay"
+          >
+            <button onClick={() => setShowPreview(false)} className="close-btn">
+               <X size={24} />
+            </button>
+            
+            <div className="phone-frame mt-8">
               <div className="phone-notch"></div>
               
-              {/* Bg Simulation */}
               <div className="absolute inset-0 bg-[#e9e9eb]">
                 <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1518173946687-a4c8a9b746f5?auto=format&fit=crop&q=80')] bg-cover bg-center opacity-60 grayscale-[0.2]" />
                 <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/20 to-transparent" />
               </div>
 
-              {/* Branding Plate Layer */}
               <div className="absolute top-10 right-6 z-20">
                 {platePreviewUrl ? (
                   <img src={platePreviewUrl} className="max-w-[70px] h-auto drop-shadow-md" />
@@ -368,7 +389,6 @@ const App = () => {
                 )}
               </div>
 
-              {/* Text Style Preview */}
               <div className="absolute inset-0 flex items-center justify-center px-4 pointer-events-none z-20">
                 <div 
                   style={{ 
@@ -379,11 +399,10 @@ const App = () => {
                   }} 
                   className="text-center font-black uppercase leading-[1.1]"
                 >
-                  Create Fast<br />Post Automate
+                  Создавай Быстро<br />Публикуй Легко
                 </div>
               </div>
 
-              {/* UI Overlay Sim */}
               <div className="absolute bottom-10 left-6 right-6 flex items-end justify-between z-20">
                  <div className="flex items-center gap-2">
                     <div className="w-6 h-6 rounded-full bg-white/40 backdrop-blur border border-white/30" />
@@ -397,18 +416,18 @@ const App = () => {
                  </div>
               </div>
             </div>
-            <p className="text-[11px] font-bold text-[#707579] uppercase tracking-widest bg-white/50 px-3 py-1 rounded-full border">Preview Engine Active</p>
-          </div>
-        </div>
-      </main>
+            <p className="mt-4 text-[11px] font-bold text-white uppercase tracking-widest bg-black/20 px-3 py-1 rounded-full backdrop-blur-sm">Предпросмотр активен</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Bottom Navigation Dock */}
       <nav className="bottom-nav">
         {[
-          { id: 'branding', icon: ImageIcon, label: 'Branding' },
-          { id: 'subtitles', icon: Type, label: 'Subtitles' },
-          { id: 'schedule', icon: CalendarClock, label: 'Schedule' },
-          { id: 'all', icon: LayoutGrid, label: 'Settings' }
+          { id: 'branding', icon: ImageIcon, label: 'Брендинг' },
+          { id: 'subtitles', icon: Type, label: 'Субтитры' },
+          { id: 'schedule', icon: CalendarClock, label: 'Очередь' },
+          { id: 'all', icon: LayoutGrid, label: 'Настройки' }
         ].map(tab => (
           <button 
             key={tab.id}
