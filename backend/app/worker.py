@@ -109,6 +109,12 @@ def process_content_task(task_id: int):
             task.output_path = final_output
             task.status = "completed"
             db.commit()
+
+            # If user set schedule, create/update planned publication in PostMyPost immediately.
+            if task.publish_at:
+                task.publishing_status = "scheduled"
+                db.commit()
+                celery_app.send_task("sync_publication_task", args=[task.id])
             
             # TODO: Send notification to TG via Bot API
             # notify_user(user.telegram_id, final_output)
@@ -119,3 +125,6 @@ def process_content_task(task_id: int):
         db.commit()
     finally:
         db.close()
+
+# Import scheduler to register publication sync tasks on the same Celery app.
+from . import scheduler  # noqa: E402,F401

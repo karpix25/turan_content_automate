@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, JSON, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, JSON, ForeignKey, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 import datetime
@@ -47,8 +47,19 @@ class VideoTask(Base):
     
     # Publication
     publish_at = Column(DateTime, nullable=True)
-    publishing_status = Column(String, default="not_published")  # 'not_published', 'in_progress', 'published', 'failed'
+    publishing_status = Column(String, default="not_published")  # 'not_published', 'scheduled', 'in_progress', 'published', 'failed'
     postmypost_id = Column(String, nullable=True)
 
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+class UserPublishChannel(Base):
+    __tablename__ = "user_publish_channels"
+    __table_args__ = (UniqueConstraint("user_id", "account_id", name="uq_user_account_channel"),)
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    account_id = Column(Integer, index=True, nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

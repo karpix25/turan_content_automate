@@ -2,8 +2,10 @@ from fastapi import FastAPI, Depends, UploadFile, File, HTTPException
 from sqlalchemy.orm import Session
 from .database import engine, SessionLocal, Base
 from . import models, schemas
+from .integrations.postmypost import PostMyPostClient
 import os
 import logging
+import datetime
 from celery import Celery
 from dotenv import load_dotenv
 
@@ -13,6 +15,7 @@ load_dotenv()
 models.Base.metadata.create_all(bind=engine)
 
 celery_client = Celery("api_client", broker=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+pmp_client = PostMyPostClient(api_key=os.getenv("POSTMYPOST_API_KEY", ""))
 
 app = FastAPI(title="Content Processing API")
 
@@ -33,6 +36,33 @@ def get_or_create_user(db: Session, telegram_id: str) -> models.User:
     db.commit()
     db.refresh(user)
     return user
+
+def normalize_utc_naive(value: datetime.datetime | None) -> datetime.datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        return value.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+    return value
+
+def get_user_task_or_404(db: Session, user_id: int, task_id: int) -> models.VideoTask:
+    task = db.query(models.VideoTask).filter(
+        models.VideoTask.id == task_id,
+        models.VideoTask.user_id == user_id
+    ).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
+
+def get_postmypost_project_id() -> int:
+    project_id_raw = os.getenv("POSTMYPOST_PROJECT_ID", "").strip()
+    project_id = int(project_id_raw) if project_id_raw else None
+    return pmp_client.ensure_project_id(project_id)
+
+def get_user_channel_enabled_map(db: Session, user_id: int) -> dict[int, bool]:
+    rows = db.query(models.UserPublishChannel).filter(
+        models.UserPublishChannel.user_id == user_id
+    ).all()
+    return {row.account_id: bool(row.enabled) for row in rows}
 
 @app.get("/")
 def read_root():
@@ -60,12 +90,15 @@ def update_settings(telegram_id: str, settings: schemas.UserSettingsUpdate, db: 
 @app.post("/tasks/{telegram_id}")
 def create_task(telegram_id: str, payload: schemas.VideoTaskCreate, db: Session = Depends(get_db)):
     user = get_or_create_user(db, telegram_id)
+    publish_at = normalize_utc_naive(payload.publish_at)
 
     new_task = models.VideoTask(
         user_id=user.id,
         source_url=payload.source_url,
         type=payload.type,
         status="pending",
+        publish_at=publish_at,
+        publishing_status="scheduled" if publish_at else "not_published"
     )
     db.add(new_task)
     db.commit()
@@ -78,6 +111,145 @@ def create_task(telegram_id: str, payload: schemas.VideoTaskCreate, db: Session 
         raise HTTPException(status_code=500, detail="Task created but queue enqueue failed")
 
     return {"status": "queued", "task_id": new_task.id, "type": payload.type}
+
+@app.get("/postmypost/channels/{telegram_id}", response_model=list[schemas.PostMyPostAccountOut])
+def get_postmypost_channels(telegram_id: str, db: Session = Depends(get_db)):
+    user = get_or_create_user(db, telegram_id)
+    if not os.getenv("POSTMYPOST_API_KEY", "").strip():
+        raise HTTPException(status_code=400, detail="POSTMYPOST_API_KEY is not configured")
+
+    try:
+        project_id = get_postmypost_project_id()
+        channels = pmp_client.get_channels()
+        accounts = pmp_client.get_accounts(project_id=project_id)
+    except Exception as e:
+        logging.error(f"Failed to load PostMyPost channels/accounts: {e}")
+        raise HTTPException(status_code=502, detail="Failed to load channels from PostMyPost")
+
+    channels_by_id = {int(item["id"]): item for item in channels if isinstance(item, dict) and item.get("id") is not None}
+    enabled_map = get_user_channel_enabled_map(db, user.id)
+
+    result: list[schemas.PostMyPostAccountOut] = []
+    for account in accounts:
+        account_id = account.get("id")
+        if account_id is None:
+            continue
+        account_id = int(account_id)
+        channel_id_raw = account.get("chanel_id", account.get("channel_id"))
+        channel_id = int(channel_id_raw) if channel_id_raw is not None else None
+        channel_info = channels_by_id.get(channel_id) if channel_id is not None else None
+
+        result.append(
+            schemas.PostMyPostAccountOut(
+                account_id=account_id,
+                account_name=str(account.get("name", f"Account {account_id}")),
+                account_login=account.get("login"),
+                channel_id=channel_id,
+                channel_code=channel_info.get("code") if channel_info else None,
+                channel_name=channel_info.get("name") if channel_info else None,
+                enabled=enabled_map.get(account_id, True),
+            )
+        )
+    return result
+
+@app.post("/postmypost/channels/{telegram_id}", response_model=list[schemas.PostMyPostAccountOut])
+def update_postmypost_channels(
+    telegram_id: str,
+    payload: schemas.ChannelPreferenceUpdate,
+    db: Session = Depends(get_db)
+):
+    user = get_or_create_user(db, telegram_id)
+    selected_ids = {int(item) for item in payload.account_ids}
+
+    try:
+        project_id = get_postmypost_project_id()
+        accounts = pmp_client.get_accounts(project_id=project_id)
+    except Exception as e:
+        logging.error(f"Failed to load PostMyPost accounts before update: {e}")
+        raise HTTPException(status_code=502, detail="Failed to load accounts from PostMyPost")
+
+    valid_ids = {int(item["id"]) for item in accounts if isinstance(item, dict) and item.get("id") is not None}
+    selected_ids = selected_ids.intersection(valid_ids)
+
+    existing_rows = db.query(models.UserPublishChannel).filter(
+        models.UserPublishChannel.user_id == user.id
+    ).all()
+    existing_by_account = {row.account_id: row for row in existing_rows}
+
+    for account_id in valid_ids:
+        should_enable = account_id in selected_ids
+        row = existing_by_account.get(account_id)
+        if row:
+            row.enabled = should_enable
+        elif should_enable:
+            db.add(models.UserPublishChannel(user_id=user.id, account_id=account_id, enabled=True))
+
+    db.commit()
+    return get_postmypost_channels(telegram_id=telegram_id, db=db)
+
+@app.get("/tasks/{telegram_id}", response_model=list[schemas.VideoTaskOut])
+def list_user_tasks(telegram_id: str, db: Session = Depends(get_db)):
+    user = get_or_create_user(db, telegram_id)
+    tasks = db.query(models.VideoTask).filter(
+        models.VideoTask.user_id == user.id
+    ).order_by(models.VideoTask.created_at.desc()).limit(100).all()
+    return tasks
+
+@app.patch("/tasks/{telegram_id}/{task_id}/schedule", response_model=schemas.VideoTaskOut)
+def update_task_schedule(
+    telegram_id: str,
+    task_id: int,
+    payload: schemas.VideoTaskScheduleUpdate,
+    db: Session = Depends(get_db)
+):
+    user = get_or_create_user(db, telegram_id)
+    task = get_user_task_or_404(db, user.id, task_id)
+
+    if task.publishing_status == "published":
+        raise HTTPException(status_code=400, detail="Cannot reschedule already published task")
+
+    publish_at = normalize_utc_naive(payload.publish_at)
+    task.publish_at = publish_at
+    task.publishing_status = "scheduled" if publish_at else "not_published"
+    db.commit()
+
+    try:
+        if publish_at and task.status == "completed" and task.output_path:
+            celery_client.send_task("sync_publication_task", args=[task.id], kwargs={"force_now": False})
+        if publish_at is None:
+            celery_client.send_task("unschedule_publication_task", args=[task.id])
+    except Exception as e:
+        logging.error(f"Failed to enqueue schedule sync for task {task.id}: {e}")
+
+    db.refresh(task)
+    return task
+
+@app.post("/tasks/{telegram_id}/{task_id}/publish-now", response_model=schemas.VideoTaskOut)
+def publish_task_now(telegram_id: str, task_id: int, db: Session = Depends(get_db)):
+    user = get_or_create_user(db, telegram_id)
+    task = get_user_task_or_404(db, user.id, task_id)
+
+    if task.status != "completed":
+        raise HTTPException(status_code=400, detail="Task is not processed yet")
+    if not task.output_path:
+        raise HTTPException(status_code=400, detail="Task has no rendered output")
+    if task.publishing_status == "published":
+        raise HTTPException(status_code=400, detail="Task already published")
+
+    task.publish_at = datetime.datetime.utcnow()
+    task.publishing_status = "in_progress"
+    db.commit()
+
+    try:
+        celery_client.send_task("sync_publication_task", args=[task.id], kwargs={"force_now": True})
+    except Exception as e:
+        logging.error(f"Failed to enqueue publish-now for task {task.id}: {e}")
+        task.publishing_status = "failed"
+        db.commit()
+        raise HTTPException(status_code=500, detail="Queue enqueue failed")
+
+    db.refresh(task)
+    return task
 
 # File Uploads (Plates & CTA)
 @app.post("/upload/plate/{telegram_id}")

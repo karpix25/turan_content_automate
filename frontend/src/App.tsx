@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Image as ImageIcon, Video, Type, Save, Check, Upload, Smartphone, Monitor, Palette } from 'lucide-react';
+import { Settings, Image as ImageIcon, Video, Type, Save, Check, Upload, Smartphone, Monitor, Palette, CalendarClock, RefreshCcw } from 'lucide-react';
 import axios from 'axios';
 
 type UserSettings = {
@@ -8,6 +8,27 @@ type UserSettings = {
   font_size: number;
   font_color: string;
   selected_plate_id?: number | null;
+};
+
+type VideoTaskItem = {
+  id: number;
+  source_url: string;
+  type: string;
+  status: string;
+  output_path?: string | null;
+  publish_at?: string | null;
+  publishing_status: string;
+  created_at: string;
+};
+
+type PublishAccount = {
+  account_id: number;
+  account_name: string;
+  account_login?: string | null;
+  channel_id?: number | null;
+  channel_code?: string | null;
+  channel_name?: string | null;
+  enabled: boolean;
 };
 
 type TelegramWebApp = {
@@ -44,6 +65,12 @@ const App = () => {
   const [selectedPlateId, setSelectedPlateId] = useState<number | null>(null);
   const [uploadingPlate, setUploadingPlate] = useState(false);
   const [telegramId, setTelegramId] = useState('');
+  const [tasks, setTasks] = useState<VideoTaskItem[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [scheduleInputs, setScheduleInputs] = useState<Record<number, string>>({});
+  const [activeTaskId, setActiveTaskId] = useState<number | null>(null);
+  const [publishAccounts, setPublishAccounts] = useState<PublishAccount[]>([]);
+  const [channelsLoading, setChannelsLoading] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -76,6 +103,146 @@ const App = () => {
     };
     loadSettings();
   }, [telegramId]);
+
+  const toLocalInput = (isoValue?: string | null): string => {
+    if (!isoValue) return '';
+    const date = new Date(isoValue);
+    if (Number.isNaN(date.getTime())) return '';
+    const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return localDate.toISOString().slice(0, 16);
+  };
+
+  const loadTasks = async (targetTelegramId: string) => {
+    setTasksLoading(true);
+    try {
+      const response = await axios.get<VideoTaskItem[]>(`${API_BASE}/tasks/${targetTelegramId}`);
+      setTasks(response.data);
+      setScheduleInputs(
+        response.data.reduce<Record<number, string>>((acc, task) => {
+          acc[task.id] = toLocalInput(task.publish_at);
+          return acc;
+        }, {})
+      );
+    } catch (error) {
+      setStatusText('Failed to load scheduled content list.');
+    } finally {
+      setTasksLoading(false);
+    }
+  };
+
+  const loadPublishAccounts = async (targetTelegramId: string) => {
+    setChannelsLoading(true);
+    try {
+      const response = await axios.get<PublishAccount[]>(`${API_BASE}/postmypost/channels/${targetTelegramId}`);
+      setPublishAccounts(response.data);
+    } catch (error) {
+      setStatusText('Failed to load publish channels.');
+    } finally {
+      setChannelsLoading(false);
+    }
+  };
+
+  const savePublishAccounts = async (targetTelegramId: string, nextAccounts: PublishAccount[]) => {
+    const selected = nextAccounts.filter((item) => item.enabled).map((item) => item.account_id);
+    try {
+      const response = await axios.post<PublishAccount[]>(
+        `${API_BASE}/postmypost/channels/${targetTelegramId}`,
+        { account_ids: selected },
+      );
+      setPublishAccounts(response.data);
+      setStatusText('Channels updated.');
+    } catch (error) {
+      setStatusText('Failed to update channels.');
+    }
+  };
+
+  useEffect(() => {
+    if (!telegramId) return;
+    void loadTasks(telegramId);
+    void loadPublishAccounts(telegramId);
+  }, [telegramId]);
+
+  const publishingStatusLabel = (value: string) => {
+    if (value === 'scheduled') return 'Scheduled';
+    if (value === 'in_progress') return 'Publishing';
+    if (value === 'published') return 'Published';
+    if (value === 'failed') return 'Failed';
+    return 'Not scheduled';
+  };
+
+  const statusBadgeClass = (value: string) => {
+    if (value === 'scheduled') return 'bg-blue-500/15 text-blue-400 border-blue-500/30';
+    if (value === 'in_progress') return 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30';
+    if (value === 'published') return 'bg-green-500/15 text-green-400 border-green-500/30';
+    if (value === 'failed') return 'bg-red-500/15 text-red-400 border-red-500/30';
+    return 'bg-slate-500/15 text-slate-300 border-slate-500/30';
+  };
+
+  const saveTaskSchedule = async (taskId: number) => {
+    if (!telegramId) return;
+    const localValue = scheduleInputs[taskId];
+    if (!localValue) {
+      setStatusText('Choose date and time before scheduling.');
+      return;
+    }
+    const publishAt = new Date(localValue);
+    if (Number.isNaN(publishAt.getTime())) {
+      setStatusText('Invalid schedule date format.');
+      return;
+    }
+
+    setActiveTaskId(taskId);
+    try {
+      await axios.patch(`${API_BASE}/tasks/${telegramId}/${taskId}/schedule`, {
+        publish_at: publishAt.toISOString(),
+      });
+      await loadTasks(telegramId);
+      setStatusText('Schedule updated.');
+    } catch (error) {
+      setStatusText('Failed to update schedule.');
+    } finally {
+      setActiveTaskId(null);
+    }
+  };
+
+  const clearTaskSchedule = async (taskId: number) => {
+    if (!telegramId) return;
+    setActiveTaskId(taskId);
+    try {
+      await axios.patch(`${API_BASE}/tasks/${telegramId}/${taskId}/schedule`, {
+        publish_at: null,
+      });
+      await loadTasks(telegramId);
+      setStatusText('Schedule removed.');
+    } catch (error) {
+      setStatusText('Failed to remove schedule.');
+    } finally {
+      setActiveTaskId(null);
+    }
+  };
+
+  const publishTaskNow = async (taskId: number) => {
+    if (!telegramId) return;
+    setActiveTaskId(taskId);
+    try {
+      await axios.post(`${API_BASE}/tasks/${telegramId}/${taskId}/publish-now`);
+      await loadTasks(telegramId);
+      setStatusText('Publishing started.');
+    } catch (error) {
+      setStatusText('Cannot publish now. Task may not be completed yet.');
+    } finally {
+      setActiveTaskId(null);
+    }
+  };
+
+  const togglePublishAccount = async (accountId: number) => {
+    if (!telegramId) return;
+    const nextAccounts = publishAccounts.map((item) =>
+      item.account_id === accountId ? { ...item, enabled: !item.enabled } : item,
+    );
+    setPublishAccounts(nextAccounts);
+    await savePublishAccounts(telegramId, nextAccounts);
+  };
 
   const handlePickFile = () => fileInputRef.current?.click();
 
@@ -150,7 +317,8 @@ const App = () => {
             {[
               { id: 'branding', icon: ImageIcon, label: 'Branding' },
               { id: 'subtitles', icon: Type, label: 'Subtitles' },
-              { id: 'cta', icon: Video, label: 'CTA Manager' }
+              { id: 'cta', icon: Video, label: 'CTA Manager' },
+              { id: 'schedule', icon: CalendarClock, label: 'Schedule' }
             ].map(tab => (
               <button
                 key={tab.id}
@@ -259,6 +427,127 @@ const App = () => {
                   </div>
                   <h3 className="text-xl font-bold mb-2">Coming Soon</h3>
                   <p className="text-slate-400 text-sm max-w-xs">Dynamic Call-to-Action video manager is currently under development.</p>
+                </motion.div>
+              )}
+
+              {activeTab === 'schedule' && (
+                <motion.div
+                  key="schedule"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="space-y-4"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-xl font-bold mb-1">Content Schedule</h3>
+                      <p className="text-slate-400 text-sm">Set publish time for completed videos and manage queue status.</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (!telegramId) return;
+                        void loadTasks(telegramId);
+                        void loadPublishAccounts(telegramId);
+                      }}
+                      className="px-3 py-2 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 transition-colors text-xs font-semibold uppercase tracking-wider"
+                    >
+                      <span className="inline-flex items-center gap-2"><RefreshCcw size={14} />Refresh</span>
+                    </button>
+                  </div>
+
+                  <div className="p-4 rounded-2xl border border-white/10 bg-white/[0.02] space-y-3">
+                    <div className="text-xs text-slate-500 uppercase tracking-widest">PostMyPost Channels</div>
+                    {channelsLoading && (
+                      <div className="text-sm text-slate-400">Loading channels...</div>
+                    )}
+                    {!channelsLoading && publishAccounts.length === 0 && (
+                      <div className="text-sm text-slate-400">No channels/accounts found. Check `POSTMYPOST_API_KEY` and `POSTMYPOST_PROJECT_ID`.</div>
+                    )}
+                    {!channelsLoading && publishAccounts.length > 0 && (
+                      <div className="space-y-2">
+                        {publishAccounts.map((account) => (
+                          <div key={account.account_id} className="flex items-center justify-between gap-3 p-3 rounded-xl border border-white/10 bg-black/20">
+                            <div className="min-w-0">
+                              <div className="text-sm text-slate-100 truncate">{account.account_name}</div>
+                              <div className="text-xs text-slate-500 truncate">
+                                {account.channel_name || account.channel_code || 'Unknown channel'}
+                                {account.account_login ? ` · ${account.account_login}` : ''}
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => togglePublishAccount(account.account_id)}
+                              className={`w-11 h-6 rounded-full p-1 transition-colors ${account.enabled ? 'bg-blue-500' : 'bg-slate-700'}`}
+                            >
+                              <div className={`w-4 h-4 bg-white rounded-full transition-transform ${account.enabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {tasksLoading && (
+                    <div className="text-sm text-slate-400">Loading tasks...</div>
+                  )}
+
+                  {!tasksLoading && tasks.length === 0 && (
+                    <div className="p-5 rounded-2xl border border-white/10 bg-white/[0.02] text-sm text-slate-400">
+                      No tasks yet. Send a video link to the bot first.
+                    </div>
+                  )}
+
+                  <div className="space-y-3 max-h-[420px] overflow-auto pr-1">
+                    {tasks.map(task => (
+                      <div key={task.id} className="p-4 rounded-2xl border border-white/10 bg-white/[0.02] space-y-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-xs text-slate-500 uppercase tracking-widest mb-1">Task #{task.id} · {task.type}</div>
+                            <div className="text-sm text-slate-200 truncate">{task.source_url}</div>
+                            <div className="text-xs text-slate-500 mt-1">Pipeline status: {task.status}</div>
+                          </div>
+                          <span className={`text-xs px-2 py-1 rounded-lg border ${statusBadgeClass(task.publishing_status)}`}>
+                            {publishingStatusLabel(task.publishing_status)}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          <input
+                            type="datetime-local"
+                            value={scheduleInputs[task.id] || ''}
+                            onChange={(e) => setScheduleInputs(prev => ({ ...prev, [task.id]: e.target.value }))}
+                            className="input-field text-white"
+                          />
+                          <div className="text-xs text-slate-500 flex items-center">
+                            {task.publish_at ? `Current: ${new Date(task.publish_at).toLocaleString()}` : 'Not scheduled'}
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => saveTaskSchedule(task.id)}
+                            disabled={activeTaskId === task.id}
+                            className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold disabled:opacity-60"
+                          >
+                            Save schedule
+                          </button>
+                          <button
+                            onClick={() => clearTaskSchedule(task.id)}
+                            disabled={activeTaskId === task.id}
+                            className="px-3 py-2 rounded-xl border border-white/15 text-slate-300 hover:bg-white/5 text-xs font-semibold disabled:opacity-60"
+                          >
+                            Remove schedule
+                          </button>
+                          <button
+                            onClick={() => publishTaskNow(task.id)}
+                            disabled={activeTaskId === task.id || task.status !== 'completed'}
+                            className="px-3 py-2 rounded-xl border border-green-500/30 text-green-400 hover:bg-green-500/10 text-xs font-semibold disabled:opacity-50"
+                          >
+                            Publish now
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </motion.div>
               )}
             </AnimatePresence>

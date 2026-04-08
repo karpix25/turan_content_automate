@@ -1,73 +1,182 @@
-import os
-import logging
 import datetime
-from sqlalchemy.orm import Session
+import logging
+import os
+from typing import List
+
+from dotenv import load_dotenv
+
 from .database import SessionLocal
 from . import models
 from .integrations.postmypost import PostMyPostClient
 from .worker import celery_app
-from dotenv import load_dotenv
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
 pmp_client = PostMyPostClient(api_key=os.getenv("POSTMYPOST_API_KEY", ""))
 
-@celery_app.on_after_configure.connect
-def setup_periodic_tasks(sender, **kwargs):
-    # Check for publications every minute
-    sender.add_periodic_task(60.0, check_and_publish.s(), name='check_publications_every_minute')
 
-@celery_app.task(name="check_and_publish")
-def check_and_publish():
+def _parse_env_account_ids(raw: str) -> List[int]:
+    result: List[int] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            result.append(int(part))
+        except ValueError:
+            logger.warning(f"Skipping invalid account id in env: {part}")
+    return result
+
+
+def _get_project_id() -> int:
+    project_id_raw = os.getenv("POSTMYPOST_PROJECT_ID", "").strip()
+    project_id = int(project_id_raw) if project_id_raw else None
+    return pmp_client.ensure_project_id(project_id)
+
+
+def _get_enabled_account_ids(db, user_id: int) -> List[int]:
+    ids = [
+        item.account_id
+        for item in db.query(models.UserPublishChannel).filter(
+            models.UserPublishChannel.user_id == user_id,
+            models.UserPublishChannel.enabled.is_(True),
+        ).all()
+    ]
+    if ids:
+        return ids
+
+    env_ids = _parse_env_account_ids(os.getenv("POSTMYPOST_CHANNEL_IDS", ""))
+    if env_ids:
+        return env_ids
+
+    raise RuntimeError("No enabled PostMyPost accounts found")
+
+def _get_account_ids_for_unschedule(db, task: models.VideoTask) -> List[int]:
+    try:
+        return _get_enabled_account_ids(db, task.user_id)
+    except Exception:
+        pass
+
+    if task.postmypost_id:
+        try:
+            publication = pmp_client.get_publication(int(task.postmypost_id))
+            publication_accounts = publication.get("account_ids", []) if isinstance(publication, dict) else []
+            ids = [int(item) for item in publication_accounts if item is not None]
+            if ids:
+                return ids
+        except Exception as e:
+            logger.warning(f"Failed to fetch account ids from publication {task.postmypost_id}: {e}")
+
+    env_ids = _parse_env_account_ids(os.getenv("POSTMYPOST_CHANNEL_IDS", ""))
+    if env_ids:
+        return env_ids
+    raise RuntimeError("Cannot determine account ids for unschedule")
+
+
+def _normalize_post_at(value: datetime.datetime | None, force_now: bool) -> datetime.datetime:
+    if force_now or value is None:
+        return datetime.datetime.now(datetime.timezone.utc)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=datetime.timezone.utc)
+    return value.astimezone(datetime.timezone.utc)
+
+
+@celery_app.task(name="sync_publication_task")
+def sync_publication_task(task_id: int, force_now: bool = False):
     db = SessionLocal()
-    now = datetime.datetime.utcnow()
-    
-    # Ready to publish tasks
-    tasks = db.query(models.VideoTask).filter(
-        models.VideoTask.publish_at <= now,
-        models.VideoTask.publishing_status == "not_published",
-        models.VideoTask.status == "completed"  # Only published finished videos
-    ).all()
+    try:
+        task = db.query(models.VideoTask).get(task_id)
+        if not task:
+            return
+        if task.status != "completed":
+            logger.info(f"Task {task_id} is not completed yet, skipping publication sync")
+            return
+        if not task.output_path:
+            raise RuntimeError("Task has no output file")
 
-    for task in tasks:
-        task.publishing_status = "in_progress"
+        user = db.query(models.User).get(task.user_id)
+        if not user:
+            raise RuntimeError("Task user not found")
+
+        account_ids = _get_enabled_account_ids(db, user.id)
+        project_id = _get_project_id()
+        post_at = _normalize_post_at(task.publish_at, force_now)
+
+        content = f"Auto content from Content Studio\nSource: {task.source_url}"
+        file_id = pmp_client.upload_local_file(project_id=project_id, file_path=task.output_path)
+
+        if task.postmypost_id:
+            response = pmp_client.update_publication(
+                publication_id=int(task.postmypost_id),
+                account_ids=account_ids,
+                post_at=post_at,
+                file_id=file_id,
+                content=content,
+            )
+        else:
+            response = pmp_client.create_publication(
+                project_id=project_id,
+                account_ids=account_ids,
+                post_at=post_at,
+                file_id=file_id,
+                content=content,
+            )
+
+        publication_id = response.get("id") if isinstance(response, dict) else None
+        if publication_id:
+            task.postmypost_id = str(publication_id)
+
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        task.publishing_status = "scheduled" if post_at > now_utc else "in_progress"
+        task.publish_at = post_at.replace(tzinfo=None)
         db.commit()
-        
-        # Trigger the actual publishing
-        publish_video_task.delay(task.id)
-    
-    db.close()
+        logger.info(f"Task {task_id} synced to PostMyPost publication {task.postmypost_id}")
+    except Exception as e:
+        logger.error(f"Failed to sync publication for task {task_id}: {e}")
+        task = db.query(models.VideoTask).get(task_id)
+        if task:
+            task.publishing_status = "failed"
+            db.commit()
+    finally:
+        db.close()
+
 
 @celery_app.task(name="publish_video_task")
 def publish_video_task(task_id: int):
-    db = SessionLocal()
-    task = db.query(models.VideoTask).get(task_id)
-    if not task:
-        return
+    sync_publication_task(task_id=task_id, force_now=True)
 
+
+@celery_app.task(name="unschedule_publication_task")
+def unschedule_publication_task(task_id: int):
+    db = SessionLocal()
     try:
-        # 1. Upload to PostMyPost
-        media_id = pmp_client.upload_file(task.output_path)
-        if not media_id:
-            raise Exception("Failed to upload media to PostMyPost")
-        
-        # 2. Create Publication
-        # For simplicity, we use generic text, but this could be from task metadata
-        # channels could be from user settings
-        resp = pmp_client.create_publication(
-            text="New Reels/Shorts posted from Content Studio!",
-            media_ids=[media_id],
-            channels=[1, 2, 3] # Placeholders for channel IDs
-        )
-        
-        if resp:
-            task.publishing_status = "published"
-            task.postmypost_id = str(resp.get("id"))
+        task = db.query(models.VideoTask).get(task_id)
+        if not task:
+            return
+        if not task.postmypost_id:
+            task.publishing_status = "not_published"
+            task.publish_at = None
             db.commit()
-            logger.info(f"Task {task_id} successfully published to PostMyPost")
-    except Exception as e:
-        logger.error(f"Failed to publish task {task_id}: {e}")
-        task.publishing_status = "failed"
+            return
+
+        user = db.query(models.User).get(task.user_id)
+        if not user:
+            raise RuntimeError("Task user not found")
+
+        account_ids = _get_account_ids_for_unschedule(db, task)
+        pmp_client.delete_publication(publication_id=int(task.postmypost_id), account_ids=account_ids, delete_option=3)
+
+        task.postmypost_id = None
+        task.publish_at = None
+        task.publishing_status = "not_published"
         db.commit()
+        logger.info(f"Task {task_id} unscheduled in PostMyPost")
+    except Exception as e:
+        logger.error(f"Failed to unschedule publication for task {task_id}: {e}")
+        task = db.query(models.VideoTask).get(task_id)
+        if task:
+            task.publishing_status = "failed"
+            db.commit()
     finally:
         db.close()
