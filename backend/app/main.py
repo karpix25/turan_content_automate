@@ -24,6 +24,16 @@ def get_db():
     finally:
         db.close()
 
+def get_or_create_user(db: Session, telegram_id: str) -> models.User:
+    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+    if user:
+        return user
+    user = models.User(telegram_id=telegram_id)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
 @app.get("/")
 def read_root():
     return {"status": "ok", "message": "Content processing API is running"}
@@ -31,36 +41,25 @@ def read_root():
 # User Settings API
 @app.get("/settings/{telegram_id}")
 def get_settings(telegram_id: str, db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
-    if not user:
-        user = models.User(telegram_id=telegram_id)
-        db.add(user)
-        db.commit()
-        db.refresh(user)
+    user = get_or_create_user(db, telegram_id)
     return user
 
 @app.post("/settings/{telegram_id}/update")
 def update_settings(telegram_id: str, settings: schemas.UserSettingsUpdate, db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
-    if user:
-        update_data = settings.dict(exclude_unset=True)
-        # Handle publish_at separately if needed or just sync it to a 'default' or current task
-        # For now, let's assume the user sets it per task if they send a link, 
-        # or we store a 'default_schedule' in User model.
-        # Let's add it to the user model as a default.
-        for key, value in update_data.items():
-            setattr(user, key, value)
-        db.commit()
+    user = get_or_create_user(db, telegram_id)
+    update_data = settings.dict(exclude_unset=True)
+    # Handle publish_at separately if needed or just sync it to a 'default' or current task
+    # For now, let's assume the user sets it per task if they send a link,
+    # or we store a 'default_schedule' in User model.
+    # Let's add it to the user model as a default.
+    for key, value in update_data.items():
+        setattr(user, key, value)
+    db.commit()
     return {"status": "updated"}
 
 @app.post("/tasks/{telegram_id}")
 def create_task(telegram_id: str, payload: schemas.VideoTaskCreate, db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
-    if not user:
-        user = models.User(telegram_id=telegram_id)
-        db.add(user)
-        db.commit()
-        db.refresh(user)
+    user = get_or_create_user(db, telegram_id)
 
     new_task = models.VideoTask(
         user_id=user.id,
@@ -83,9 +82,11 @@ def create_task(telegram_id: str, payload: schemas.VideoTaskCreate, db: Session 
 # File Uploads (Plates & CTA)
 @app.post("/upload/plate/{telegram_id}")
 async def upload_plate(telegram_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+    user = get_or_create_user(db, telegram_id)
+    plates_dir = os.getenv("PLATES_DIR", "plates")
+    os.makedirs(plates_dir, exist_ok=True)
     file_name = f"{telegram_id}_{file.filename}"
-    file_path = os.path.join(os.getenv("PLATES_DIR", "plates"), file_name)
+    file_path = os.path.join(plates_dir, file_name)
     
     with open(file_path, "wb") as f:
         f.write(await file.read())
@@ -93,13 +94,15 @@ async def upload_plate(telegram_id: str, file: UploadFile = File(...), db: Sessi
     new_plate = models.Plate(user_id=user.id, file_path=file_path)
     db.add(new_plate)
     db.commit()
-    return {"status": "uploaded", "plate_id": new_plate.id}
+    return {"status": "uploaded", "plate_id": new_plate.id, "file_path": file_path}
 
 @app.post("/upload/cta/{telegram_id}")
 async def upload_cta(telegram_id: str, label: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+    user = get_or_create_user(db, telegram_id)
+    cta_dir = os.getenv("CTA_DIR", "cta")
+    os.makedirs(cta_dir, exist_ok=True)
     file_name = f"{telegram_id}_{file.filename}"
-    file_path = os.path.join(os.getenv("CTA_DIR", "cta"), file_name)
+    file_path = os.path.join(cta_dir, file_name)
     
     with open(file_path, "wb") as f:
         f.write(await file.read())
@@ -107,4 +110,4 @@ async def upload_cta(telegram_id: str, label: str, file: UploadFile = File(...),
     new_cta = models.CTAClip(user_id=user.id, file_path=file_path, label=label)
     db.add(new_cta)
     db.commit()
-    return {"status": "uploaded", "cta_id": new_cta.id}
+    return {"status": "uploaded", "cta_id": new_cta.id, "file_path": file_path}
