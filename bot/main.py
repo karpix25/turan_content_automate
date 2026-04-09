@@ -1,6 +1,8 @@
 import os
 import logging
+import re
 import httpx
+from urllib.parse import urlparse, parse_qs
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -16,6 +18,40 @@ logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
+
+SUPPORTED_URL_RE = re.compile(r"(https?://[^\s]+|(?:www\.)?(?:youtube\.com|youtu\.be|instagram\.com)/[^\s]+)", re.IGNORECASE)
+
+def normalize_source_url(text: str) -> str | None:
+    if not text:
+        return None
+    match = SUPPORTED_URL_RE.search(text)
+    if not match:
+        return None
+    url = match.group(0).strip().strip("<>()[]{}\"'.,;")
+    if not url.startswith(("http://", "https://")):
+        url = f"https://{url}"
+    return url
+
+
+def is_valid_youtube_url(url: str) -> bool:
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    path_parts = [part for part in parsed.path.split("/") if part]
+
+    if "youtu.be" in host:
+        if not path_parts:
+            return False
+        return len(path_parts[0]) == 11
+
+    if "youtube.com" in host:
+        if len(path_parts) >= 2 and path_parts[0] == "shorts":
+            return len(path_parts[1]) == 11
+        if parsed.path == "/watch":
+            video_id = parse_qs(parsed.query).get("v", [""])[0]
+            return len(video_id) == 11
+
+    return True
+
 
 def detect_task_type(url: str) -> str:
     task_type = "youtube"
@@ -43,7 +79,16 @@ async def send_welcome(message: types.Message):
 
 @dp.message_handler(regexp=r'(https?://)?(www\.)?(youtube\.com|youtu\.be|instagram\.com)/.+')
 async def handle_link(message: types.Message):
-    url = message.text
+    raw_text = message.text or ""
+    url = normalize_source_url(raw_text)
+    if not url:
+        await message.reply("❌ Не удалось распознать ссылку. Отправь прямую ссылку на YouTube/Instagram.")
+        return
+
+    if ("youtube.com" in url or "youtu.be" in url) and not is_valid_youtube_url(url):
+        await message.reply("❌ Похоже, ссылка на YouTube/Shorts битая (некорректный ID видео).")
+        return
+
     user_id = str(message.from_user.id)
     task_type = detect_task_type(url)
 

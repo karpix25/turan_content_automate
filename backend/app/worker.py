@@ -3,6 +3,7 @@ import asyncio
 import random
 import logging
 from typing import List
+from urllib.parse import urlparse, parse_qs
 from celery import Celery
 from .integrations.vizard import VizardClient
 from .integrations.scrape_creators import ScrapeCreatorsClient
@@ -145,6 +146,37 @@ def _build_account_variant_plan(
     return max(1, variant_count), account_variant_index
 
 
+def _normalize_external_url(value: str) -> str:
+    url = (value or "").strip().strip("<>()[]{}\"'.,;")
+    if not url:
+        return url
+    if not url.startswith(("http://", "https://")):
+        url = f"https://{url}"
+    return url
+
+
+def _validate_youtube_url_or_raise(url: str) -> None:
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    path_parts = [part for part in parsed.path.split("/") if part]
+
+    if "youtu.be" in host:
+        if not path_parts or len(path_parts[0]) != 11:
+            raise Exception("Invalid YouTube short link (expected 11-char video id)")
+        return
+
+    if "youtube.com" in host:
+        if len(path_parts) >= 2 and path_parts[0] == "shorts":
+            if len(path_parts[1]) != 11:
+                raise Exception("Invalid YouTube Shorts ID (expected 11 chars)")
+            return
+        if parsed.path == "/watch":
+            video_id = parse_qs(parsed.query).get("v", [""])[0]
+            if len(video_id) != 11:
+                raise Exception("Invalid YouTube watch URL (missing/invalid v parameter)")
+            return
+
+
 def _plan_publish_times_for_outputs(db, user: models.User, outputs_count: int, manual_publish_at):
     if outputs_count < 1:
         return []
@@ -211,11 +243,15 @@ def process_content_task(task_id: int):
     db.commit()
 
     try:
+        source_url = _normalize_external_url(task.source_url)
+        if not source_url:
+            raise Exception("Source URL is empty")
+
         input_videos = []
 
         if task.type == "vizard":
             # 1. Send to Vizard
-            p_id = asyncio.run(vizard.create_project(task.source_url))
+            p_id = asyncio.run(vizard.create_project(source_url))
             if not p_id:
                 raise Exception("Failed to create Vizard project")
             task.vizard_project_id = p_id
@@ -237,7 +273,7 @@ def process_content_task(task_id: int):
                 input_videos.append(local_file)
 
         elif task.type == "instagram":
-            details = scraper.get_instagram_details(task.source_url)
+            details = scraper.get_instagram_details(source_url)
             if details and details.get("download_url"):
                 local_file = downloader.download_video(details["download_url"], f"insta_{task_id}")
                 if not local_file:
@@ -247,13 +283,14 @@ def process_content_task(task_id: int):
                 raise Exception("Failed to get Instagram download link")
 
         elif task.type == "youtube":
-            details = scraper.get_youtube_details(task.source_url)
+            _validate_youtube_url_or_raise(source_url)
+            details = scraper.get_youtube_details(source_url)
             download_url = None
             if details:
                 download_url = details.get("download_url") or details.get("original_url")
 
             # ScrapeCreators is the primary source for YouTube metadata/URL.
-            target_url = download_url or task.source_url
+            target_url = _normalize_external_url(download_url or source_url)
             local_file = downloader.download_video(target_url, f"yt_{task_id}")
             if not local_file:
                 raise Exception("Failed to download YouTube video (ScrapeCreators/URL)")

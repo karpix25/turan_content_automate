@@ -7,6 +7,7 @@ from .publish_planner import validate_schedule_settings
 import os
 import logging
 import datetime
+from urllib.parse import urlparse, parse_qs
 from celery import Celery
 from dotenv import load_dotenv
 
@@ -53,6 +54,37 @@ def get_user_task_or_404(db: Session, user_id: int, task_id: int) -> models.Vide
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
+
+
+def normalize_source_url(value: str) -> str:
+    url = (value or "").strip().strip("<>()[]{}\"'.,;")
+    if not url:
+        raise HTTPException(status_code=400, detail="source_url is empty")
+    if not url.startswith(("http://", "https://")):
+        url = f"https://{url}"
+    return url
+
+
+def validate_youtube_url(url: str) -> None:
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    path_parts = [part for part in parsed.path.split("/") if part]
+
+    if "youtu.be" in host:
+        if not path_parts or len(path_parts[0]) != 11:
+            raise HTTPException(status_code=400, detail="Invalid YouTube short link")
+        return
+
+    if "youtube.com" in host:
+        if len(path_parts) >= 2 and path_parts[0] == "shorts":
+            if len(path_parts[1]) != 11:
+                raise HTTPException(status_code=400, detail="Invalid YouTube Shorts ID")
+            return
+        if parsed.path == "/watch":
+            video_id = parse_qs(parsed.query).get("v", [""])[0]
+            if len(video_id) != 11:
+                raise HTTPException(status_code=400, detail="Invalid YouTube watch URL")
+            return
 
 def get_postmypost_project_id() -> int:
     project_id_raw = os.getenv("POSTMYPOST_PROJECT_ID", "").strip()
@@ -120,10 +152,14 @@ def update_settings(telegram_id: str, settings: schemas.UserSettingsUpdate, db: 
 def create_task(telegram_id: str, payload: schemas.VideoTaskCreate, db: Session = Depends(get_db)):
     user = get_or_create_user(db, telegram_id)
     publish_at = normalize_utc_naive(payload.publish_at)
+    source_url = normalize_source_url(payload.source_url)
+
+    if payload.type == "youtube":
+        validate_youtube_url(source_url)
 
     new_task = models.VideoTask(
         user_id=user.id,
-        source_url=payload.source_url,
+        source_url=source_url,
         type=payload.type,
         status="pending",
         publish_at=publish_at,
