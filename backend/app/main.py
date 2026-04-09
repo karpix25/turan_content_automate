@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from .database import SessionLocal, init_database
 from . import models, schemas
 from .integrations.postmypost import PostMyPostClient
+from .publish_planner import validate_schedule_settings
 import os
 import logging
 import datetime
@@ -92,10 +93,24 @@ def get_settings(telegram_id: str, db: Session = Depends(get_db)):
 def update_settings(telegram_id: str, settings: schemas.UserSettingsUpdate, db: Session = Depends(get_db)):
     user = get_or_create_user(db, telegram_id)
     update_data = settings.dict(exclude_unset=True)
-    # Handle publish_at separately if needed or just sync it to a 'default' or current task
-    # For now, let's assume the user sets it per task if they send a link,
-    # or we store a 'default_schedule' in User model.
-    # Let's add it to the user model as a default.
+
+    has_schedule_fields = any(
+        key in update_data
+        for key in ("publish_limit_per_day", "publish_window_start_msk", "publish_window_end_msk")
+    )
+    if has_schedule_fields:
+        try:
+            normalized_limit, normalized_start, normalized_end = validate_schedule_settings(
+                update_data.get("publish_limit_per_day", user.publish_limit_per_day),
+                update_data.get("publish_window_start_msk", user.publish_window_start_msk),
+                update_data.get("publish_window_end_msk", user.publish_window_end_msk),
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        update_data["publish_limit_per_day"] = normalized_limit
+        update_data["publish_window_start_msk"] = normalized_start
+        update_data["publish_window_end_msk"] = normalized_end
+
     for key, value in update_data.items():
         setattr(user, key, value)
     db.commit()

@@ -10,6 +10,7 @@ from .integrations.downloader import Downloader
 from .integrations.postmypost import PostMyPostClient
 from .processor import VideoProcessor
 from .database import SessionLocal, init_database
+from .publish_planner import plan_next_publish_times
 from . import models
 from dotenv import load_dotenv
 
@@ -142,6 +143,16 @@ def _build_account_variant_plan(
             account_variant_index[account_id] = slot_idx
 
     return max(1, variant_count), account_variant_index
+
+
+def _plan_publish_times_for_outputs(db, user: models.User, outputs_count: int, manual_publish_at):
+    if outputs_count < 1:
+        return []
+    if manual_publish_at is not None:
+        return [manual_publish_at] * outputs_count
+    if not bool(getattr(user, "auto_schedule_enabled", False)):
+        return [None] * outputs_count
+    return plan_next_publish_times(db=db, user=user, count=outputs_count)
 
 def _upsert_variant_task(
     db,
@@ -313,25 +324,35 @@ def process_content_task(task_id: int):
                 )
                 account_outputs.append((account_id, account_output, slot_idx))
 
+            publish_times = _plan_publish_times_for_outputs(
+                db=db,
+                user=user,
+                outputs_count=len(account_outputs),
+                manual_publish_at=task.publish_at,
+            )
+
             primary_account_id, primary_output, primary_slot = account_outputs[0]
+            primary_publish_at = publish_times[0] if publish_times else None
             task.output_path = primary_output
             task.target_account_id = primary_account_id
             task.source_url = f"{task.source_url.split(' [slot ', 1)[0]} [slot {primary_slot}]"
+            task.publish_at = primary_publish_at
             task.status = "completed"
-            task.publishing_status = "scheduled" if task.publish_at else "not_published"
+            task.publishing_status = "scheduled" if primary_publish_at else "not_published"
             db.commit()
             db.refresh(task)
 
-            if task.publish_at:
+            if primary_publish_at:
                 celery_app.send_task("sync_publication_task", args=[task.id])
 
-            for account_id, account_output, slot_idx in account_outputs[1:]:
+            for index, (account_id, account_output, slot_idx) in enumerate(account_outputs[1:], start=1):
+                publish_at = publish_times[index] if len(publish_times) > index else task.publish_at
                 variant_task = _upsert_variant_task(
                     db=db,
                     base_task=task,
                     output_path=account_output,
                     variant_index=slot_idx,
-                    publish_at=task.publish_at,
+                    publish_at=publish_at,
                     target_account_id=account_id,
                 )
                 if variant_task.publish_at:

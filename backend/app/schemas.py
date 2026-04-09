@@ -7,6 +7,10 @@ class UserSettingsUpdate(BaseModel):
     font_size: Optional[int] = None
     font_color: Optional[str] = None
     subtitles_enabled: Optional[bool] = None
+    auto_schedule_enabled: Optional[bool] = None
+    publish_limit_per_day: Optional[int] = None
+    publish_window_start_msk: Optional[str] = None
+    publish_window_end_msk: Optional[str] = None
     selected_plate_id: Optional[int] = None
 
 class VideoTaskCreate(BaseModel):
@@ -64,6 +68,10 @@ class UserSettings(BaseModel):
     font_size: int
     font_color: str
     subtitles_enabled: bool
+    auto_schedule_enabled: bool
+    publish_limit_per_day: int
+    publish_window_start_msk: str
+    publish_window_end_msk: str
     selected_plate_id: Optional[int]
 
     class Config:

@@ -8,6 +8,10 @@ type UserSettings = {
   font_size: number;
   font_color: string;
   subtitles_enabled: boolean;
+  auto_schedule_enabled: boolean;
+  publish_limit_per_day: number;
+  publish_window_start_msk: string;
+  publish_window_end_msk: string;
   selected_plate_id?: number | null;
 };
 
@@ -70,6 +74,10 @@ const App = () => {
   const [fontSize, setFontSize] = useState(60);
   const [fontColor, setFontColor] = useState('#FFFFFF');
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
+  const [autoScheduleEnabled, setAutoScheduleEnabled] = useState(false);
+  const [publishLimitPerDay, setPublishLimitPerDay] = useState(3);
+  const [publishWindowStartMsk, setPublishWindowStartMsk] = useState('10:00:00');
+  const [publishWindowEndMsk, setPublishWindowEndMsk] = useState('22:00:00');
   const [plateFile, setPlateFile] = useState<File | null>(null);
   const [platePreviewUrl, setPlatePreviewUrl] = useState('');
   const [selectedPlateId, setSelectedPlateId] = useState<number | null>(null);
@@ -111,6 +119,10 @@ const App = () => {
         setFontSize(response.data.font_size || 60);
         setFontColor(response.data.font_color ? `#${response.data.font_color.replace('#', '')}` : '#FFFFFF');
         setSubtitlesEnabled(response.data.subtitles_enabled !== false);
+        setAutoScheduleEnabled(response.data.auto_schedule_enabled === true);
+        setPublishLimitPerDay(response.data.publish_limit_per_day || 3);
+        setPublishWindowStartMsk(response.data.publish_window_start_msk || '10:00:00');
+        setPublishWindowEndMsk(response.data.publish_window_end_msk || '22:00:00');
         setSelectedPlateId(response.data.selected_plate_id ?? null);
       } catch (error) {}
     };
@@ -237,6 +249,10 @@ const App = () => {
         font_size: fontSize,
         font_color: fontColor.replace('#', ''),
         subtitles_enabled: subtitlesEnabled,
+        auto_schedule_enabled: autoScheduleEnabled,
+        publish_limit_per_day: publishLimitPerDay,
+        publish_window_start_msk: publishWindowStartMsk,
+        publish_window_end_msk: publishWindowEndMsk,
         selected_plate_id: selectedPlateId,
       });
       setSaved(true);
@@ -475,6 +491,62 @@ const App = () => {
                       </div>
                     ))}
                  </div>
+              </div>
+
+              <div className="tg-card">
+                <div className="p-4 border-b">
+                  <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Авторасписание (МСК)</h3>
+                </div>
+                <div className="p-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-[#707579]">Включить автопланирование</span>
+                    <button
+                      onClick={() => setAutoScheduleEnabled((prev) => !prev)}
+                      className={`w-12 h-6 rounded-full transition-all flex items-center p-1 ${autoScheduleEnabled ? 'bg-[#34c759]' : 'bg-[#e9e9eb]'}`}
+                    >
+                      <div className={`w-4 h-4 bg-white rounded-full shadow-sm transform transition-all ${autoScheduleEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs text-[#707579]">Лимит в день</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={96}
+                        value={publishLimitPerDay}
+                        onChange={(e) => setPublishLimitPerDay(Math.max(1, Math.min(96, Number(e.target.value) || 1)))}
+                        className="input-field h-10"
+                        disabled={!autoScheduleEnabled}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs text-[#707579]">С (МСК)</span>
+                      <input
+                        type="time"
+                        step={1}
+                        value={publishWindowStartMsk}
+                        onChange={(e) => setPublishWindowStartMsk(e.target.value || '10:00:00')}
+                        className="input-field h-10"
+                        disabled={!autoScheduleEnabled}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs text-[#707579]">До (МСК)</span>
+                      <input
+                        type="time"
+                        step={1}
+                        value={publishWindowEndMsk}
+                        onChange={(e) => setPublishWindowEndMsk(e.target.value || '22:00:00')}
+                        className="input-field h-10"
+                        disabled={!autoScheduleEnabled}
+                      />
+                    </label>
+                  </div>
+                  <p className="text-xs text-[#707579]">
+                    Новые ролики будут автоматически ставиться в очередь по Москве с равномерным шагом и точностью до секунды.
+                  </p>
+                </div>
               </div>
 
               <div className="tg-card">
