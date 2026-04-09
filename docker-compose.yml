@@ -1,26 +1,42 @@
-version: '3.8'
-
 services:
   db:
     image: postgres:15-alpine
+    restart: unless-stopped
+    init: true
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
       POSTGRES_DB: ${POSTGRES_DB:-content_studio}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-content_studio}"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
     networks:
       - content-network
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
+    init: true
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
     networks:
       - content-network
 
   api:
     build:
       context: ./backend
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=* --workers ${API_WORKERS:-2} --timeout-keep-alive 30
     # No code volume in production! It overwrites the built image.
     volumes:
       - media_data:/app/database/media
@@ -39,6 +55,12 @@ services:
     depends_on:
       - db
       - redis
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=3)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
     networks:
       - content-network
       - coolify
@@ -46,7 +68,10 @@ services:
   worker:
     build:
       context: ./backend
-    command: celery -A app.worker.celery_app worker --loglevel=info
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 120s
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=${CELERY_WORKER_CONCURRENCY:-1} --prefetch-multiplier=1 --max-tasks-per-child=5 -Ofair
     volumes:
       - media_data:/app/database/media
       - hf_cache:/root/.cache/huggingface
@@ -74,7 +99,9 @@ services:
   beat:
     build:
       context: ./backend
-    command: celery -A app.worker.celery_app beat --loglevel=info
+    restart: unless-stopped
+    init: true
+    command: celery -A app.worker.celery_app beat --loglevel=info --pidfile=
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-content_studio}
       - REDIS_URL=redis://redis:6379/0
@@ -88,6 +115,8 @@ services:
   bot:
     build:
       context: ./bot
+    restart: unless-stopped
+    init: true
     # No code volume!
     environment:
       - BACKEND_API_URL=${BACKEND_API_URL:-http://api:8000}
@@ -105,6 +134,15 @@ services:
   frontend:
     build:
       context: ./frontend
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
     networks:
       - content-network
       - coolify
