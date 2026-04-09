@@ -1,6 +1,6 @@
 import httpx
 import logging
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -14,49 +14,64 @@ class ScrapeCreatorsClient:
             "Content-Type": "application/json"
         }
 
-    async def get_instagram_details(self, reel_url: str) -> Optional[Dict]:
+    def _get_json(self, path: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        url = f"{self.BASE_URL}/{path.lstrip('/')}"
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                response = client.get(url, headers=self.headers, params=params)
+                response.raise_for_status()
+                data = response.json()
+                return data if isinstance(data, dict) else None
+        except Exception as e:
+            logger.error(f"ScrapeCreators request failed for {path}: {e}")
+            return None
+
+    def get_instagram_details(self, reel_url: str) -> Optional[Dict]:
         """
         Extracts Instagram Reel metadata and download link.
         """
-        url = f"{self.BASE_URL}/instagram/post"
-        params = {"url": reel_url}
-        
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(url, headers=self.headers, params=params, timeout=30.0)
-                response.raise_for_status()
-                data = response.json()
-                # Return standardized format
-                return {
-                    "download_url": data.get("video_url"),
-                    "caption": data.get("caption"),
-                    "view_count": data.get("viewCountInt"),
-                    "creator": data.get("owner", {}).get("username")
-                }
-            except Exception as e:
-                logger.error(f"Failed to fetch Instagram details from Scrape Creators: {e}")
-                return None
+        data = self._get_json("instagram/post", {"url": reel_url})
+        if not data:
+            return None
+        return {
+            "download_url": data.get("video_url") or data.get("download_url"),
+            "caption": data.get("caption"),
+            "view_count": data.get("viewCountInt"),
+            "creator": (data.get("owner") or {}).get("username"),
+        }
 
-    async def get_youtube_details(self, video_url: str) -> Optional[Dict]:
+    def get_youtube_details(self, video_url: str) -> Optional[Dict]:
         """
-        Extracts YouTube Video/Shorts metadata and transcript.
+        Extracts YouTube metadata and best available downloadable URL.
         """
-        url = f"{self.BASE_URL}/youtube/video"
-        params = {"url": video_url}
-        
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(url, headers=self.headers, params=params, timeout=30.0)
-                response.raise_for_status()
-                data = response.json()
-                # Return standardized format
-                return {
-                    "original_url": data.get("videoUrl"),
-                    "title": data.get("title"),
-                    "transcript": data.get("transcript"),
-                    "caption_tracks": data.get("captionTracks", []),
-                    "view_count": data.get("viewCountInt")
-                }
-            except Exception as e:
-                logger.error(f"Failed to fetch YouTube details from Scrape Creators: {e}")
-                return None
+        data = self._get_json("youtube/video", {"url": video_url})
+        if not data:
+            return None
+
+        # Different API plans/versions may expose different field names.
+        download_url = (
+            data.get("download_url")
+            or data.get("video_url")
+            or data.get("url")
+            or data.get("source")
+        )
+
+        if not download_url:
+            files = data.get("files")
+            if isinstance(files, list):
+                for item in files:
+                    if isinstance(item, dict):
+                        candidate = item.get("url") or item.get("download_url")
+                        if candidate:
+                            download_url = candidate
+                            break
+
+        return {
+            "download_url": download_url,
+            "original_url": data.get("videoUrl") or video_url,
+            "title": data.get("title"),
+            "transcript": data.get("transcript"),
+            "caption_tracks": data.get("captionTracks", []),
+            "view_count": data.get("viewCountInt"),
+            "raw": data,
+        }

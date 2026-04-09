@@ -54,24 +54,43 @@ def process_content_task(task_id: int):
             # 3. Download clips
             for i, clip in enumerate(clips):
                 url = clip.get("videoUrl")
+                if not url:
+                    raise Exception(f"Vizard clip #{i} has no download URL")
                 local_file = downloader.download_video(url, f"vizard_{p_id}_{i}")
+                if not local_file:
+                    raise Exception(f"Failed to download Vizard clip #{i}")
                 input_videos.append(local_file)
 
         elif task.type == "instagram":
             details = scraper.get_instagram_details(task.source_url)
             if details and details.get("download_url"):
                 local_file = downloader.download_video(details["download_url"], f"insta_{task_id}")
+                if not local_file:
+                    raise Exception("Failed to download Instagram video")
                 input_videos.append(local_file)
             else:
                 raise Exception("Failed to get Instagram download link")
 
         elif task.type == "youtube":
-            # For YouTube Shorts or direct videos
-            local_file = downloader.download_video(task.source_url, f"yt_{task_id}")
+            details = scraper.get_youtube_details(task.source_url)
+            download_url = None
+            if details:
+                download_url = details.get("download_url") or details.get("original_url")
+
+            # ScrapeCreators is the primary source for YouTube metadata/URL.
+            target_url = download_url or task.source_url
+            local_file = downloader.download_video(target_url, f"yt_{task_id}")
+            if not local_file:
+                raise Exception("Failed to download YouTube video (ScrapeCreators/URL)")
             input_videos.append(local_file)
+
+        if not input_videos:
+            raise Exception("No input videos were downloaded")
 
         # 4. Processing Layer
         for i, video_path in enumerate(input_videos):
+            if not video_path:
+                raise Exception(f"Downloaded video path is empty for clip #{i}")
             final_output = video_path.replace(".mp4", "_final.mp4")
             
             # Transcribe
@@ -120,9 +139,10 @@ def process_content_task(task_id: int):
             # notify_user(user.telegram_id, final_output)
 
     except Exception as e:
-        logging.error(f"Task {task_id} failed: {e}")
+        logging.exception(f"Task {task_id} failed: {e}")
         task.status = "failed"
         db.commit()
+        raise
     finally:
         db.close()
 

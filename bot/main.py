@@ -22,9 +22,7 @@ def detect_task_type(url: str) -> str:
     if "instagram.com" in url:
         return "instagram"
     if "youtube.com" in url or "youtu.be" in url:
-        if "/shorts/" in url:
-            return "youtube"
-        return "vizard"
+        return "youtube"
     return task_type
 
 @dp.message_handler(commands=['start', 'help'])
