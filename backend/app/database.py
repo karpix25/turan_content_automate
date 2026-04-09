@@ -23,3 +23,8 @@ def init_database() -> None:
         conn.execute(
             text("UPDATE users SET subtitles_enabled = TRUE WHERE subtitles_enabled IS NULL")
         )
+        conn.execute(
+            text(
+                "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS target_account_id INTEGER"
+            )
+        )

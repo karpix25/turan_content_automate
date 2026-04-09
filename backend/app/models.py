@@ -47,6 +47,7 @@ class VideoTask(Base):
     output_path = Column(String, nullable=True)
     
     # Publication
+    target_account_id = Column(Integer, nullable=True)
     publish_at = Column(DateTime, nullable=True)
     publishing_status = Column(String, default="not_published")  # 'not_published', 'scheduled', 'in_progress', 'published', 'failed'
     postmypost_id = Column(String, nullable=True)

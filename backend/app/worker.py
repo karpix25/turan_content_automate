@@ -2,7 +2,7 @@ import os
 import asyncio
 import random
 import logging
-import datetime
+from typing import List
 from celery import Celery
 from .integrations.vizard import VizardClient
 from .integrations.scrape_creators import ScrapeCreatorsClient
@@ -16,8 +16,6 @@ load_dotenv()
 init_database()
 
 celery_app = Celery('tasks', broker=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
-UNIQUE_VARIANTS_COUNT = max(1, int(os.getenv("UNIQUE_VARIANTS_COUNT", "2")))
-VARIANT_PUBLISH_GAP_MINUTES = max(1, int(os.getenv("VARIANT_PUBLISH_GAP_MINUTES", "60")))
 
 # Initialize clients
 vizard = VizardClient(api_key=os.getenv("VIZARD_API_KEY", ""))
@@ -29,19 +27,38 @@ processor = VideoProcessor(
     compute_type=os.getenv("WHISPER_COMPUTE_TYPE", "int8")
 )
 
-def _shift_publish_time(base_publish_at: datetime.datetime | None, variant_index: int) -> datetime.datetime | None:
-    if base_publish_at is None:
-        return None
-    if variant_index <= 1:
-        return base_publish_at
-    return base_publish_at + datetime.timedelta(minutes=VARIANT_PUBLISH_GAP_MINUTES * (variant_index - 1))
+def _parse_env_account_ids(raw: str) -> List[int]:
+    result: List[int] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            result.append(int(part))
+        except ValueError:
+            logging.warning(f"Skipping invalid account id in env: {part}")
+    return result
+
+
+def _get_target_account_ids(db, user_id: int) -> List[int]:
+    ids = [
+        item.account_id
+        for item in db.query(models.UserPublishChannel).filter(
+            models.UserPublishChannel.user_id == user_id,
+            models.UserPublishChannel.enabled.is_(True),
+        ).order_by(models.UserPublishChannel.account_id.asc()).all()
+    ]
+    if ids:
+        return ids
+    return _parse_env_account_ids(os.getenv("POSTMYPOST_CHANNEL_IDS", ""))
 
 def _upsert_variant_task(
     db,
     base_task: models.VideoTask,
     output_path: str,
     variant_index: int,
-    publish_at: datetime.datetime | None,
+    publish_at,
+    target_account_id: int | None,
 ) -> models.VideoTask:
     existing = db.query(models.VideoTask).filter(
         models.VideoTask.user_id == base_task.user_id,
@@ -56,6 +73,7 @@ def _upsert_variant_task(
         existing.status = "completed"
         existing.vizard_project_id = base_task.vizard_project_id
         existing.publish_at = publish_at
+        existing.target_account_id = target_account_id
         existing.publishing_status = publishing_status
         db.commit()
         db.refresh(existing)
@@ -69,6 +87,7 @@ def _upsert_variant_task(
         vizard_project_id=base_task.vizard_project_id,
         output_path=output_path,
         publish_at=publish_at,
+        target_account_id=target_account_id,
         publishing_status=publishing_status,
     )
     db.add(variant_task)
@@ -167,11 +186,13 @@ def process_content_task(task_id: int):
 
         active_plate = db.query(models.Plate).filter(models.Plate.id == user.selected_plate_id).first()
         plate_path = active_plate.file_path if active_plate else None
+        target_account_ids = _get_target_account_ids(db, user.id)
+        variants_count = len(target_account_ids) if target_account_ids else 1
 
         variant_outputs = processor.render_unique_variants(
             input_path=video_path,
             output_base_path=base_output,
-            variants_count=UNIQUE_VARIANTS_COUNT,
+            variants_count=variants_count,
             plate_path=plate_path,
             ass_path=ass_path,
             cta_path=selected_cta,
@@ -181,6 +202,7 @@ def process_content_task(task_id: int):
             raise Exception("Rendering returned no output variants")
 
         task.output_path = variant_outputs[0]
+        task.target_account_id = target_account_ids[0] if target_account_ids else None
         task.status = "completed"
         task.publishing_status = "scheduled" if task.publish_at else "not_published"
         db.commit()
@@ -190,15 +212,15 @@ def process_content_task(task_id: int):
             celery_app.send_task("sync_publication_task", args=[task.id])
 
         for idx, variant_output in enumerate(variant_outputs[1:], start=2):
-            variant_publish_at = _shift_publish_time(task.publish_at, idx)
             variant_task = _upsert_variant_task(
                 db=db,
                 base_task=task,
                 output_path=variant_output,
                 variant_index=idx,
-                publish_at=variant_publish_at,
+                publish_at=task.publish_at,
+                target_account_id=target_account_ids[idx - 1] if len(target_account_ids) >= idx else None,
             )
-            if variant_publish_at:
+            if variant_task.publish_at:
                 celery_app.send_task("sync_publication_task", args=[variant_task.id])
 
     except Exception as e:

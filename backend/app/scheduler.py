@@ -53,6 +53,9 @@ def _get_enabled_account_ids(db, user_id: int) -> List[int]:
     raise RuntimeError("No enabled PostMyPost accounts found")
 
 def _get_account_ids_for_unschedule(db, task: models.VideoTask) -> List[int]:
+    if task.target_account_id is not None:
+        return [int(task.target_account_id)]
+
     try:
         return _get_enabled_account_ids(db, task.user_id)
     except Exception:
@@ -72,6 +75,12 @@ def _get_account_ids_for_unschedule(db, task: models.VideoTask) -> List[int]:
     if env_ids:
         return env_ids
     raise RuntimeError("Cannot determine account ids for unschedule")
+
+
+def _get_task_account_ids(db, task: models.VideoTask, user_id: int) -> List[int]:
+    if task.target_account_id is not None:
+        return [int(task.target_account_id)]
+    return _get_enabled_account_ids(db, user_id)
 
 
 def _normalize_post_at(value: datetime.datetime | None, force_now: bool) -> datetime.datetime:
@@ -99,7 +108,7 @@ def sync_publication_task(task_id: int, force_now: bool = False):
         if not user:
             raise RuntimeError("Task user not found")
 
-        account_ids = _get_enabled_account_ids(db, user.id)
+        account_ids = _get_task_account_ids(db, task, user.id)
         project_id = _get_project_id()
         post_at = _normalize_post_at(task.publish_at, force_now)
 

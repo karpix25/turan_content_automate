@@ -24,6 +24,7 @@ class VideoTaskOut(BaseModel):
     type: str
     status: str
     output_path: Optional[str]
+    target_account_id: Optional[int]
     publish_at: Optional[datetime.datetime]
     publishing_status: str
     postmypost_id: Optional[str]
