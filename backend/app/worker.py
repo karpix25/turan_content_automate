@@ -7,6 +7,7 @@ from urllib.parse import urlparse, parse_qs
 from celery import Celery
 from .integrations.vizard import VizardClient
 from .integrations.scrape_creators import ScrapeCreatorsClient
+from .integrations.rapidapi_youtube import RapidAPIYoutubeClient
 from .integrations.downloader import Downloader
 from .integrations.postmypost import PostMyPostClient
 from .processor import VideoProcessor
@@ -23,6 +24,10 @@ celery_app = Celery('tasks', broker=os.getenv("REDIS_URL", "redis://localhost:63
 # Initialize clients
 vizard = VizardClient(api_key=os.getenv("VIZARD_API_KEY", ""))
 scraper = ScrapeCreatorsClient(api_key=os.getenv("SCRAPE_CREATORS_API_KEY", ""))
+rapidapi_yt = RapidAPIYoutubeClient(
+    api_key=os.getenv("RAPIDAPI_KEY", ""),
+    host=os.getenv("RAPIDAPI_HOST", "youtube-media-downloader.p.rapidapi.com"),
+)
 downloader = Downloader(output_dir=os.getenv("OUTPUT_DIR", "./output"))
 pmp_client = PostMyPostClient(api_key=os.getenv("POSTMYPOST_API_KEY", ""))
 processor = VideoProcessor(
@@ -286,18 +291,27 @@ def process_content_task(task_id: int):
 
         elif task.type == "youtube":
             _validate_youtube_url_or_raise(source_url)
-            details = scraper.get_youtube_details(source_url)
-            if not details:
-                raise Exception("Failed to get YouTube details from ScrapeCreators")
+            details = rapidapi_yt.get_youtube_details(source_url)
+            download_url = _normalize_external_url((details or {}).get("download_url") or "")
 
-            download_url = _normalize_external_url(details.get("download_url") or "")
             if not download_url:
-                error_text = details.get("error") or "No downloadable media URL returned by ScrapeCreators"
-                raise Exception(f"Failed to download YouTube video: {error_text}")
+                rapidapi_error = (details or {}).get("error")
+                logging.warning(
+                    "RapidAPI YouTube did not return downloadable URL. Fallback to ScrapeCreators. Reason: %s",
+                    rapidapi_error,
+                )
+                sc_details = scraper.get_youtube_details(source_url)
+                download_url = _normalize_external_url((sc_details or {}).get("download_url") or "")
+                if not download_url:
+                    sc_error = (sc_details or {}).get("error")
+                    raise Exception(
+                        f"Failed to download YouTube video: RapidAPI={rapidapi_error or 'unknown'}; "
+                        f"ScrapeCreators={sc_error or 'No direct media URL'}"
+                    )
 
             local_file = downloader.download_video(download_url, f"yt_{task_id}")
             if not local_file:
-                raise Exception("Failed to download YouTube video from ScrapeCreators URL")
+                raise Exception("Failed to download YouTube video from provider URL")
             input_videos.append(local_file)
 
         if not input_videos:
