@@ -155,6 +155,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         plate_path: Optional[str] = None,
         ass_path: Optional[str] = None,
         cta_path: Optional[str] = None,
+        cta_paths: Optional[List[Optional[str]]] = None,
         subtitles_enabled: bool = True,
     ) -> List[str]:
         base, ext = os.path.splitext(output_base_path)
@@ -164,12 +165,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         for idx in range(1, max(1, variants_count) + 1):
             variant_output = f"{base}_u{idx}{ext}"
             variant_seed = random.randint(1, 10_000_000)
+            variant_cta_path = (
+                cta_paths[idx - 1]
+                if cta_paths and len(cta_paths) >= idx
+                else cta_path
+            )
             self.process_video(
                 input_path=input_path,
                 output_path=variant_output,
                 plate_path=plate_path,
                 ass_path=ass_path,
-                cta_path=cta_path,
+                cta_path=variant_cta_path,
                 subtitles_enabled=subtitles_enabled,
                 unique_seed=variant_seed,
             )

@@ -46,6 +46,17 @@ class PostMyPostAccountOut(BaseModel):
     channel_name: Optional[str]
     enabled: bool
 
+
+class EndingClipOut(BaseModel):
+    id: int
+    user_id: int
+    file_path: str
+    label: Optional[str]
+    platform: str
+
+    class Config:
+        from_attributes = True
+
 class UserSettings(BaseModel):
     id: int
     telegram_id: str

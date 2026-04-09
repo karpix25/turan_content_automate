@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, UploadFile, File, HTTPException
+from fastapi import FastAPI, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy.orm import Session
 from .database import SessionLocal, init_database
 from . import models, schemas
@@ -64,6 +64,20 @@ def get_user_channel_enabled_map(db: Session, user_id: int) -> dict[int, bool]:
     ).all()
     return {row.account_id: bool(row.enabled) for row in rows}
 
+
+def normalize_ending_platform(value: str | None) -> str:
+    platform = (value or "").strip().lower()
+    aliases = {
+        "ig": "instagram",
+        "insta": "instagram",
+        "yt": "youtube",
+        "you_tube": "youtube",
+    }
+    platform = aliases.get(platform, platform)
+    if platform in {"instagram", "youtube", "universal"}:
+        return platform
+    raise HTTPException(status_code=400, detail="platform must be one of: instagram, youtube, universal")
+
 @app.get("/")
 def read_root():
     return {"status": "ok", "message": "Content processing API is running"}
@@ -124,7 +138,7 @@ def get_postmypost_channels(telegram_id: str, db: Session = Depends(get_db)):
         accounts = pmp_client.get_accounts(project_id=project_id)
     except Exception as e:
         logging.error(f"Failed to load PostMyPost channels/accounts: {e}")
-        raise HTTPException(status_code=502, detail="Failed to load channels from PostMyPost")
+        raise HTTPException(status_code=502, detail=f"Failed to load channels from PostMyPost: {e}")
 
     channels_by_id = {int(item["id"]): item for item in channels if isinstance(item, dict) and item.get("id") is not None}
     enabled_map = get_user_channel_enabled_map(db, user.id)
@@ -166,7 +180,7 @@ def update_postmypost_channels(
         accounts = pmp_client.get_accounts(project_id=project_id)
     except Exception as e:
         logging.error(f"Failed to load PostMyPost accounts before update: {e}")
-        raise HTTPException(status_code=502, detail="Failed to load accounts from PostMyPost")
+        raise HTTPException(status_code=502, detail=f"Failed to load accounts from PostMyPost: {e}")
 
     valid_ids = {int(item["id"]) for item in accounts if isinstance(item, dict) and item.get("id") is not None}
     selected_ids = selected_ids.intersection(valid_ids)
@@ -269,17 +283,67 @@ async def upload_plate(telegram_id: str, file: UploadFile = File(...), db: Sessi
     return {"status": "uploaded", "plate_id": new_plate.id, "file_path": file_path}
 
 @app.post("/upload/cta/{telegram_id}")
-async def upload_cta(telegram_id: str, label: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_cta(
+    telegram_id: str,
+    label: str = Form(""),
+    platform: str = Form("universal"),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
     user = get_or_create_user(db, telegram_id)
+    normalized_platform = normalize_ending_platform(platform)
     cta_dir = os.getenv("CTA_DIR", "cta")
     os.makedirs(cta_dir, exist_ok=True)
-    file_name = f"{telegram_id}_{file.filename}"
+    file_name = f"{telegram_id}_{normalized_platform}_{file.filename}"
     file_path = os.path.join(cta_dir, file_name)
     
     with open(file_path, "wb") as f:
         f.write(await file.read())
         
-    new_cta = models.CTAClip(user_id=user.id, file_path=file_path, label=label)
+    new_cta = models.CTAClip(
+        user_id=user.id,
+        file_path=file_path,
+        label=label or file.filename,
+        platform=normalized_platform,
+    )
     db.add(new_cta)
     db.commit()
     return {"status": "uploaded", "cta_id": new_cta.id, "file_path": file_path}
+
+
+@app.post("/upload/ending/{telegram_id}", response_model=schemas.EndingClipOut)
+async def upload_ending(
+    telegram_id: str,
+    platform: str = Form(...),
+    label: str = Form(""),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    user = get_or_create_user(db, telegram_id)
+    normalized_platform = normalize_ending_platform(platform)
+    endings_dir = os.getenv("CTA_DIR", "cta")
+    os.makedirs(endings_dir, exist_ok=True)
+
+    file_name = f"{telegram_id}_{normalized_platform}_{file.filename}"
+    file_path = os.path.join(endings_dir, file_name)
+    with open(file_path, "wb") as f:
+        f.write(await file.read())
+
+    ending = models.CTAClip(
+        user_id=user.id,
+        file_path=file_path,
+        label=label or file.filename,
+        platform=normalized_platform,
+    )
+    db.add(ending)
+    db.commit()
+    db.refresh(ending)
+    return ending
+
+
+@app.get("/endings/{telegram_id}", response_model=list[schemas.EndingClipOut])
+def list_endings(telegram_id: str, db: Session = Depends(get_db)):
+    user = get_or_create_user(db, telegram_id)
+    return db.query(models.CTAClip).filter(
+        models.CTAClip.user_id == user.id
+    ).order_by(models.CTAClip.id.desc()).all()

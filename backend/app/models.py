@@ -31,6 +31,7 @@ class CTAClip(Base):
     user_id = Column(Integer, ForeignKey("users.id"))
     file_path = Column(String)
     label = Column(String)
+    platform = Column(String, default="universal", nullable=False)  # 'instagram', 'youtube', 'universal'
 
 class VideoTask(Base):
     __tablename__ = "tasks"

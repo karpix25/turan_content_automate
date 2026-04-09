@@ -28,3 +28,11 @@ def init_database() -> None:
                 "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS target_account_id INTEGER"
             )
         )
+        conn.execute(
+            text(
+                "ALTER TABLE cta_clips ADD COLUMN IF NOT EXISTS platform VARCHAR(32) DEFAULT 'universal'"
+            )
+        )
+        conn.execute(
+            text("UPDATE cta_clips SET platform = 'universal' WHERE platform IS NULL")
+        )

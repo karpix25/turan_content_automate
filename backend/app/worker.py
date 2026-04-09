@@ -7,6 +7,7 @@ from celery import Celery
 from .integrations.vizard import VizardClient
 from .integrations.scrape_creators import ScrapeCreatorsClient
 from .integrations.downloader import Downloader
+from .integrations.postmypost import PostMyPostClient
 from .processor import VideoProcessor
 from .database import SessionLocal, init_database
 from . import models
@@ -21,6 +22,7 @@ celery_app = Celery('tasks', broker=os.getenv("REDIS_URL", "redis://localhost:63
 vizard = VizardClient(api_key=os.getenv("VIZARD_API_KEY", ""))
 scraper = ScrapeCreatorsClient(api_key=os.getenv("SCRAPE_CREATORS_API_KEY", ""))
 downloader = Downloader(output_dir=os.getenv("OUTPUT_DIR", "./output"))
+pmp_client = PostMyPostClient(api_key=os.getenv("POSTMYPOST_API_KEY", ""))
 processor = VideoProcessor(
     model_size=os.getenv("WHISPER_MODEL", "large-v3"),
     device=os.getenv("WHISPER_DEVICE", "cpu"),
@@ -40,6 +42,20 @@ def _parse_env_account_ids(raw: str) -> List[int]:
     return result
 
 
+def _normalize_platform_code(value: str | None) -> str:
+    code = (value or "").strip().lower()
+    aliases = {
+        "ig": "instagram",
+        "insta": "instagram",
+        "yt": "youtube",
+        "you_tube": "youtube",
+    }
+    code = aliases.get(code, code)
+    if code:
+        return code
+    return "universal"
+
+
 def _get_target_account_ids(db, user_id: int) -> List[int]:
     ids = [
         item.account_id
@@ -52,6 +68,81 @@ def _get_target_account_ids(db, user_id: int) -> List[int]:
         return ids
     return _parse_env_account_ids(os.getenv("POSTMYPOST_CHANNEL_IDS", ""))
 
+
+def _get_account_platform_map(account_ids: List[int]) -> dict[int, str]:
+    if not account_ids or not pmp_client.api_key:
+        return {}
+    try:
+        project_id_raw = os.getenv("POSTMYPOST_PROJECT_ID", "").strip()
+        project_id = int(project_id_raw) if project_id_raw else None
+        project_id = pmp_client.ensure_project_id(project_id)
+        accounts = pmp_client.get_accounts(project_id=project_id)
+        channels = pmp_client.get_channels()
+        channels_by_id = {
+            int(item["id"]): item
+            for item in channels
+            if isinstance(item, dict) and item.get("id") is not None
+        }
+        account_set = set(account_ids)
+        result: dict[int, str] = {}
+        for account in accounts:
+            account_id = account.get("id")
+            if account_id is None:
+                continue
+            account_id = int(account_id)
+            if account_id not in account_set:
+                continue
+            channel_id_raw = account.get("chanel_id", account.get("channel_id"))
+            channel_id = int(channel_id_raw) if channel_id_raw is not None else None
+            channel_info = channels_by_id.get(channel_id) if channel_id is not None else None
+            channel_code = channel_info.get("code") if channel_info else None
+            result[account_id] = _normalize_platform_code(channel_code)
+        return result
+    except Exception as e:
+        logging.warning(f"Failed to resolve account platform map from PostMyPost: {e}")
+        return {}
+
+
+def _pick_platform_ending(
+    clips: List[models.CTAClip],
+    platform: str,
+    used_ids_by_platform: dict[str, set[int]],
+) -> models.CTAClip | None:
+    normalized = _normalize_platform_code(platform)
+    exact = [clip for clip in clips if _normalize_platform_code(getattr(clip, "platform", None)) == normalized]
+    universal = [clip for clip in clips if _normalize_platform_code(getattr(clip, "platform", None)) == "universal"]
+    pool = exact if exact else universal
+    if not pool:
+        return None
+
+    used = used_ids_by_platform.setdefault(normalized, set())
+    for clip in pool:
+        if clip.id not in used:
+            used.add(clip.id)
+            return clip
+    return random.choice(pool)
+
+
+def _build_account_variant_plan(
+    account_ids: List[int],
+    account_platform_map: dict[int, str],
+) -> tuple[int, dict[int, int]]:
+    if not account_ids:
+        return 1, {}
+
+    groups: dict[str, List[int]] = {}
+    for account_id in account_ids:
+        platform_code = _normalize_platform_code(account_platform_map.get(account_id))
+        groups.setdefault(platform_code, []).append(account_id)
+
+    variant_count = max((len(items) for items in groups.values()), default=1)
+    account_variant_index: dict[int, int] = {}
+    for account_group in groups.values():
+        for slot_idx, account_id in enumerate(account_group, start=1):
+            account_variant_index[account_id] = slot_idx
+
+    return max(1, variant_count), account_variant_index
+
 def _upsert_variant_task(
     db,
     base_task: models.VideoTask,
@@ -60,6 +151,7 @@ def _upsert_variant_task(
     publish_at,
     target_account_id: int | None,
 ) -> models.VideoTask:
+    base_source = base_task.source_url.split(" [slot ", 1)[0].split(" [variant ", 1)[0]
     existing = db.query(models.VideoTask).filter(
         models.VideoTask.user_id == base_task.user_id,
         models.VideoTask.output_path == output_path,
@@ -72,6 +164,7 @@ def _upsert_variant_task(
         existing.type = base_task.type
         existing.status = "completed"
         existing.vizard_project_id = base_task.vizard_project_id
+        existing.source_url = f"{base_source} [slot {variant_index}] [account {target_account_id}]"
         existing.publish_at = publish_at
         existing.target_account_id = target_account_id
         existing.publishing_status = publishing_status
@@ -81,7 +174,7 @@ def _upsert_variant_task(
 
     variant_task = models.VideoTask(
         user_id=base_task.user_id,
-        source_url=f"{base_task.source_url} [variant {variant_index}]",
+        source_url=f"{base_source} [slot {variant_index}] [account {target_account_id}]",
         type=base_task.type,
         status="completed",
         vizard_project_id=base_task.vizard_project_id,
@@ -181,47 +274,84 @@ def process_content_task(task_id: int):
             with open(ass_path, "w") as f:
                 f.write(ass_content)
 
-        cta_clips = db.query(models.CTAClip).filter(models.CTAClip.user_id == user.id).all()
-        selected_cta = random.choice(cta_clips).file_path if cta_clips else None
-
         active_plate = db.query(models.Plate).filter(models.Plate.id == user.selected_plate_id).first()
         plate_path = active_plate.file_path if active_plate else None
         target_account_ids = _get_target_account_ids(db, user.id)
-        variants_count = len(target_account_ids) if target_account_ids else 1
+        if not target_account_ids and task.target_account_id:
+            target_account_ids = [int(task.target_account_id)]
+        elif task.target_account_id and int(task.target_account_id) not in target_account_ids:
+            target_account_ids = [int(task.target_account_id)] + target_account_ids
+        target_account_ids = list(dict.fromkeys(target_account_ids))
 
-        variant_outputs = processor.render_unique_variants(
-            input_path=video_path,
-            output_base_path=base_output,
-            variants_count=variants_count,
-            plate_path=plate_path,
-            ass_path=ass_path,
-            cta_path=selected_cta,
-            subtitles_enabled=subtitles_enabled,
+        account_platform_map = _get_account_platform_map(target_account_ids)
+        variants_count, account_variant_index = _build_account_variant_plan(
+            account_ids=target_account_ids,
+            account_platform_map=account_platform_map,
         )
-        if not variant_outputs:
-            raise Exception("Rendering returned no output variants")
+        ending_clips = db.query(models.CTAClip).filter(models.CTAClip.user_id == user.id).all()
+        used_ending_ids_by_platform: dict[str, set[int]] = {}
+        if target_account_ids:
+            account_outputs: List[tuple[int, str, int]] = []
+            for account_id in target_account_ids:
+                slot_idx = account_variant_index.get(account_id, 1)
+                platform_code = account_platform_map.get(account_id, "universal")
+                ending = _pick_platform_ending(
+                    clips=ending_clips,
+                    platform=platform_code,
+                    used_ids_by_platform=used_ending_ids_by_platform,
+                )
+                ending_path = ending.file_path if ending else None
+                account_output = f"{video_root}_final_s{slot_idx}_a{account_id}.mp4"
+                processor.process_video(
+                    input_path=video_path,
+                    output_path=account_output,
+                    plate_path=plate_path,
+                    ass_path=ass_path,
+                    cta_path=ending_path,
+                    subtitles_enabled=subtitles_enabled,
+                    unique_seed=slot_idx,
+                )
+                account_outputs.append((account_id, account_output, slot_idx))
 
-        task.output_path = variant_outputs[0]
-        task.target_account_id = target_account_ids[0] if target_account_ids else None
-        task.status = "completed"
-        task.publishing_status = "scheduled" if task.publish_at else "not_published"
-        db.commit()
-        db.refresh(task)
+            primary_account_id, primary_output, primary_slot = account_outputs[0]
+            task.output_path = primary_output
+            task.target_account_id = primary_account_id
+            task.source_url = f"{task.source_url.split(' [slot ', 1)[0]} [slot {primary_slot}]"
+            task.status = "completed"
+            task.publishing_status = "scheduled" if task.publish_at else "not_published"
+            db.commit()
+            db.refresh(task)
 
-        if task.publish_at:
-            celery_app.send_task("sync_publication_task", args=[task.id])
+            if task.publish_at:
+                celery_app.send_task("sync_publication_task", args=[task.id])
 
-        for idx, variant_output in enumerate(variant_outputs[1:], start=2):
-            variant_task = _upsert_variant_task(
-                db=db,
-                base_task=task,
-                output_path=variant_output,
-                variant_index=idx,
-                publish_at=task.publish_at,
-                target_account_id=target_account_ids[idx - 1] if len(target_account_ids) >= idx else None,
+            for account_id, account_output, slot_idx in account_outputs[1:]:
+                variant_task = _upsert_variant_task(
+                    db=db,
+                    base_task=task,
+                    output_path=account_output,
+                    variant_index=slot_idx,
+                    publish_at=task.publish_at,
+                    target_account_id=account_id,
+                )
+                if variant_task.publish_at:
+                    celery_app.send_task("sync_publication_task", args=[variant_task.id])
+        else:
+            # No connected publication accounts; render a single local-ready output.
+            processor.process_video(
+                input_path=video_path,
+                output_path=base_output,
+                plate_path=plate_path,
+                ass_path=ass_path,
+                cta_path=None,
+                subtitles_enabled=subtitles_enabled,
+                unique_seed=1,
             )
-            if variant_task.publish_at:
-                celery_app.send_task("sync_publication_task", args=[variant_task.id])
+            task.output_path = base_output
+            task.target_account_id = None
+            task.status = "completed"
+            task.publishing_status = "scheduled" if task.publish_at else "not_published"
+            db.commit()
 
     except Exception as e:
         logging.exception(f"Task {task_id} failed: {e}")
