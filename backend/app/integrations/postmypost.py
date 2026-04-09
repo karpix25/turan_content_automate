@@ -10,13 +10,22 @@ logger = logging.getLogger(__name__)
 
 class PostMyPostClient:
     BASE_URL = "https://api.postmypost.io/v4.1"
+    DEFAULT_PER_PAGE = 20
 
     def __init__(self, api_key: str):
-        self.api_key = api_key
+        self.api_key = self._normalize_api_key(api_key)
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
+            "X-API-KEY": self.api_key,
             "Accept": "application/json",
         }
+
+    @staticmethod
+    def _normalize_api_key(api_key: str) -> str:
+        normalized = (api_key or "").strip().strip('"').strip("'")
+        if normalized.lower().startswith("bearer "):
+            normalized = normalized.split(" ", 1)[1].strip()
+        return normalized
 
     def _request(self, method: str, path: str, **kwargs) -> Dict[str, Any]:
         if not self.api_key:
@@ -28,7 +37,12 @@ class PostMyPostClient:
 
         with httpx.Client(timeout=60.0) as client:
             response = client.request(method, url, headers=merged_headers, **kwargs)
-            response.raise_for_status()
+            if response.status_code >= 400:
+                body = response.text[:500]
+                logger.error(
+                    f"PostMyPost API error {response.status_code} for {method} {path}: {body}"
+                )
+                response.raise_for_status()
             return response.json()
 
     @staticmethod
@@ -43,21 +57,33 @@ class PostMyPostClient:
             return payload["data"]
         return []
 
+    def _request_all_pages(self, path: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        query = dict(params or {})
+        query.setdefault("per_page", self.DEFAULT_PER_PAGE)
+        page = int(query.get("page", 1))
+        result: List[Dict[str, Any]] = []
+
+        while True:
+            query["page"] = page
+            payload = self._request("GET", path, params=query)
+            result.extend(self._unwrap_data_list(payload))
+
+            pages = payload.get("pages") if isinstance(payload, dict) else None
+            next_page = pages.get("next") if isinstance(pages, dict) else None
+            if not next_page:
+                break
+            page = int(next_page)
+
+        return result
+
     def get_projects(self) -> List[Dict[str, Any]]:
-        response = self._request("GET", "/projects", params={"per_page": 50})
-        return self._unwrap_data_list(response)
+        return self._request_all_pages("/projects")
 
     def get_channels(self) -> List[Dict[str, Any]]:
-        response = self._request("GET", "/channels", params={"per_page": 100})
-        return self._unwrap_data_list(response)
+        return self._request_all_pages("/channels")
 
     def get_accounts(self, project_id: int) -> List[Dict[str, Any]]:
-        response = self._request(
-            "GET",
-            "/accounts",
-            params={"project_id": project_id, "per_page": 100},
-        )
-        return self._unwrap_data_list(response)
+        return self._request_all_pages("/accounts", params={"project_id": project_id})
 
     def init_upload(self, project_id: int, file_name: str, file_size: int) -> Dict[str, Any]:
         response = self._request(
