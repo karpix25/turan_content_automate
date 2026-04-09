@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, UploadFile, File, Form, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from .database import SessionLocal, init_database
 from . import models, schemas
@@ -54,6 +55,34 @@ def get_user_task_or_404(db: Session, user_id: int, task_id: int) -> models.Vide
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
+
+
+def resolve_output_file_path(output_path: str) -> str | None:
+    value = (output_path or "").strip()
+    if not value:
+        return None
+
+    candidates: list[str] = []
+    if os.path.isabs(value):
+        candidates.append(value)
+    else:
+        normalized = value.lstrip("./")
+        candidates.extend(
+            [
+                os.path.abspath(value),
+                os.path.join("/app", normalized),
+                os.path.join("/app/database/media/output", os.path.basename(normalized)),
+            ]
+        )
+
+    seen: set[str] = set()
+    for path in candidates:
+        if path in seen:
+            continue
+        seen.add(path)
+        if os.path.isfile(path):
+            return path
+    return None
 
 
 def normalize_source_url(value: str) -> str:
@@ -259,6 +288,25 @@ def list_user_tasks(telegram_id: str, db: Session = Depends(get_db)):
         models.VideoTask.user_id == user.id
     ).order_by(models.VideoTask.created_at.desc()).limit(100).all()
     return tasks
+
+
+@app.get("/tasks/{telegram_id}/{task_id}/file")
+def download_task_output(telegram_id: str, task_id: int, db: Session = Depends(get_db)):
+    user = get_or_create_user(db, telegram_id)
+    task = get_user_task_or_404(db, user.id, task_id)
+
+    if not task.output_path:
+        raise HTTPException(status_code=400, detail="Task has no rendered output yet")
+
+    resolved_path = resolve_output_file_path(task.output_path)
+    if not resolved_path:
+        raise HTTPException(status_code=404, detail="Rendered file not found on disk")
+
+    return FileResponse(
+        path=resolved_path,
+        filename=os.path.basename(resolved_path),
+        media_type="video/mp4",
+    )
 
 @app.patch("/tasks/{telegram_id}/{task_id}/schedule", response_model=schemas.VideoTaskOut)
 def update_task_schedule(

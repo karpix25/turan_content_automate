@@ -579,6 +579,16 @@ const App = () => {
                           >
                             Задать
                           </button>
+                          {task.output_path && task.status === 'completed' && (
+                            <a
+                              href={`${API_BASE}/tasks/${telegramId}/${task.id}/file`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="h-9 px-4 bg-green-50 text-green-700 text-xs font-bold rounded-lg inline-flex items-center"
+                            >
+                              Скачать
+                            </a>
+                          )}
                        </div>
                     </div>
                   ))}

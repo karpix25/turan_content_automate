@@ -50,6 +50,7 @@ services:
       - POSTMYPOST_API_KEY=${POSTMYPOST_API_KEY}
       - POSTMYPOST_PROJECT_ID=${POSTMYPOST_PROJECT_ID}
       - POSTMYPOST_CHANNEL_IDS=${POSTMYPOST_CHANNEL_IDS}
+      - OUTPUT_DIR=/app/database/media/output
       - PYTHONPATH=.
     depends_on:
       - db
@@ -83,6 +84,7 @@ services:
       - POSTMYPOST_API_KEY=${POSTMYPOST_API_KEY}
       - POSTMYPOST_PROJECT_ID=${POSTMYPOST_PROJECT_ID}
       - POSTMYPOST_CHANNEL_IDS=${POSTMYPOST_CHANNEL_IDS}
+      - OUTPUT_DIR=/app/database/media/output
       - PYTHONPATH=.
     depends_on:
       - db
