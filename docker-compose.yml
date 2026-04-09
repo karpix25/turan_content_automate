@@ -41,6 +41,7 @@ services:
       - redis
     networks:
       - content-network
+      - coolify
 
   worker:
     build:
@@ -106,10 +107,13 @@ services:
       context: ./frontend
     networks:
       - content-network
+      - coolify
 
 networks:
   content-network:
     driver: bridge
+  coolify:
+    external: true
 
 volumes:
   postgres_data:
