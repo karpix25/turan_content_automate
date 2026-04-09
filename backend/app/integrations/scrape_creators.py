@@ -47,11 +47,24 @@ class ScrapeCreatorsClient:
                 "download_url": None,
                 "error": data.get("message") or "ScrapeCreators returned success=false",
             }
+
+        media = ((data.get("data") or {}).get("xdt_shortcode_media") or {})
+        caption_edges = ((media.get("edge_media_to_caption") or {}).get("edges") or [])
+        caption_text = None
+        if caption_edges and isinstance(caption_edges[0], dict):
+            caption_text = ((caption_edges[0].get("node") or {}).get("text"))
+
+        owner = media.get("owner") or {}
+
         return {
-            "download_url": data.get("video_url") or data.get("download_url"),
-            "caption": data.get("caption"),
-            "view_count": data.get("viewCountInt"),
-            "creator": (data.get("owner") or {}).get("username"),
+            "download_url": (
+                data.get("video_url")
+                or data.get("download_url")
+                or media.get("video_url")
+            ),
+            "caption": data.get("caption") or caption_text,
+            "view_count": data.get("viewCountInt") or media.get("video_view_count"),
+            "creator": (data.get("owner") or {}).get("username") or owner.get("username"),
             "error": None,
         }
 
