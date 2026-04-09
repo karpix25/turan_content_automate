@@ -2,6 +2,7 @@ import os
 import asyncio
 import random
 import logging
+import re
 from typing import List
 from urllib.parse import urlparse, parse_qs
 from celery import Celery
@@ -47,15 +48,33 @@ def _parse_env_account_ids(raw: str) -> List[int]:
 
 def _normalize_platform_code(value: str | None) -> str:
     code = (value or "").strip().lower()
+    if not code:
+        return "universal"
+
+    normalized = code.replace("-", "_").replace(" ", "_")
     aliases = {
         "ig": "instagram",
         "insta": "instagram",
         "yt": "youtube",
         "you_tube": "youtube",
+        "youtube_shorts": "youtube",
+        "instagram_reels": "instagram",
+        "instagram_reel": "instagram",
     }
-    code = aliases.get(code, code)
-    if code:
-        return code
+    normalized = aliases.get(normalized, normalized)
+
+    if normalized in {"instagram", "youtube", "tiktok", "universal"}:
+        return normalized
+
+    # PostMyPost channel codes can vary by network/type; infer by tokens.
+    tokens = set(re.split(r"[^a-z0-9]+", normalized))
+    if "instagram" in normalized or {"ig", "insta", "instagram"} & tokens:
+        return "instagram"
+    if "youtube" in normalized or {"yt", "youtube"} & tokens:
+        return "youtube"
+    if "tiktok" in normalized or {"tt", "tiktok"} & tokens:
+        return "tiktok"
+
     return "universal"
 
 
@@ -129,7 +148,8 @@ def _get_account_platform_map(account_ids: List[int]) -> dict[int, str]:
             channel_id = int(channel_id_raw) if channel_id_raw is not None else None
             channel_info = channels_by_id.get(channel_id) if channel_id is not None else None
             channel_code = channel_info.get("code") if channel_info else None
-            result[account_id] = _normalize_platform_code(channel_code)
+            channel_name = channel_info.get("name") if channel_info else None
+            result[account_id] = _normalize_platform_code(channel_code or channel_name)
         return result
     except Exception as e:
         logging.warning(f"Failed to resolve account platform map from PostMyPost: {e}")
@@ -144,11 +164,13 @@ def _pick_platform_ending(
     normalized = _normalize_platform_code(platform)
     exact = [clip for clip in clips if _normalize_platform_code(getattr(clip, "platform", None)) == normalized]
     universal = [clip for clip in clips if _normalize_platform_code(getattr(clip, "platform", None)) == "universal"]
-    pool = exact if exact else universal
+    fallback_any = list(clips)
+    pool = exact if exact else universal if universal else fallback_any
     if not pool:
         return None
 
-    used = used_ids_by_platform.setdefault(normalized, set())
+    used_key = normalized if (exact or universal) else "fallback_any"
+    used = used_ids_by_platform.setdefault(used_key, set())
     for clip in pool:
         if clip.id not in used:
             used.add(clip.id)
