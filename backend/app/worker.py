@@ -397,6 +397,15 @@ def process_content_task(task_id: int):
             account_platform_map=account_platform_map,
         )
         ending_clips = db.query(models.CTAClip).filter(models.CTAClip.user_id == user.id).all()
+        logging.info(
+            "Task %s: user_id=%s telegram_id=%s accounts=%s variants_count=%s endings_loaded=%s",
+            task_id,
+            user.id,
+            getattr(user, "telegram_id", None),
+            target_account_ids,
+            variants_count,
+            len(ending_clips),
+        )
         used_ending_ids_by_platform: dict[str, set[int]] = {}
         if target_account_ids:
             account_outputs: List[tuple[int, str, int]] = []
@@ -409,6 +418,25 @@ def process_content_task(task_id: int):
                     used_ids_by_platform=used_ending_ids_by_platform,
                 )
                 ending_path = ending.file_path if ending else None
+                if ending_path and not os.path.isfile(ending_path):
+                    logging.warning(
+                        "Task %s: ending file missing for account=%s platform=%s ending_id=%s path=%s",
+                        task_id,
+                        account_id,
+                        platform_code,
+                        getattr(ending, "id", None),
+                        ending_path,
+                    )
+                    ending_path = None
+                logging.info(
+                    "Task %s: account=%s platform=%s slot=%s ending_id=%s ending_path=%s",
+                    task_id,
+                    account_id,
+                    platform_code,
+                    slot_idx,
+                    getattr(ending, "id", None),
+                    ending_path,
+                )
                 account_output = f"{video_root}_final_s{slot_idx}_a{account_id}.mp4"
                 processor.process_video(
                     input_path=video_path,

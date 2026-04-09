@@ -64,6 +64,12 @@ declare global {
 }
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+const TELEGRAM_ID_STORAGE_KEY = 'content_studio_telegram_id';
+
+const normalizeTelegramId = (value: unknown): string => {
+  const text = String(value ?? '').trim();
+  return /^\d{5,20}$/.test(text) ? text : '';
+};
 
 const App = () => {
   const [activeTab, setActiveTab] = useState('branding');
@@ -84,6 +90,7 @@ const App = () => {
   const [selectedPlateId, setSelectedPlateId] = useState<number | null>(null);
   const [uploadingPlate, setUploadingPlate] = useState(false);
   const [telegramId, setTelegramId] = useState('');
+  const [telegramIdInput, setTelegramIdInput] = useState('');
   const [tasks, setTasks] = useState<VideoTaskItem[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
   const [scheduleInputs, setScheduleInputs] = useState<Record<number, string>>({});
@@ -105,13 +112,29 @@ const App = () => {
     if (webApp?.ready) webApp.ready();
     if (webApp?.expand) webApp.expand();
 
-    const tgUserId = webApp?.initDataUnsafe?.user?.id;
-    if (tgUserId) {
-      setTelegramId(String(tgUserId));
-    } else {
-      setTelegramId('12345678');
+    const tgUserId = normalizeTelegramId(webApp?.initDataUnsafe?.user?.id);
+    const query = new URLSearchParams(window.location.search);
+    const queryId = normalizeTelegramId(query.get('telegram_id') || query.get('tg_id'));
+    const storedId = normalizeTelegramId(window.localStorage.getItem(TELEGRAM_ID_STORAGE_KEY));
+    const resolvedId = tgUserId || queryId || storedId;
+    if (resolvedId) {
+      setTelegramId(resolvedId);
+      setTelegramIdInput(resolvedId);
+      window.localStorage.setItem(TELEGRAM_ID_STORAGE_KEY, resolvedId);
     }
   }, []);
+
+  const applyTelegramId = () => {
+    const nextId = normalizeTelegramId(telegramIdInput);
+    if (!nextId) {
+      setChannelsError('Укажите корректный Telegram ID (только цифры).');
+      return;
+    }
+    setChannelsError('');
+    setTelegramId(nextId);
+    setTelegramIdInput(nextId);
+    window.localStorage.setItem(TELEGRAM_ID_STORAGE_KEY, nextId);
+  };
 
   useEffect(() => {
     if (!telegramId) return;
@@ -366,6 +389,34 @@ const App = () => {
       </header>
 
       <main className="w-full max-w-2xl px-4 py-6">
+        <div className="tg-card p-4 mb-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-[#707579]">Telegram ID</p>
+            <p className="text-xs font-mono text-slate-700">{telegramId || 'не определен'}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              inputMode="numeric"
+              className="input-field h-10 flex-1"
+              placeholder="Введите ваш Telegram ID"
+              value={telegramIdInput}
+              onChange={(e) => setTelegramIdInput(e.target.value)}
+            />
+            <button
+              onClick={applyTelegramId}
+              className="h-10 px-4 bg-blue-50 text-[#24a1de] text-xs font-bold rounded-lg"
+            >
+              Применить
+            </button>
+          </div>
+          {!window.Telegram?.WebApp?.initDataUnsafe?.user?.id && (
+            <p className="text-[11px] text-[#707579]">
+              Если открываете интерфейс не внутри Telegram Mini App, укажите Telegram ID вручную.
+            </p>
+          )}
+        </div>
+
         <AnimatePresence mode="wait">
           {activeTab === 'branding' && (
             <motion.div key="branding" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">

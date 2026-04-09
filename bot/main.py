@@ -77,6 +77,10 @@ async def send_welcome(message: types.Message):
         reply_markup=kb
     )
 
+@dp.message_handler(commands=['id'])
+async def send_user_id(message: types.Message):
+    await message.reply(f"Ваш Telegram ID: `{message.from_user.id}`", parse_mode="Markdown")
+
 @dp.message_handler(regexp=r'(https?://)?(www\.)?(youtube\.com|youtu\.be|instagram\.com)/.+')
 async def handle_link(message: types.Message):
     raw_text = message.text or ""

@@ -183,6 +183,14 @@ def sync_publication_task(task_id: int, force_now: bool = False):
             for account_id in account_ids
             if account_id in account_descriptions
         }
+        logger.info(
+            "Task %s publication payload: user_id=%s telegram_id=%s account_ids=%s account_descriptions=%s",
+            task_id,
+            user.id,
+            getattr(user, "telegram_id", None),
+            account_ids,
+            list(content_by_account.keys()),
+        )
         project_id = _get_project_id()
         post_at = _normalize_post_at(task.publish_at, force_now)
 
