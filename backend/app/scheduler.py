@@ -50,6 +50,28 @@ def _get_enabled_account_ids(db, user_id: int) -> List[int]:
     if env_ids:
         return env_ids
 
+    # Fallback: use all accounts from the current project when user-level
+    # toggles have not been saved yet.
+    try:
+        project_id = _get_project_id()
+        accounts = pmp_client.get_accounts(project_id=project_id)
+        account_ids = sorted(
+            {
+                int(item["id"])
+                for item in accounts
+                if isinstance(item, dict) and item.get("id") is not None
+            }
+        )
+        if account_ids:
+            logger.info(
+                "No explicit enabled channels for user %s, fallback to all project accounts: %s",
+                user_id,
+                account_ids,
+            )
+            return account_ids
+    except Exception as e:
+        logger.warning("Failed to load fallback PostMyPost account ids in scheduler: %s", e)
+
     raise RuntimeError("No enabled PostMyPost accounts found")
 
 def _get_account_ids_for_unschedule(db, task: models.VideoTask) -> List[int]:

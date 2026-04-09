@@ -69,7 +69,37 @@ def _get_target_account_ids(db, user_id: int) -> List[int]:
     ]
     if ids:
         return ids
-    return _parse_env_account_ids(os.getenv("POSTMYPOST_CHANNEL_IDS", ""))
+
+    env_ids = _parse_env_account_ids(os.getenv("POSTMYPOST_CHANNEL_IDS", ""))
+    if env_ids:
+        return env_ids
+
+    # Fallback: if user did not configure channel toggles yet, use all
+    # accounts available in the selected PostMyPost project.
+    try:
+        if pmp_client.api_key:
+            project_id_raw = os.getenv("POSTMYPOST_PROJECT_ID", "").strip()
+            project_id = int(project_id_raw) if project_id_raw else None
+            project_id = pmp_client.ensure_project_id(project_id)
+            accounts = pmp_client.get_accounts(project_id=project_id)
+            account_ids = sorted(
+                {
+                    int(item["id"])
+                    for item in accounts
+                    if isinstance(item, dict) and item.get("id") is not None
+                }
+            )
+            if account_ids:
+                logging.info(
+                    "No explicit enabled channels for user %s, fallback to all project accounts: %s",
+                    user_id,
+                    account_ids,
+                )
+                return account_ids
+    except Exception as e:
+        logging.warning("Failed to load fallback PostMyPost account ids: %s", e)
+
+    return []
 
 
 def _get_account_platform_map(account_ids: List[int]) -> dict[int, str]:
@@ -327,6 +357,12 @@ def process_content_task(task_id: int):
         active_plate = db.query(models.Plate).filter(models.Plate.id == user.selected_plate_id).first()
         plate_path = active_plate.file_path if active_plate else None
         target_account_ids = _get_target_account_ids(db, user.id)
+        if task.type in {"instagram", "youtube"} and not target_account_ids:
+            raise Exception(
+                "No PostMyPost accounts configured/enabled for this user. "
+                "Enable channels in UI or set POSTMYPOST_CHANNEL_IDS."
+            )
+
         if not target_account_ids and task.target_account_id:
             target_account_ids = [int(task.target_account_id)]
         elif task.target_account_id and int(task.target_account_id) not in target_account_ids:
@@ -381,6 +417,12 @@ def process_content_task(task_id: int):
             db.commit()
             db.refresh(task)
 
+            logging.info(
+                "Task %s: enqueue sync_publication_task for primary account %s (publish_at=%s)",
+                task.id,
+                primary_account_id,
+                primary_publish_at,
+            )
             celery_app.send_task("sync_publication_task", args=[task.id])
 
             for index, (account_id, account_output, slot_idx) in enumerate(account_outputs[1:], start=1):
@@ -392,6 +434,12 @@ def process_content_task(task_id: int):
                     variant_index=slot_idx,
                     publish_at=publish_at,
                     target_account_id=account_id,
+                )
+                logging.info(
+                    "Task %s: enqueue sync_publication_task for variant account %s (publish_at=%s)",
+                    variant_task.id,
+                    account_id,
+                    publish_at,
                 )
                 celery_app.send_task("sync_publication_task", args=[variant_task.id])
         else:
