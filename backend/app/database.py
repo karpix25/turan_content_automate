@@ -73,3 +73,8 @@ def init_database() -> None:
         conn.execute(
             text("UPDATE cta_clips SET platform = 'universal' WHERE platform IS NULL")
         )
+        conn.execute(
+            text(
+                "ALTER TABLE user_publish_channels ADD COLUMN IF NOT EXISTS publication_description TEXT"
+            )
+        )

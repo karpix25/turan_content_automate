@@ -69,5 +69,6 @@ class UserPublishChannel(Base):
     user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
     account_id = Column(Integer, index=True, nullable=False)
     enabled = Column(Boolean, default=True, nullable=False)
+    publication_description = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

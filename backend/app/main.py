@@ -120,11 +120,11 @@ def get_postmypost_project_id() -> int:
     project_id = int(project_id_raw) if project_id_raw else None
     return pmp_client.ensure_project_id(project_id)
 
-def get_user_channel_enabled_map(db: Session, user_id: int) -> dict[int, bool]:
+def get_user_channel_row_map(db: Session, user_id: int) -> dict[int, models.UserPublishChannel]:
     rows = db.query(models.UserPublishChannel).filter(
         models.UserPublishChannel.user_id == user_id
     ).all()
-    return {row.account_id: bool(row.enabled) for row in rows}
+    return {row.account_id: row for row in rows}
 
 
 def normalize_ending_platform(value: str | None) -> str:
@@ -221,7 +221,7 @@ def get_postmypost_channels(telegram_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=502, detail=f"Failed to load channels from PostMyPost: {e}")
 
     channels_by_id = {int(item["id"]): item for item in channels if isinstance(item, dict) and item.get("id") is not None}
-    enabled_map = get_user_channel_enabled_map(db, user.id)
+    row_map = get_user_channel_row_map(db, user.id)
 
     result: list[schemas.PostMyPostAccountOut] = []
     for account in accounts:
@@ -233,6 +233,7 @@ def get_postmypost_channels(telegram_id: str, db: Session = Depends(get_db)):
         channel_id = int(channel_id_raw) if channel_id_raw is not None else None
         channel_info = channels_by_id.get(channel_id) if channel_id is not None else None
 
+        row = row_map.get(account_id)
         result.append(
             schemas.PostMyPostAccountOut(
                 account_id=account_id,
@@ -241,7 +242,8 @@ def get_postmypost_channels(telegram_id: str, db: Session = Depends(get_db)):
                 channel_id=channel_id,
                 channel_code=channel_info.get("code") if channel_info else None,
                 channel_name=channel_info.get("name") if channel_info else None,
-                enabled=enabled_map.get(account_id, True),
+                enabled=bool(row.enabled) if row else True,
+                description=(row.publication_description if row else None),
             )
         )
     return result
@@ -253,7 +255,8 @@ def update_postmypost_channels(
     db: Session = Depends(get_db)
 ):
     user = get_or_create_user(db, telegram_id)
-    selected_ids = {int(item) for item in payload.account_ids}
+    selected_ids = {int(item) for item in (payload.account_ids or [])}
+    descriptions_raw = payload.descriptions or {}
 
     try:
         project_id = get_postmypost_project_id()
@@ -270,13 +273,34 @@ def update_postmypost_channels(
     ).all()
     existing_by_account = {row.account_id: row for row in existing_rows}
 
+    normalized_descriptions: dict[int, str | None] = {}
+    for key, value in descriptions_raw.items():
+        try:
+            account_id = int(key)
+        except (TypeError, ValueError):
+            continue
+        if account_id not in valid_ids:
+            continue
+        text_value = (value or "").strip()
+        normalized_descriptions[account_id] = text_value if text_value else None
+
     for account_id in valid_ids:
         should_enable = account_id in selected_ids
+        account_description = normalized_descriptions.get(account_id)
         row = existing_by_account.get(account_id)
         if row:
             row.enabled = should_enable
-        elif should_enable:
-            db.add(models.UserPublishChannel(user_id=user.id, account_id=account_id, enabled=True))
+            if account_id in normalized_descriptions:
+                row.publication_description = account_description
+        elif should_enable or account_id in normalized_descriptions:
+            db.add(
+                models.UserPublishChannel(
+                    user_id=user.id,
+                    account_id=account_id,
+                    enabled=should_enable,
+                    publication_description=account_description,
+                )
+            )
 
     db.commit()
     return get_postmypost_channels(telegram_id=telegram_id, db=db)

@@ -40,7 +40,8 @@ class VideoTaskOut(BaseModel):
         from_attributes = True
 
 class ChannelPreferenceUpdate(BaseModel):
-    account_ids: list[int]
+    account_ids: list[int] = []
+    descriptions: Optional[dict[str, str]] = None
 
 class PostMyPostAccountOut(BaseModel):
     account_id: int
@@ -50,6 +51,7 @@ class PostMyPostAccountOut(BaseModel):
     channel_code: Optional[str]
     channel_name: Optional[str]
     enabled: bool
+    description: Optional[str]
 
 
 class EndingClipOut(BaseModel):

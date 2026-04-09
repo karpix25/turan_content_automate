@@ -34,6 +34,7 @@ type PublishAccount = {
   channel_code?: string | null;
   channel_name?: string | null;
   enabled: boolean;
+  description?: string | null;
 };
 
 type EndingClip = {
@@ -88,8 +89,10 @@ const App = () => {
   const [scheduleInputs, setScheduleInputs] = useState<Record<number, string>>({});
   const [activeTaskId, setActiveTaskId] = useState<number | null>(null);
   const [publishAccounts, setPublishAccounts] = useState<PublishAccount[]>([]);
+  const [channelDescriptions, setChannelDescriptions] = useState<Record<number, string>>({});
   const [channelsLoading, setChannelsLoading] = useState(false);
   const [channelsError, setChannelsError] = useState('');
+  const [savingChannelSettings, setSavingChannelSettings] = useState(false);
   const [endingClips, setEndingClips] = useState<EndingClip[]>([]);
   const [uploadingEndingPlatform, setUploadingEndingPlatform] = useState<string | null>(null);
 
@@ -159,6 +162,12 @@ const App = () => {
     try {
       const response = await axios.get<PublishAccount[]>(`${API_BASE}/postmypost/channels/${targetTelegramId}`);
       setPublishAccounts(response.data);
+      setChannelDescriptions(
+        response.data.reduce<Record<number, string>>((acc, item) => {
+          acc[item.account_id] = item.description || '';
+          return acc;
+        }, {}),
+      );
       setChannelsError('');
     } catch (error: any) {
       const detail = error?.response?.data?.detail;
@@ -175,16 +184,55 @@ const App = () => {
     } catch (error) {}
   };
 
+  const buildDescriptionsPayload = (source: Record<number, string>) => {
+    return Object.entries(source).reduce<Record<string, string>>((acc, [accountId, value]) => {
+      const text = (value || '').trim();
+      if (!text) return acc;
+      acc[accountId] = text;
+      return acc;
+    }, {});
+  };
+
+  const savePublishChannelSettings = async (
+    accounts: PublishAccount[],
+    descriptions: Record<number, string>,
+  ) => {
+    if (!telegramId) return;
+    const accountIds = accounts.filter((item) => item.enabled).map((item) => item.account_id);
+    const payload = {
+      account_ids: accountIds,
+      descriptions: buildDescriptionsPayload(descriptions),
+    };
+    const response = await axios.post<PublishAccount[]>(`${API_BASE}/postmypost/channels/${telegramId}`, payload);
+    setPublishAccounts(response.data);
+    setChannelDescriptions(
+      response.data.reduce<Record<number, string>>((acc, item) => {
+        acc[item.account_id] = item.description || '';
+        return acc;
+      }, {}),
+    );
+  };
+
   const togglePublishAccount = async (accountId: number) => {
     if (!telegramId) return;
     const nextAccounts = publishAccounts.map((item) =>
       item.account_id === accountId ? { ...item, enabled: !item.enabled } : item,
     );
     setPublishAccounts(nextAccounts);
-    const selected = nextAccounts.filter((item) => item.enabled).map((item) => item.account_id);
     try {
-      await axios.post(`${API_BASE}/postmypost/channels/${telegramId}`, { account_ids: selected });
+      await savePublishChannelSettings(nextAccounts, channelDescriptions);
     } catch (error) {}
+  };
+
+  const saveDescriptions = async () => {
+    if (!telegramId) return;
+    setSavingChannelSettings(true);
+    try {
+      await savePublishChannelSettings(publishAccounts, channelDescriptions);
+    } catch (error) {
+    } finally {
+      setSavingChannelSettings(false);
+    }
   };
 
   useEffect(() => {
@@ -461,7 +509,16 @@ const App = () => {
               <div className="tg-card overflow-hidden">
                  <div className="p-4 border-b flex items-center justify-between">
                     <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Каналы публикации</h3>
-                    <button onClick={() => telegramId && loadPublishAccounts(telegramId)} className="text-[#24a1de]"><RefreshCcw size={16} /></button>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={saveDescriptions}
+                        className="text-[12px] font-semibold text-[#24a1de] disabled:opacity-50"
+                        disabled={savingChannelSettings || channelsLoading}
+                      >
+                        {savingChannelSettings ? 'Сохранение...' : 'Сохранить текст'}
+                      </button>
+                      <button onClick={() => telegramId && loadPublishAccounts(telegramId)} className="text-[#24a1de]"><RefreshCcw size={16} /></button>
+                    </div>
                  </div>
                  {channelsError && (
                    <div className="px-4 py-3 text-xs text-red-600 bg-red-50 border-b border-red-100">{channelsError}</div>
@@ -480,14 +537,31 @@ const App = () => {
                  )}
                  <div className="divide-y">
                     {publishAccounts.map(acc => (
-                      <div key={acc.account_id} className="p-4 flex items-center justify-between">
-                         <div>
-                            <p className="font-semibold text-[15px]">{acc.account_name}</p>
-                            <p className="text-[12px] text-[#707579]">{acc.channel_name || 'Instagram/TikTok'}</p>
+                      <div key={acc.account_id} className="p-4 space-y-3">
+                         <div className="flex items-center justify-between">
+                           <div>
+                              <p className="font-semibold text-[15px]">{acc.account_name}</p>
+                              <p className="text-[12px] text-[#707579]">{acc.channel_name || 'Instagram/TikTok'}</p>
+                           </div>
+                           <button onClick={() => togglePublishAccount(acc.account_id)} className={`w-12 h-6 rounded-full transition-all flex items-center p-1 ${acc.enabled ? 'bg-[#34c759]' : 'bg-[#e9e9eb]'}`}>
+                              <div className={`w-4 h-4 bg-white rounded-full shadow-sm transform transition-all ${acc.enabled ? 'translate-x-6' : 'translate-x-0'}`} />
+                           </button>
                          </div>
-                         <button onClick={() => togglePublishAccount(acc.account_id)} className={`w-12 h-6 rounded-full transition-all flex items-center p-1 ${acc.enabled ? 'bg-[#34c759]' : 'bg-[#e9e9eb]'}`}>
-                            <div className={`w-4 h-4 bg-white rounded-full shadow-sm transform transition-all ${acc.enabled ? 'translate-x-6' : 'translate-x-0'}`} />
-                         </button>
+                         <label className="flex flex-col gap-1">
+                           <span className="text-[11px] text-[#707579] uppercase tracking-wide">Описание для этого канала</span>
+                           <textarea
+                             rows={2}
+                             className="input-field text-[13px] resize-y"
+                             placeholder="Введите текст, который должен публиковаться в этом канале..."
+                             value={channelDescriptions[acc.account_id] || ''}
+                             onChange={(e) =>
+                               setChannelDescriptions((prev) => ({
+                                 ...prev,
+                                 [acc.account_id]: e.target.value,
+                               }))
+                             }
+                           />
+                         </label>
                       </div>
                     ))}
                  </div>

@@ -105,6 +105,18 @@ def _get_task_account_ids(db, task: models.VideoTask, user_id: int) -> List[int]
     return _get_enabled_account_ids(db, user_id)
 
 
+def _get_account_descriptions(db, user_id: int) -> dict[int, str]:
+    rows = db.query(models.UserPublishChannel).filter(
+        models.UserPublishChannel.user_id == user_id
+    ).all()
+    result: dict[int, str] = {}
+    for row in rows:
+        text_value = (row.publication_description or "").strip()
+        if text_value:
+            result[int(row.account_id)] = text_value
+    return result
+
+
 def _normalize_post_at(value: datetime.datetime | None, force_now: bool) -> datetime.datetime:
     if force_now or value is None:
         return datetime.datetime.now(datetime.timezone.utc)
@@ -165,6 +177,12 @@ def sync_publication_task(task_id: int, force_now: bool = False):
             raise RuntimeError("Task user not found")
 
         account_ids = _get_task_account_ids(db, task, user.id)
+        account_descriptions = _get_account_descriptions(db, user.id)
+        content_by_account = {
+            account_id: account_descriptions[account_id]
+            for account_id in account_ids
+            if account_id in account_descriptions
+        }
         project_id = _get_project_id()
         post_at = _normalize_post_at(task.publish_at, force_now)
 
@@ -184,6 +202,7 @@ def sync_publication_task(task_id: int, force_now: bool = False):
                 post_at=post_at,
                 file_id=int(file_id),
                 content=content,
+                content_by_account=content_by_account,
             )
         else:
             response = pmp_client.create_publication(
@@ -192,6 +211,7 @@ def sync_publication_task(task_id: int, force_now: bool = False):
                 post_at=post_at,
                 file_id=int(file_id),
                 content=content,
+                content_by_account=content_by_account,
             )
 
         publication_id = response.get("id") if isinstance(response, dict) else None
