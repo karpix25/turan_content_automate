@@ -208,6 +208,26 @@ def _normalize_external_url(value: str) -> str:
     return url
 
 
+def _resolve_media_file_path(path: str | None, media_kind: str) -> str | None:
+    value = (path or "").strip()
+    if not value:
+        return None
+    if os.path.isfile(value):
+        return value
+
+    normalized = value.lstrip("./")
+    base_name = os.path.basename(normalized)
+    candidates = [
+        os.path.join("/app", normalized),
+        os.path.join("/app/database/media", media_kind, base_name),
+        os.path.join("/app/database/media", base_name),
+    ]
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
 def _validate_youtube_url_or_raise(url: str) -> None:
     parsed = urlparse(url)
     host = parsed.netloc.lower()
@@ -377,7 +397,14 @@ def process_content_task(task_id: int):
         ass_path = None
 
         active_plate = db.query(models.Plate).filter(models.Plate.id == user.selected_plate_id).first()
-        plate_path = active_plate.file_path if active_plate else None
+        plate_path = _resolve_media_file_path(active_plate.file_path if active_plate else None, media_kind="plates")
+        if active_plate and active_plate.file_path and not plate_path:
+            logging.warning(
+                "Task %s: selected plate file missing plate_id=%s path=%s",
+                task_id,
+                active_plate.id,
+                active_plate.file_path,
+            )
         target_account_ids = _get_target_account_ids(db, user.id)
         if task.type in {"instagram", "youtube"} and not target_account_ids:
             raise Exception(
@@ -417,17 +444,16 @@ def process_content_task(task_id: int):
                     platform=platform_code,
                     used_ids_by_platform=used_ending_ids_by_platform,
                 )
-                ending_path = ending.file_path if ending else None
-                if ending_path and not os.path.isfile(ending_path):
+                ending_path = _resolve_media_file_path(ending.file_path if ending else None, media_kind="cta")
+                if ending and ending.file_path and not ending_path:
                     logging.warning(
                         "Task %s: ending file missing for account=%s platform=%s ending_id=%s path=%s",
                         task_id,
                         account_id,
                         platform_code,
                         getattr(ending, "id", None),
-                        ending_path,
+                        ending.file_path,
                     )
-                    ending_path = None
                 logging.info(
                     "Task %s: account=%s platform=%s slot=%s ending_id=%s ending_path=%s",
                     task_id,

@@ -50,6 +50,8 @@ services:
       - POSTMYPOST_API_KEY=${POSTMYPOST_API_KEY}
       - POSTMYPOST_PROJECT_ID=${POSTMYPOST_PROJECT_ID}
       - POSTMYPOST_CHANNEL_IDS=${POSTMYPOST_CHANNEL_IDS}
+      - PLATES_DIR=/app/database/media/plates
+      - CTA_DIR=/app/database/media/cta
       - OUTPUT_DIR=/app/database/media/output
       - PYTHONPATH=.
     depends_on:
@@ -84,6 +86,8 @@ services:
       - POSTMYPOST_API_KEY=${POSTMYPOST_API_KEY}
       - POSTMYPOST_PROJECT_ID=${POSTMYPOST_PROJECT_ID}
       - POSTMYPOST_CHANNEL_IDS=${POSTMYPOST_CHANNEL_IDS}
+      - PLATES_DIR=/app/database/media/plates
+      - CTA_DIR=/app/database/media/cta
       - OUTPUT_DIR=/app/database/media/output
       - PYTHONPATH=.
     depends_on:

@@ -392,7 +392,7 @@ def publish_task_now(telegram_id: str, task_id: int, db: Session = Depends(get_d
 @app.post("/upload/plate/{telegram_id}")
 async def upload_plate(telegram_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
     user = get_or_create_user(db, telegram_id)
-    plates_dir = os.getenv("PLATES_DIR", "plates")
+    plates_dir = os.getenv("PLATES_DIR", "/app/database/media/plates")
     os.makedirs(plates_dir, exist_ok=True)
     file_name = f"{telegram_id}_{file.filename}"
     file_path = os.path.join(plates_dir, file_name)
@@ -415,7 +415,7 @@ async def upload_cta(
 ):
     user = get_or_create_user(db, telegram_id)
     normalized_platform = normalize_ending_platform(platform)
-    cta_dir = os.getenv("CTA_DIR", "cta")
+    cta_dir = os.getenv("CTA_DIR", "/app/database/media/cta")
     os.makedirs(cta_dir, exist_ok=True)
     file_name = f"{telegram_id}_{normalized_platform}_{file.filename}"
     file_path = os.path.join(cta_dir, file_name)
@@ -444,7 +444,7 @@ async def upload_ending(
 ):
     user = get_or_create_user(db, telegram_id)
     normalized_platform = normalize_ending_platform(platform)
-    endings_dir = os.getenv("CTA_DIR", "cta")
+    endings_dir = os.getenv("CTA_DIR", "/app/database/media/cta")
     os.makedirs(endings_dir, exist_ok=True)
 
     file_name = f"{telegram_id}_{normalized_platform}_{file.filename}"
