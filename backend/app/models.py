@@ -15,6 +15,7 @@ class User(Base):
     font_name = Column(String, default="Montserrat")
     font_size = Column(Integer, default=60)
     font_color = Column(String, default="FFFFFF")  # Hex
+    subtitles_enabled = Column(Boolean, default=True, nullable=False)
     selected_plate_id = Column(Integer, nullable=True)
 
 class Plate(Base):

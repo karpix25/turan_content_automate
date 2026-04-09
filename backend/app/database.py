@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from .models import Base
 import os
@@ -9,3 +9,17 @@ load_dotenv()
 # engine = create_engine(os.getenv("DATABASE_URL", "sqlite:///./database.db"))
 engine = create_engine(os.getenv("DATABASE_URL", "postgresql://user:password@db:5432/postgres"))
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+def init_database() -> None:
+    Base.metadata.create_all(bind=engine)
+    # Lightweight runtime migration for existing deployments.
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS subtitles_enabled BOOLEAN DEFAULT TRUE"
+            )
+        )
+        conn.execute(
+            text("UPDATE users SET subtitles_enabled = TRUE WHERE subtitles_enabled IS NULL")
+        )

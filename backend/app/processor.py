@@ -1,9 +1,10 @@
 import os
 import logging
+import random
+import uuid
 from faster_whisper import WhisperModel
 import ffmpeg
 from typing import List, Dict, Optional
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                       output_path: str, 
                       plate_path: Optional[str] = None, 
                       ass_path: Optional[str] = None,
-                      cta_path: Optional[str] = None):
+                      cta_path: Optional[str] = None,
+                      subtitles_enabled: bool = True,
+                      unique_seed: Optional[int] = None):
         """
         The final rendering pipeline using FFmpeg.
         1. Burn subtitles.
@@ -84,8 +87,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         audio = stream.audio
 
         # 2. Add Subtitles
-        if ass_path:
+        if subtitles_enabled and ass_path:
             video = video.filter('subtitles', ass_path, force_style="Alignment=2")
+
+        # 2.1 Lightweight visual/audio uniqueness profile.
+        profile = self._build_unique_profile(unique_seed)
+        video = video.filter(
+            "eq",
+            brightness=profile["brightness"],
+            contrast=profile["contrast"],
+            saturation=profile["saturation"],
+            gamma=profile["gamma"],
+        )
+        video = video.filter("setpts", f"PTS/{profile['speed']}")
+        audio = audio.filter("atempo", profile["speed"])
 
         # 3. Add Plate (Overlay)
         if plate_path:
@@ -110,9 +125,64 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             audio = ffmpeg.concat(audio, cta_a, v=0, a=1)
 
         # Final output
+        unique_tag = uuid.uuid4().hex
         (
             ffmpeg
-            .output(video, audio, output_path, vcodec='libx264', acodec='aac', threads='auto')
+            .output(
+                video,
+                audio,
+                output_path,
+                vcodec='libx264',
+                acodec='aac',
+                threads='auto',
+                movflags='+faststart',
+                map_metadata='-1',
+            )
+            .global_args(
+                "-metadata", f"title=content-studio-{unique_tag}",
+                "-metadata", f"comment=uniq-{unique_tag}",
+                "-metadata", f"description=variant-{profile['variant_id']}",
+            )
             .overwrite_output()
             .run()
         )
+
+    def render_unique_variants(
+        self,
+        input_path: str,
+        output_base_path: str,
+        variants_count: int = 2,
+        plate_path: Optional[str] = None,
+        ass_path: Optional[str] = None,
+        cta_path: Optional[str] = None,
+        subtitles_enabled: bool = True,
+    ) -> List[str]:
+        base, ext = os.path.splitext(output_base_path)
+        ext = ext or ".mp4"
+        outputs: List[str] = []
+
+        for idx in range(1, max(1, variants_count) + 1):
+            variant_output = f"{base}_u{idx}{ext}"
+            variant_seed = random.randint(1, 10_000_000)
+            self.process_video(
+                input_path=input_path,
+                output_path=variant_output,
+                plate_path=plate_path,
+                ass_path=ass_path,
+                cta_path=cta_path,
+                subtitles_enabled=subtitles_enabled,
+                unique_seed=variant_seed,
+            )
+            outputs.append(variant_output)
+        return outputs
+
+    def _build_unique_profile(self, unique_seed: Optional[int]) -> Dict[str, float | int]:
+        rnd = random.Random(unique_seed if unique_seed is not None else random.randint(1, 10_000_000))
+        return {
+            "variant_id": int(rnd.random() * 1_000_000),
+            "brightness": round(rnd.uniform(-0.03, 0.03), 3),
+            "contrast": round(rnd.uniform(0.97, 1.06), 3),
+            "saturation": round(rnd.uniform(0.95, 1.08), 3),
+            "gamma": round(rnd.uniform(0.97, 1.04), 3),
+            "speed": round(rnd.uniform(0.988, 1.012), 4),
+        }

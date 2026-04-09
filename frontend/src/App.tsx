@@ -7,6 +7,7 @@ type UserSettings = {
   font_name: string;
   font_size: number;
   font_color: string;
+  subtitles_enabled: boolean;
   selected_plate_id?: number | null;
 };
 
@@ -60,6 +61,7 @@ const App = () => {
   const [font, setFont] = useState('Montserrat');
   const [fontSize, setFontSize] = useState(60);
   const [fontColor, setFontColor] = useState('#FFFFFF');
+  const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
   const [plateFile, setPlateFile] = useState<File | null>(null);
   const [platePreviewUrl, setPlatePreviewUrl] = useState('');
   const [selectedPlateId, setSelectedPlateId] = useState<number | null>(null);
@@ -95,6 +97,7 @@ const App = () => {
         setFont(response.data.font_name || 'Montserrat');
         setFontSize(response.data.font_size || 60);
         setFontColor(response.data.font_color ? `#${response.data.font_color.replace('#', '')}` : '#FFFFFF');
+        setSubtitlesEnabled(response.data.subtitles_enabled !== false);
         setSelectedPlateId(response.data.selected_plate_id ?? null);
       } catch (error) {}
     };
@@ -182,6 +185,7 @@ const App = () => {
         font_name: font,
         font_size: fontSize,
         font_color: fontColor.replace('#', ''),
+        subtitles_enabled: subtitlesEnabled,
         selected_plate_id: selectedPlateId,
       });
       setSaved(true);
@@ -261,12 +265,22 @@ const App = () => {
                   <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Типографика</h3>
                 </div>
                 <div className="p-4 space-y-8">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-[#707579]">Субтитры включены</span>
+                    <button
+                      onClick={() => setSubtitlesEnabled((prev) => !prev)}
+                      className={`w-12 h-6 rounded-full transition-all flex items-center p-1 ${subtitlesEnabled ? 'bg-[#34c759]' : 'bg-[#e9e9eb]'}`}
+                    >
+                      <div className={`w-4 h-4 bg-white rounded-full shadow-sm transform transition-all ${subtitlesEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
+                    </button>
+                  </div>
+
                   <div className="space-y-3">
                     <div className="flex justify-between items-center text-sm font-medium">
                       <span className="text-[#707579]">Семейство шрифта</span>
                       <span className="text-[#24a1de] uppercase tracking-wider text-xs">{font}</span>
                     </div>
-                    <select value={font} onChange={(e) => setFont(e.target.value)} className="w-full input-field appearance-none">
+                    <select value={font} onChange={(e) => setFont(e.target.value)} className="w-full input-field appearance-none" disabled={!subtitlesEnabled}>
                       {['Montserrat', 'Inter', 'Outfit', 'Bangers', 'Roboto'].map(f => (<option key={f}>{f}</option>))}
                     </select>
                   </div>
@@ -276,14 +290,14 @@ const App = () => {
                       <span className="text-[#707579]">Размер текста</span>
                       <span className="text-[#24a1de]">{fontSize}px</span>
                     </div>
-                    <input type="range" min="20" max="120" value={fontSize} onChange={(e) => setFontSize(parseInt(e.target.value, 10))} className="w-full" />
+                    <input type="range" min="20" max="120" value={fontSize} onChange={(e) => setFontSize(parseInt(e.target.value, 10))} className="w-full" disabled={!subtitlesEnabled} />
                   </div>
 
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-[#707579]">Цвет текста</span>
                     <div className="flex items-center gap-3">
                        <span className="text-xs font-mono text-[#707579]">{fontColor.toUpperCase()}</span>
-                       <input type="color" value={fontColor} onChange={(e) => setFontColor(e.target.value)} className="w-8 h-8 rounded-full overflow-hidden p-0 border-none cursor-pointer" />
+                       <input type="color" value={fontColor} onChange={(e) => setFontColor(e.target.value)} className="w-8 h-8 rounded-full overflow-hidden p-0 border-none cursor-pointer" disabled={!subtitlesEnabled} />
                     </div>
                   </div>
                 </div>

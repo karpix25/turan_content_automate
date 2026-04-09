@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, UploadFile, File, HTTPException
 from sqlalchemy.orm import Session
-from .database import engine, SessionLocal, Base
+from .database import SessionLocal, init_database
 from . import models, schemas
 from .integrations.postmypost import PostMyPostClient
 import os
@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Initialize DB
-models.Base.metadata.create_all(bind=engine)
+init_database()
 
 celery_client = Celery("api_client", broker=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
 pmp_client = PostMyPostClient(api_key=os.getenv("POSTMYPOST_API_KEY", ""))

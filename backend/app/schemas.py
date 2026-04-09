@@ -6,6 +6,7 @@ class UserSettingsUpdate(BaseModel):
     font_name: Optional[str] = None
     font_size: Optional[int] = None
     font_color: Optional[str] = None
+    subtitles_enabled: Optional[bool] = None
     selected_plate_id: Optional[int] = None
 
 class VideoTaskCreate(BaseModel):
@@ -50,6 +51,7 @@ class UserSettings(BaseModel):
     font_name: str
     font_size: int
     font_color: str
+    subtitles_enabled: bool
     selected_plate_id: Optional[int]
 
     class Config:
