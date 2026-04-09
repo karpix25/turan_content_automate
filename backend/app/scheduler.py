@@ -91,6 +91,42 @@ def _normalize_post_at(value: datetime.datetime | None, force_now: bool) -> date
     return value.astimezone(datetime.timezone.utc)
 
 
+def _resolve_task_output_path(output_path: str | None) -> str | None:
+    value = (output_path or "").strip()
+    if not value:
+        return None
+    if os.path.isfile(value):
+        return value
+    normalized = value.lstrip("./")
+    fallback_candidates = [
+        os.path.join("/app", normalized),
+        os.path.join("/app/database/media/output", os.path.basename(normalized)),
+    ]
+    for candidate in fallback_candidates:
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def _cleanup_local_output(task: models.VideoTask) -> None:
+    cleanup_enabled = os.getenv("DELETE_LOCAL_OUTPUT_AFTER_SYNC", "1").strip() not in {"0", "false", "False"}
+    if not cleanup_enabled:
+        return
+    path = _resolve_task_output_path(task.output_path)
+    if not path:
+        task.output_path = None
+        return
+    try:
+        os.remove(path)
+        logger.info("Removed local output file after sync: %s", path)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        logger.warning("Failed to remove local output file %s: %s", path, e)
+        return
+    task.output_path = None
+
+
 @celery_app.task(name="sync_publication_task")
 def sync_publication_task(task_id: int, force_now: bool = False):
     db = SessionLocal()
@@ -101,8 +137,6 @@ def sync_publication_task(task_id: int, force_now: bool = False):
         if task.status != "completed":
             logger.info(f"Task {task_id} is not completed yet, skipping publication sync")
             return
-        if not task.output_path:
-            raise RuntimeError("Task has no output file")
 
         user = db.query(models.User).get(task.user_id)
         if not user:
@@ -113,14 +147,20 @@ def sync_publication_task(task_id: int, force_now: bool = False):
         post_at = _normalize_post_at(task.publish_at, force_now)
 
         content = f"Auto content from Content Studio\nSource: {task.source_url}"
-        file_id = pmp_client.upload_local_file(project_id=project_id, file_path=task.output_path)
+        file_id = task.postmypost_file_id
+        if not file_id:
+            resolved_output_path = _resolve_task_output_path(task.output_path)
+            if not resolved_output_path:
+                raise RuntimeError("Task has no local output file and no PostMyPost file id")
+            file_id = pmp_client.upload_local_file(project_id=project_id, file_path=resolved_output_path)
+            task.postmypost_file_id = int(file_id)
 
         if task.postmypost_id:
             response = pmp_client.update_publication(
                 publication_id=int(task.postmypost_id),
                 account_ids=account_ids,
                 post_at=post_at,
-                file_id=file_id,
+                file_id=int(file_id),
                 content=content,
             )
         else:
@@ -128,7 +168,7 @@ def sync_publication_task(task_id: int, force_now: bool = False):
                 project_id=project_id,
                 account_ids=account_ids,
                 post_at=post_at,
-                file_id=file_id,
+                file_id=int(file_id),
                 content=content,
             )
 
@@ -139,6 +179,7 @@ def sync_publication_task(task_id: int, force_now: bool = False):
         now_utc = datetime.datetime.now(datetime.timezone.utc)
         task.publishing_status = "scheduled" if post_at > now_utc else "in_progress"
         task.publish_at = post_at.replace(tzinfo=None)
+        _cleanup_local_output(task)
         db.commit()
         logger.info(f"Task {task_id} synced to PostMyPost publication {task.postmypost_id}")
     except Exception as e:

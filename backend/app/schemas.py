@@ -32,6 +32,7 @@ class VideoTaskOut(BaseModel):
     publish_at: Optional[datetime.datetime]
     publishing_status: str
     postmypost_id: Optional[str]
+    postmypost_file_id: Optional[int]
     created_at: datetime.datetime
     updated_at: datetime.datetime
 

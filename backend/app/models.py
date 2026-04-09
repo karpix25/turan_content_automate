@@ -56,6 +56,7 @@ class VideoTask(Base):
     publish_at = Column(DateTime, nullable=True)
     publishing_status = Column(String, default="not_published")  # 'not_published', 'scheduled', 'in_progress', 'published', 'failed'
     postmypost_id = Column(String, nullable=True)
+    postmypost_file_id = Column(Integer, nullable=True)
 
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

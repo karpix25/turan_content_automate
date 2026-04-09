@@ -327,7 +327,7 @@ def update_task_schedule(
     db.commit()
 
     try:
-        if publish_at and task.status == "completed" and task.output_path:
+        if publish_at and task.status == "completed" and (task.output_path or task.postmypost_file_id):
             celery_client.send_task("sync_publication_task", args=[task.id], kwargs={"force_now": False})
         if publish_at is None:
             celery_client.send_task("unschedule_publication_task", args=[task.id])
@@ -344,8 +344,8 @@ def publish_task_now(telegram_id: str, task_id: int, db: Session = Depends(get_d
 
     if task.status != "completed":
         raise HTTPException(status_code=400, detail="Task is not processed yet")
-    if not task.output_path:
-        raise HTTPException(status_code=400, detail="Task has no rendered output")
+    if not task.output_path and not task.postmypost_file_id:
+        raise HTTPException(status_code=400, detail="Task has no render output or uploaded PostMyPost file")
     if task.publishing_status == "published":
         raise HTTPException(status_code=400, detail="Task already published")
 

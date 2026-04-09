@@ -202,7 +202,7 @@ def _upsert_variant_task(
         models.VideoTask.id != base_task.id,
     ).first()
 
-    publishing_status = "scheduled" if publish_at else "not_published"
+    publishing_status = "scheduled" if publish_at else "in_progress"
 
     if existing:
         existing.type = base_task.type
@@ -242,13 +242,12 @@ def process_content_task(task_id: int):
     user = db.query(models.User).get(task.user_id)
     task.status = "processing"
     db.commit()
+    input_videos: List[str] = []
 
     try:
         source_url = _normalize_external_url(task.source_url)
         if not source_url:
             raise Exception("Source URL is empty")
-
-        input_videos = []
 
         if task.type == "vizard":
             # 1. Send to Vizard
@@ -378,12 +377,11 @@ def process_content_task(task_id: int):
             task.source_url = f"{task.source_url.split(' [slot ', 1)[0]} [slot {primary_slot}]"
             task.publish_at = primary_publish_at
             task.status = "completed"
-            task.publishing_status = "scheduled" if primary_publish_at else "not_published"
+            task.publishing_status = "scheduled" if primary_publish_at else "in_progress"
             db.commit()
             db.refresh(task)
 
-            if primary_publish_at:
-                celery_app.send_task("sync_publication_task", args=[task.id])
+            celery_app.send_task("sync_publication_task", args=[task.id])
 
             for index, (account_id, account_output, slot_idx) in enumerate(account_outputs[1:], start=1):
                 publish_at = publish_times[index] if len(publish_times) > index else task.publish_at
@@ -395,8 +393,7 @@ def process_content_task(task_id: int):
                     publish_at=publish_at,
                     target_account_id=account_id,
                 )
-                if variant_task.publish_at:
-                    celery_app.send_task("sync_publication_task", args=[variant_task.id])
+                celery_app.send_task("sync_publication_task", args=[variant_task.id])
         else:
             # No connected publication accounts; render a single local-ready output.
             processor.process_video(
@@ -420,6 +417,15 @@ def process_content_task(task_id: int):
         db.commit()
         raise
     finally:
+        for path in input_videos:
+            if not path:
+                continue
+            try:
+                if os.path.isfile(path):
+                    os.remove(path)
+                    logging.info("Removed temporary source file: %s", path)
+            except OSError as e:
+                logging.warning("Failed to remove temporary source file %s: %s", path, e)
         db.close()
 
 # Import scheduler to register publication sync tasks on the same Celery app.
