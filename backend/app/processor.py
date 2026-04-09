@@ -2,62 +2,27 @@ import os
 import logging
 import random
 import uuid
-from faster_whisper import WhisperModel
 import ffmpeg
 from typing import List, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
 class VideoProcessor:
-    def __init__(self, model_size: str = "large-v3", device: str = "cpu", compute_type: str = "int8"):
-        # Initialize Whisper
-        logger.info(f"Loading Whisper model {model_size} on {device} with {compute_type}...")
-        self.model = WhisperModel(model_size, device=device, compute_type=compute_type)
+    def __init__(self):
+        logger.info("VideoProcessor initialized (subtitles/transcription disabled).")
 
     def transcribe(self, video_path: str) -> List[Dict]:
         """
-        Transcribes the video and returns a list of segments with timestamps.
+        Whisper transcription is disabled in this build.
         """
-        logger.info(f"Transcribing {video_path}...")
-        segments, info = self.model.transcribe(video_path, beam_size=5, word_timestamps=True)
-        
-        result = []
-        for segment in segments:
-            for word in segment.words:
-                result.append({
-                    "start": word.start,
-                    "end": word.end,
-                    "text": word.word.strip()
-                })
-        return result
+        logger.info("Transcription skipped for %s (disabled).", video_path)
+        return []
 
     def generate_ass_subtitles(self, segments: List[Dict], font_name: str, font_size: int, font_color: str) -> str:
         """
-        Creates an .ass subtitle file content from segments.
-        This allows for the rich styling requested (fonts from Google Fonts, etc).
+        Subtitle generation is disabled and returns an empty string.
         """
-        # Basic ASS header with styles
-        header = f"""[Script Info]
-ScriptType: v4.00+
-PlayResX: 1080
-PlayResY: 1920
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font_name},{font_size},&H00{font_color},&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2,2,2,10,10,200,1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
-        events = []
-        for s in segments:
-            # Format time: H:MM:SS.cs
-            start_t = self._format_timestamp(s["start"])
-            end_t = self._format_timestamp(s["end"])
-            text = s["text"]
-            events.append(f"Dialogue: 0,{start_t},{end_t},Default,,0,0,0,,{text}")
-        
-        return header + "\n".join(events)
+        return ""
 
     def _format_timestamp(self, seconds: float) -> str:
         h = int(seconds // 3600)
@@ -71,7 +36,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                       plate_path: Optional[str] = None, 
                       ass_path: Optional[str] = None,
                       cta_path: Optional[str] = None,
-                      subtitles_enabled: bool = True,
+                      subtitles_enabled: bool = False,
                       unique_seed: Optional[int] = None):
         """
         The final rendering pipeline using FFmpeg.
@@ -156,7 +121,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         ass_path: Optional[str] = None,
         cta_path: Optional[str] = None,
         cta_paths: Optional[List[Optional[str]]] = None,
-        subtitles_enabled: bool = True,
+        subtitles_enabled: bool = False,
     ) -> List[str]:
         base, ext = os.path.splitext(output_base_path)
         ext = ext or ".mp4"

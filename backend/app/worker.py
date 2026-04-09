@@ -30,11 +30,7 @@ rapidapi_yt = RapidAPIYoutubeClient(
 )
 downloader = Downloader(output_dir=os.getenv("OUTPUT_DIR", "./output"))
 pmp_client = PostMyPostClient(api_key=os.getenv("POSTMYPOST_API_KEY", ""))
-processor = VideoProcessor(
-    model_size=os.getenv("WHISPER_MODEL", "large-v3"),
-    device=os.getenv("WHISPER_DEVICE", "cpu"),
-    compute_type=os.getenv("WHISPER_COMPUTE_TYPE", "int8")
-)
+processor = VideoProcessor()
 
 def _parse_env_account_ids(raw: str) -> List[int]:
     result: List[int] = []
@@ -326,19 +322,8 @@ def process_content_task(task_id: int):
         video_root, _ = os.path.splitext(video_path)
         base_output = f"{video_root}_final.mp4"
 
-        subtitles_enabled = bool(getattr(user, "subtitles_enabled", True))
+        subtitles_enabled = False
         ass_path = None
-        if subtitles_enabled:
-            segments = processor.transcribe(video_path)
-            ass_path = f"{video_root}.ass"
-            ass_content = processor.generate_ass_subtitles(
-                segments,
-                font_name=user.font_name,
-                font_size=user.font_size,
-                font_color=user.font_color
-            )
-            with open(ass_path, "w") as f:
-                f.write(ass_content)
 
         active_plate = db.query(models.Plate).filter(models.Plate.id == user.selected_plate_id).first()
         plate_path = active_plate.file_path if active_plate else None

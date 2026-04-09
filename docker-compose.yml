@@ -50,9 +50,6 @@ services:
       - POSTMYPOST_API_KEY=${POSTMYPOST_API_KEY}
       - POSTMYPOST_PROJECT_ID=${POSTMYPOST_PROJECT_ID}
       - POSTMYPOST_CHANNEL_IDS=${POSTMYPOST_CHANNEL_IDS}
-      - WHISPER_MODEL=${WHISPER_MODEL:-large-v3}
-      - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
-      - WHISPER_DEVICE=cpu
       - PYTHONPATH=.
     depends_on:
       - db
@@ -76,13 +73,9 @@ services:
     command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=${CELERY_WORKER_CONCURRENCY:-1} --prefetch-multiplier=1 --max-tasks-per-child=5 -Ofair
     volumes:
       - media_data:/app/database/media
-      - hf_cache:/root/.cache/huggingface
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-content_studio}
       - REDIS_URL=redis://redis:6379/0
-      - HF_HOME=/root/.cache/huggingface
-      - HF_HUB_CACHE=/root/.cache/huggingface/hub
-      - TRANSFORMERS_CACHE=/root/.cache/huggingface/transformers
       - VIZARD_API_KEY=${VIZARD_API_KEY}
       - SCRAPE_CREATORS_API_KEY=${SCRAPE_CREATORS_API_KEY}
       - RAPIDAPI_KEY=${RAPIDAPI_KEY}
@@ -90,9 +83,6 @@ services:
       - POSTMYPOST_API_KEY=${POSTMYPOST_API_KEY}
       - POSTMYPOST_PROJECT_ID=${POSTMYPOST_PROJECT_ID}
       - POSTMYPOST_CHANNEL_IDS=${POSTMYPOST_CHANNEL_IDS}
-      - WHISPER_MODEL=${WHISPER_MODEL:-large-v3}
-      - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
-      - WHISPER_DEVICE=cpu
       - PYTHONPATH=.
     depends_on:
       - db
@@ -160,4 +150,3 @@ networks:
 volumes:
   postgres_data:
   media_data:
-  hf_cache:

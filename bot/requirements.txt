@@ -3,7 +3,6 @@ uvicorn
 aiogram==2.25.1
 python-dotenv
 httpx
-faster-whisper
 moviepy
 ffmpeg-python
 celery
