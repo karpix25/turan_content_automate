@@ -274,26 +274,30 @@ def process_content_task(task_id: int):
 
         elif task.type == "instagram":
             details = scraper.get_instagram_details(source_url)
-            if details and details.get("download_url"):
-                local_file = downloader.download_video(details["download_url"], f"insta_{task_id}")
-                if not local_file:
-                    raise Exception("Failed to download Instagram video")
-                input_videos.append(local_file)
-            else:
-                raise Exception("Failed to get Instagram download link")
+            download_url = _normalize_external_url((details or {}).get("download_url") or "")
+            if not download_url:
+                error_text = (details or {}).get("error") or "Failed to get Instagram download link"
+                raise Exception(error_text)
+
+            local_file = downloader.download_video(download_url, f"insta_{task_id}")
+            if not local_file:
+                raise Exception("Failed to download Instagram video from ScrapeCreators URL")
+            input_videos.append(local_file)
 
         elif task.type == "youtube":
             _validate_youtube_url_or_raise(source_url)
             details = scraper.get_youtube_details(source_url)
-            download_url = None
-            if details:
-                download_url = details.get("download_url") or details.get("original_url")
+            if not details:
+                raise Exception("Failed to get YouTube details from ScrapeCreators")
 
-            # ScrapeCreators is the primary source for YouTube metadata/URL.
-            target_url = _normalize_external_url(download_url or source_url)
-            local_file = downloader.download_video(target_url, f"yt_{task_id}")
+            download_url = _normalize_external_url(details.get("download_url") or "")
+            if not download_url:
+                error_text = details.get("error") or "No downloadable media URL returned by ScrapeCreators"
+                raise Exception(f"Failed to download YouTube video: {error_text}")
+
+            local_file = downloader.download_video(download_url, f"yt_{task_id}")
             if not local_file:
-                raise Exception("Failed to download YouTube video (ScrapeCreators/URL)")
+                raise Exception("Failed to download YouTube video from ScrapeCreators URL")
             input_videos.append(local_file)
 
         if not input_videos:

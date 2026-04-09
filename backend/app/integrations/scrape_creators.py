@@ -22,6 +22,15 @@ class ScrapeCreatorsClient:
                 response.raise_for_status()
                 data = response.json()
                 return data if isinstance(data, dict) else None
+        except httpx.HTTPStatusError as e:
+            body_preview = (e.response.text or "").strip().replace("\n", " ")[:300]
+            logger.error(
+                "ScrapeCreators request failed for %s: HTTP %s. Body: %s",
+                path,
+                e.response.status_code,
+                body_preview,
+            )
+            return None
         except Exception as e:
             logger.error(f"ScrapeCreators request failed for {path}: {e}")
             return None
@@ -32,46 +41,64 @@ class ScrapeCreatorsClient:
         """
         data = self._get_json("instagram/post", {"url": reel_url})
         if not data:
-            return None
+            return {"download_url": None, "error": "ScrapeCreators request failed"}
+        if data.get("success") is False:
+            return {
+                "download_url": None,
+                "error": data.get("message") or "ScrapeCreators returned success=false",
+            }
         return {
             "download_url": data.get("video_url") or data.get("download_url"),
             "caption": data.get("caption"),
             "view_count": data.get("viewCountInt"),
             "creator": (data.get("owner") or {}).get("username"),
+            "error": None,
         }
 
     def get_youtube_details(self, video_url: str) -> Optional[Dict]:
         """
-        Extracts YouTube metadata and best available downloadable URL.
+        Extracts YouTube metadata and best available downloadable URL from ScrapeCreators.
         """
         data = self._get_json("youtube/video", {"url": video_url})
         if not data:
-            return None
+            return {"download_url": None, "error": "ScrapeCreators request failed"}
+        if data.get("success") is False:
+            return {
+                "download_url": None,
+                "error": data.get("message") or "ScrapeCreators returned success=false",
+                "raw": data,
+            }
 
         # Different API plans/versions may expose different field names.
         download_url = (
             data.get("download_url")
             or data.get("video_url")
-            or data.get("url")
-            or data.get("source")
         )
 
         if not download_url:
-            files = data.get("files")
-            if isinstance(files, list):
-                for item in files:
-                    if isinstance(item, dict):
-                        candidate = item.get("url") or item.get("download_url")
-                        if candidate:
-                            download_url = candidate
-                            break
+            for key in ("files", "formats", "sources", "videos"):
+                items = data.get(key)
+                if not isinstance(items, list):
+                    continue
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    candidate = item.get("download_url") or item.get("video_url") or item.get("url")
+                    if candidate:
+                        download_url = candidate
+                        break
+                if download_url:
+                    break
 
         return {
             "download_url": download_url,
-            "original_url": data.get("videoUrl") or video_url,
+            "original_url": data.get("url") or data.get("videoUrl") or video_url,
             "title": data.get("title"),
             "transcript": data.get("transcript"),
+            "transcript_only_text": data.get("transcript_only_text"),
             "caption_tracks": data.get("captionTracks", []),
             "view_count": data.get("viewCountInt"),
+            "credits_remaining": data.get("credits_remaining"),
+            "error": None,
             "raw": data,
         }

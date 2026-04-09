@@ -11,7 +11,6 @@ redis
 pydantic
 pydantic-settings
 sqlalchemy
-yt-dlp
 python-multipart
 psycopg2-binary
 requests
