@@ -1,13 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Image as ImageIcon, Video, Type, Save, Check, Upload, Smartphone, CalendarClock, RefreshCcw, LayoutGrid, ChevronRight, X, Eye } from 'lucide-react';
+import { Image as ImageIcon, Video, Upload, CalendarClock, RefreshCcw, LayoutGrid, ChevronRight, X, Eye } from 'lucide-react';
 import axios from 'axios';
 
 type UserSettings = {
-  font_name: string;
-  font_size: number;
-  font_color: string;
-  subtitles_enabled: boolean;
   auto_schedule_enabled: boolean;
   publish_limit_per_day: number;
   publish_window_start_msk: string;
@@ -78,10 +74,6 @@ const App = () => {
   const [saved, setSaved] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
 
-  const [font, setFont] = useState('Montserrat');
-  const [fontSize, setFontSize] = useState(60);
-  const [fontColor, setFontColor] = useState('#FFFFFF');
-  const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
   const [autoScheduleEnabled, setAutoScheduleEnabled] = useState(false);
   const [publishLimitPerDay, setPublishLimitPerDay] = useState(3);
   const [publishWindowStartMsk, setPublishWindowStartMsk] = useState('10:00:00');
@@ -142,10 +134,6 @@ const App = () => {
     const loadSettings = async () => {
       try {
         const response = await axios.get<UserSettings>(`${API_BASE}/settings/${telegramId}`);
-        setFont(response.data.font_name || 'Montserrat');
-        setFontSize(response.data.font_size || 60);
-        setFontColor(response.data.font_color ? `#${response.data.font_color.replace('#', '')}` : '#FFFFFF');
-        setSubtitlesEnabled(response.data.subtitles_enabled !== false);
         setAutoScheduleEnabled(response.data.auto_schedule_enabled === true);
         setPublishLimitPerDay(response.data.publish_limit_per_day || 3);
         setPublishWindowStartMsk(response.data.publish_window_start_msk || '10:00:00');
@@ -329,23 +317,37 @@ const App = () => {
     }
   };
 
-  const handleSave = async () => {
+  const flashSaved = () => {
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const saveBrandingSettings = async () => {
     if (!telegramId) return;
     setLoading(true);
     try {
       await axios.post(`${API_BASE}/settings/${telegramId}/update`, {
-        font_name: font,
-        font_size: fontSize,
-        font_color: fontColor.replace('#', ''),
-        subtitles_enabled: subtitlesEnabled,
+        subtitles_enabled: false,
+        selected_plate_id: selectedPlateId,
+      });
+      flashSaved();
+    } catch (error) {} finally {
+      setLoading(false);
+    }
+  };
+
+  const savePlanningSettings = async () => {
+    if (!telegramId) return;
+    setLoading(true);
+    try {
+      await axios.post(`${API_BASE}/settings/${telegramId}/update`, {
+        subtitles_enabled: false,
         auto_schedule_enabled: autoScheduleEnabled,
         publish_limit_per_day: publishLimitPerDay,
         publish_window_start_msk: publishWindowStartMsk,
         publish_window_end_msk: publishWindowEndMsk,
-        selected_plate_id: selectedPlateId,
       });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      flashSaved();
     } catch (error) {} finally {
       setLoading(false);
     }
@@ -389,14 +391,46 @@ const App = () => {
     .map(([network, count]) => `${network}: ${count}`)
     .join(' · ');
 
+  const sectionMeta: Record<string, { title: string; actionLabel: string | null }> = {
+    branding: { title: 'Брендинг', actionLabel: 'Сохранить' },
+    channels: { title: 'Каналы', actionLabel: 'Сохранить' },
+    planning: { title: 'Планирование', actionLabel: 'Сохранить' },
+    queue: { title: 'Очередь', actionLabel: null },
+  };
+
+  const currentSection = sectionMeta[activeTab] || sectionMeta.branding;
+
+  const handleHeaderAction = async () => {
+    if (activeTab === 'branding') {
+      await saveBrandingSettings();
+      return;
+    }
+    if (activeTab === 'channels') {
+      await saveDescriptions();
+      flashSaved();
+      return;
+    }
+    if (activeTab === 'planning') {
+      await savePlanningSettings();
+    }
+  };
+
   return (
     <div className="min-h-screen pb-32 flex flex-col items-center">
-      {/* Header */}
       <header className="w-full bg-white px-4 py-3 flex items-center justify-between border-b sticky top-0 z-50">
-        <h1 className="text-[17px] font-bold">Студия контента</h1>
-        <button onClick={handleSave} disabled={loading} className="text-[16px] font-semibold text-[#24a1de] disabled:opacity-50">
-          {loading ? '...' : saved ? 'Сохранено' : 'Сохранить'}
-        </button>
+        <div>
+          <p className="text-[12px] uppercase tracking-[0.18em] text-[#8d96a5]">Content Studio</p>
+          <h1 className="text-[17px] font-bold">{currentSection.title}</h1>
+        </div>
+        {currentSection.actionLabel ? (
+          <button onClick={handleHeaderAction} disabled={loading || savingChannelSettings} className="text-[16px] font-semibold text-[#24a1de] disabled:opacity-50">
+            {loading || savingChannelSettings ? '...' : saved ? 'Сохранено' : currentSection.actionLabel}
+          </button>
+        ) : (
+          <button onClick={() => telegramId && loadTasks(telegramId)} className="text-[#24a1de]">
+            <RefreshCcw size={18} />
+          </button>
+        )}
       </header>
 
       <main className="w-full max-w-2xl px-4 py-6">
@@ -439,6 +473,13 @@ const App = () => {
         <AnimatePresence mode="wait">
           {activeTab === 'branding' && (
             <motion.div key="branding" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
+              <div className="tg-card p-4 bg-gradient-to-br from-slate-950 to-slate-800 text-white">
+                <p className="text-[12px] uppercase tracking-[0.18em] text-slate-300">Зона бренда</p>
+                <h2 className="text-[22px] font-bold mt-2">Плашка для роликов</h2>
+                <p className="text-sm text-slate-300 mt-2">
+                  Здесь хранится визуальный оверлей, который накладывается на каждый финальный ролик перед публикацией.
+                </p>
+              </div>
               <div className="tg-card overflow-hidden">
                 <div className="p-4 border-b">
                   <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Наложение логотипа</h3>
@@ -460,70 +501,22 @@ const App = () => {
                   <input ref={fileInputRef} type="file" accept="image/png,image/webp" onChange={handlePlateSelected} className="hidden" />
                 </div>
               </div>
-
             </motion.div>
           )}
 
-          {activeTab === 'subtitles' && (
-            <motion.div key="subtitles" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
-              <div className="tg-card">
-                <div className="p-4 border-b">
-                  <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Типографика</h3>
-                </div>
-                <div className="p-4 space-y-8">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-[#707579]">Субтитры включены</span>
-                    <button
-                      onClick={() => setSubtitlesEnabled((prev) => !prev)}
-                      className={`w-12 h-6 rounded-full transition-all flex items-center p-1 ${subtitlesEnabled ? 'bg-[#34c759]' : 'bg-[#e9e9eb]'}`}
-                    >
-                      <div className={`w-4 h-4 bg-white rounded-full shadow-sm transform transition-all ${subtitlesEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
-                    </button>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center text-sm font-medium">
-                      <span className="text-[#707579]">Семейство шрифта</span>
-                      <span className="text-[#24a1de] uppercase tracking-wider text-xs">{font}</span>
-                    </div>
-                    <select value={font} onChange={(e) => setFont(e.target.value)} className="w-full input-field appearance-none" disabled={!subtitlesEnabled}>
-                      {['Montserrat', 'Inter', 'Outfit', 'Bangers', 'Roboto'].map(f => (<option key={f}>{f}</option>))}
-                    </select>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center text-sm font-medium">
-                      <span className="text-[#707579]">Размер текста</span>
-                      <span className="text-[#24a1de]">{fontSize}px</span>
-                    </div>
-                    <input type="range" min="20" max="120" value={fontSize} onChange={(e) => setFontSize(parseInt(e.target.value, 10))} className="w-full" disabled={!subtitlesEnabled} />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-[#707579]">Цвет текста</span>
-                    <div className="flex items-center gap-3">
-                       <span className="text-xs font-mono text-[#707579]">{fontColor.toUpperCase()}</span>
-                       <input type="color" value={fontColor} onChange={(e) => setFontColor(e.target.value)} className="w-8 h-8 rounded-full overflow-hidden p-0 border-none cursor-pointer" disabled={!subtitlesEnabled} />
-                    </div>
-                  </div>
-                </div>
+          {activeTab === 'channels' && (
+            <motion.div key="channels" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
+              <div className="tg-card p-4 bg-gradient-to-br from-[#fff6e7] to-[#fffaf2] border border-[#f5dfb2]">
+                <p className="text-[12px] uppercase tracking-[0.18em] text-[#9a6b13]">Публикация</p>
+                <h2 className="text-[22px] font-bold mt-2 text-slate-900">Каналы и их материалы</h2>
+                <p className="text-sm text-slate-600 mt-2">
+                  У каждого аккаунта свой статус, своё описание и своя видео-концовка. Здесь настраивается именно то, что уйдёт в PostMyPost.
+                </p>
               </div>
-            </motion.div>
-          )}
-
-          {activeTab === 'schedule' && (
-            <motion.div key="schedule" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
               <div className="tg-card overflow-hidden">
                  <div className="p-4 border-b flex items-center justify-between">
                     <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Каналы публикации</h3>
                     <div className="flex items-center gap-3">
-                      <button
-                        onClick={saveDescriptions}
-                        className="text-[12px] font-semibold text-[#24a1de] disabled:opacity-50"
-                        disabled={savingChannelSettings || channelsLoading}
-                      >
-                        {savingChannelSettings ? 'Сохранение...' : 'Сохранить текст'}
-                      </button>
                       <button onClick={() => telegramId && loadPublishAccounts(telegramId)} className="text-[#24a1de]"><RefreshCcw size={16} /></button>
                     </div>
                  </div>
@@ -595,7 +588,18 @@ const App = () => {
                     )})}
                  </div>
               </div>
+            </motion.div>
+          )}
 
+          {activeTab === 'planning' && (
+            <motion.div key="planning" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
+              <div className="tg-card p-4 bg-gradient-to-br from-[#eef5ff] to-[#f8fbff] border border-[#cfe0ff]">
+                <p className="text-[12px] uppercase tracking-[0.18em] text-[#3967b7]">Автопланирование</p>
+                <h2 className="text-[22px] font-bold mt-2 text-slate-900">Правила публикации</h2>
+                <p className="text-sm text-slate-600 mt-2">
+                  Здесь задаётся дневной лимит и рабочее окно по Москве. Новые ролики получают время автоматически и равномерно.
+                </p>
+              </div>
               <div className="tg-card">
                 <div className="p-4 border-b">
                   <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Авторасписание (МСК)</h3>
@@ -651,7 +655,18 @@ const App = () => {
                   </p>
                 </div>
               </div>
+            </motion.div>
+          )}
 
+          {activeTab === 'queue' && (
+            <motion.div key="queue" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
+              <div className="tg-card p-4 bg-gradient-to-br from-[#f5f7fa] to-[#ffffff] border border-slate-200">
+                <p className="text-[12px] uppercase tracking-[0.18em] text-slate-500">Мониторинг</p>
+                <h2 className="text-[22px] font-bold mt-2 text-slate-900">Очередь публикаций</h2>
+                <p className="text-sm text-slate-600 mt-2">
+                  Здесь только задачи: статус обработки, ручная дата публикации и скачивание готового файла, если он ещё доступен локально.
+                </p>
+              </div>
               <div className="tg-card">
                 <div className="p-4 border-b flex items-center justify-between">
                   <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Очередь публикаций</h3>
@@ -703,9 +718,11 @@ const App = () => {
       </main>
 
       {/* Floating Preview Toggle */}
-      <button onClick={() => setShowPreview(true)} className="fab-preview">
-        <Eye size={24} />
-      </button>
+      {activeTab === 'branding' && (
+        <button onClick={() => setShowPreview(true)} className="fab-preview">
+          <Eye size={24} />
+        </button>
+      )}
 
       {/* Preview Overlay */}
       <AnimatePresence>
@@ -739,14 +756,9 @@ const App = () => {
               </div>
 
               <div className="absolute inset-0 flex items-center justify-center px-4 pointer-events-none z-20">
-                <div 
-                  style={{ 
-                    fontFamily: font, 
-                    fontSize: `${fontSize / 4.5}vw`, 
-                    color: fontColor,
-                    textShadow: '0 2px 4px rgba(0,0,0,0.3)'
-                  }} 
-                  className="text-center font-black uppercase leading-[1.1]"
+                <div
+                  style={{ color: '#ffffff', textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}
+                  className="text-center font-black uppercase leading-[1.1] text-[8vw]"
                 >
                   Создавай Быстро<br />Публикуй Легко
                 </div>
@@ -770,17 +782,16 @@ const App = () => {
         )}
       </AnimatePresence>
 
-      {/* Bottom Navigation Dock */}
       <nav className="bottom-nav">
         {[
           { id: 'branding', icon: ImageIcon, label: 'Брендинг' },
-          { id: 'subtitles', icon: Type, label: 'Субтитры' },
-          { id: 'schedule', icon: CalendarClock, label: 'Очередь' },
-          { id: 'all', icon: LayoutGrid, label: 'Настройки' }
+          { id: 'channels', icon: LayoutGrid, label: 'Каналы' },
+          { id: 'planning', icon: CalendarClock, label: 'План' },
+          { id: 'queue', icon: RefreshCcw, label: 'Очередь' }
         ].map(tab => (
           <button 
             key={tab.id}
-            onClick={() => setActiveTab(tab.id === 'all' ? 'branding' : tab.id)}
+            onClick={() => setActiveTab(tab.id)}
             className={`nav-item ${activeTab === tab.id ? 'active' : ''}`}
           >
             <tab.icon size={22} />
