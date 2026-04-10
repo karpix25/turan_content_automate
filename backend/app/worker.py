@@ -10,6 +10,7 @@ from .integrations.vizard import VizardClient
 from .integrations.scrape_creators import ScrapeCreatorsClient
 from .integrations.rapidapi_youtube import RapidAPIYoutubeClient
 from .integrations.downloader import Downloader
+from .integrations.ytdlp_downloader import YtDlpDownloader
 from .integrations.postmypost import PostMyPostClient
 from .processor import VideoProcessor
 from .database import SessionLocal, init_database
@@ -30,6 +31,7 @@ rapidapi_yt = RapidAPIYoutubeClient(
     host=os.getenv("RAPIDAPI_HOST", "youtube-media-downloader.p.rapidapi.com"),
 )
 downloader = Downloader(output_dir=os.getenv("OUTPUT_DIR", "./output"))
+ytdlp_downloader = YtDlpDownloader(output_dir=os.getenv("OUTPUT_DIR", "./output"))
 pmp_client = PostMyPostClient(api_key=os.getenv("POSTMYPOST_API_KEY", ""))
 processor = VideoProcessor()
 
@@ -499,8 +501,18 @@ def process_content_task(task_id: int):
             if not local_file:
                 rapidapi_error = (details or {}).get("error") or "RapidAPI media download failed"
                 logging.warning(
-                    "RapidAPI YouTube download failed. Fallback to ScrapeCreators. Reason: %s",
+                    "RapidAPI YouTube download failed. Fallback to yt-dlp. Reason: %s",
                     rapidapi_error,
+                )
+                local_file = _track_temp_path(
+                    temp_paths,
+                    ytdlp_downloader.download_youtube(provider_source_url, f"yt_{task_id}_ytdlp"),
+                )
+
+            if not local_file:
+                logging.warning(
+                    "yt-dlp YouTube download failed. Fallback to ScrapeCreators. task_id=%s",
+                    task_id,
                 )
                 sc_details = scraper.get_youtube_details(provider_source_url)
                 download_url = _normalize_external_url((sc_details or {}).get("download_url") or "")
@@ -517,6 +529,7 @@ def process_content_task(task_id: int):
                     sc_error = (sc_details or {}).get("error")
                     raise Exception(
                         f"Failed to download YouTube video: RapidAPI={rapidapi_error}; "
+                        f"yt-dlp=failed; "
                         f"ScrapeCreators={sc_error or 'No downloadable media URL'}"
                     )
 

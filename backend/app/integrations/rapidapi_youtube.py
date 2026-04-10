@@ -236,10 +236,12 @@ class RapidAPIYoutubeClient:
         url = self._extract_candidate_url(item)
         if not url:
             return None
+        parsed = urlparse(url)
+        itag = item.get("itag") or parse_qs(parsed.query).get("itag", [None])[0]
 
         return {
             "url": url,
-            "itag": item.get("itag"),
+            "itag": itag,
             "mime_type": item.get("mimeType") or item.get("mime_type") or item.get("contentType"),
             "extension": item.get("extension"),
             "quality": item.get("quality") or item.get("qualityLabel"),
