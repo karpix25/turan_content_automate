@@ -9,6 +9,8 @@ logger = logging.getLogger(__name__)
 
 class RapidAPIYoutubeClient:
     BASE_URL = "https://youtube-media-downloader.p.rapidapi.com"
+    PREFERRED_WIDTH = 1080
+    PREFERRED_HEIGHT = 1920
 
     def __init__(self, api_key: str, host: str = "youtube-media-downloader.p.rapidapi.com"):
         self.api_key = (api_key or "").strip()
@@ -88,6 +90,30 @@ class RapidAPIYoutubeClient:
             for item in value:
                 yield from self._iter_dicts(item)
 
+    def _as_int(self, value: Any) -> Optional[int]:
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            digits = "".join(ch for ch in value if ch.isdigit())
+            if digits:
+                try:
+                    return int(digits)
+                except ValueError:
+                    return None
+        return None
+
+    def _extract_candidate_url(self, item: Dict[str, Any]) -> Optional[str]:
+        url = (
+            item.get("url")
+            or item.get("download_url")
+            or item.get("downloadUrl")
+            or item.get("video_url")
+            or item.get("videoUrl")
+        )
+        if isinstance(url, str) and self._is_direct_media_url(url):
+            return url
+        return None
+
     def _score_candidate(self, item: Dict[str, Any], url: str) -> int:
         score = 0
 
@@ -102,13 +128,25 @@ class RapidAPIYoutubeClient:
         if item.get("hasVideo") is True:
             score += 120
         if item.get("hasAudio") is True:
-            score += 80
+            score += 20
         if "video/mp4" in mime:
             score += 60
         elif "video/" in mime:
             score += 30
         if urlparse(url).path.lower().endswith(".mp4"):
             score += 40
+
+        width = self._as_int(item.get("width"))
+        height = self._as_int(item.get("height"))
+        if width and height:
+            if height >= width:
+                score += 2000
+            if width == self.PREFERRED_WIDTH and height == self.PREFERRED_HEIGHT:
+                score += 10000
+            else:
+                score += max(0, 5000 - abs(width - self.PREFERRED_WIDTH) - abs(height - self.PREFERRED_HEIGHT))
+            score += min(width, self.PREFERRED_WIDTH)
+            score += min(height, self.PREFERRED_HEIGHT)
 
         quality = str(item.get("qualityLabel") or item.get("quality") or "")
         quality_digits = "".join(ch for ch in quality if ch.isdigit())
@@ -125,6 +163,25 @@ class RapidAPIYoutubeClient:
         return score
 
     def _extract_download_url(self, data: Dict[str, Any]) -> Optional[str]:
+        videos = data.get("videos")
+        if isinstance(videos, dict):
+            items = videos.get("items")
+            if isinstance(items, list):
+                best_url = None
+                best_score = -1
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    url = self._extract_candidate_url(item)
+                    if not url:
+                        continue
+                    score = self._score_candidate(item, url)
+                    if score > best_score:
+                        best_score = score
+                        best_url = url
+                if best_url:
+                    return best_url
+
         direct_fields = (
             data.get("download_url"),
             data.get("downloadUrl"),
@@ -138,14 +195,8 @@ class RapidAPIYoutubeClient:
         best_url = None
         best_score = -1
         for item in self._iter_dicts(data):
-            url = (
-                item.get("url")
-                or item.get("download_url")
-                or item.get("downloadUrl")
-                or item.get("video_url")
-                or item.get("videoUrl")
-            )
-            if not isinstance(url, str) or not self._is_direct_media_url(url):
+            url = self._extract_candidate_url(item)
+            if not url:
                 continue
             score = self._score_candidate(item, url)
             if score > best_score:
