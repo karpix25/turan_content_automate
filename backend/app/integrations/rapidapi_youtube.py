@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Any, Dict, Optional
 from urllib.parse import parse_qs, urlparse
 
@@ -8,13 +9,23 @@ logger = logging.getLogger(__name__)
 
 
 class RapidAPIYoutubeClient:
-    BASE_URL = "https://youtube-media-downloader.p.rapidapi.com"
-    PREFERRED_WIDTH = 1080
-    PREFERRED_HEIGHT = 1920
+    BASE_URL = "https://youtube-mp4-mp3-downloader.p.rapidapi.com/api/v1"
 
-    def __init__(self, api_key: str, host: str = "youtube-media-downloader.p.rapidapi.com"):
+    def __init__(
+        self,
+        api_key: str,
+        host: str = "youtube-mp4-mp3-downloader.p.rapidapi.com",
+        video_format: str = "720",
+        audio_quality: str = "128",
+        poll_interval_seconds: float = 2.0,
+        timeout_seconds: float = 90.0,
+    ):
         self.api_key = (api_key or "").strip()
-        self.host = (host or "youtube-media-downloader.p.rapidapi.com").strip()
+        self.host = (host or "youtube-mp4-mp3-downloader.p.rapidapi.com").strip()
+        self.video_format = (video_format or "720").strip()
+        self.audio_quality = (audio_quality or "128").strip()
+        self.poll_interval_seconds = max(1.0, float(poll_interval_seconds))
+        self.timeout_seconds = max(10.0, float(timeout_seconds))
 
     def is_configured(self) -> bool:
         return bool(self.api_key)
@@ -22,6 +33,7 @@ class RapidAPIYoutubeClient:
     def _headers(self) -> Dict[str, str]:
         return {
             "Accept": "application/json",
+            "Content-Type": "application/json",
             "x-rapidapi-key": self.api_key,
             "x-rapidapi-host": self.host,
         }
@@ -47,24 +59,28 @@ class RapidAPIYoutubeClient:
             return None
         return None
 
-    def _get_json(self, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        endpoint = f"{self.BASE_URL}/v2/video/details"
+    def _get_json(self, endpoint: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         try:
             with httpx.Client(timeout=30.0, follow_redirects=True) as client:
-                response = client.get(endpoint, headers=self._headers(), params=params)
+                response = client.get(
+                    f"{self.BASE_URL}{endpoint}",
+                    headers=self._headers(),
+                    params=params,
+                )
                 response.raise_for_status()
                 data = response.json()
                 return data if isinstance(data, dict) else None
         except httpx.HTTPStatusError as e:
             body_preview = (e.response.text or "").strip().replace("\n", " ")[:350]
             logger.error(
-                "RapidAPI YouTube request failed: HTTP %s. Body: %s",
+                "RapidAPI YouTube request failed: endpoint=%s HTTP %s. Body: %s",
+                endpoint,
                 e.response.status_code,
                 body_preview,
             )
             return None
         except Exception as e:
-            logger.error("RapidAPI YouTube request failed: %s", e)
+            logger.error("RapidAPI YouTube request failed: endpoint=%s error=%s", endpoint, e)
             return None
 
     def _is_direct_media_url(self, value: str) -> bool:
@@ -80,222 +96,61 @@ class RapidAPIYoutubeClient:
             return False
         return True
 
-    def _iter_dicts(self, value: Any):
+    def _first_direct_media_url(self, value: Any) -> Optional[str]:
+        if isinstance(value, str) and self._is_direct_media_url(value):
+            return value
         if isinstance(value, dict):
-            yield value
             for nested in value.values():
-                yield from self._iter_dicts(nested)
-            return
+                found = self._first_direct_media_url(nested)
+                if found:
+                    return found
         if isinstance(value, list):
             for item in value:
-                yield from self._iter_dicts(item)
-
-    def _as_int(self, value: Any) -> Optional[int]:
-        if isinstance(value, int):
-            return value
-        if isinstance(value, str):
-            digits = "".join(ch for ch in value if ch.isdigit())
-            if digits:
-                try:
-                    return int(digits)
-                except ValueError:
-                    return None
+                found = self._first_direct_media_url(item)
+                if found:
+                    return found
         return None
 
-    def _extract_candidate_url(self, item: Dict[str, Any]) -> Optional[str]:
-        url = (
-            item.get("url")
-            or item.get("download_url")
-            or item.get("downloadUrl")
-            or item.get("video_url")
-            or item.get("videoUrl")
-        )
-        if isinstance(url, str) and self._is_direct_media_url(url):
-            return url
+    def _extract_progress_id(self, data: Dict[str, Any]) -> Optional[str]:
+        keys = ("id", "progressId", "progress_id", "downloadId", "download_id", "jobId", "job_id")
+        for key in keys:
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        nested = data.get("data")
+        if isinstance(nested, dict):
+            return self._extract_progress_id(nested)
         return None
 
-    def _score_candidate(self, item: Dict[str, Any], url: str) -> int:
-        score = 0
+    def _extract_status(self, data: Dict[str, Any]) -> str:
+        for key in ("status", "state", "message", "progress"):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip().lower()
+        nested = data.get("data")
+        if isinstance(nested, dict):
+            return self._extract_status(nested)
+        return ""
 
-        mime = str(
-            item.get("mimeType")
-            or item.get("mime_type")
-            or item.get("contentType")
-            or item.get("type")
-            or ""
-        ).lower()
+    def _extract_error(self, data: Dict[str, Any]) -> Optional[str]:
+        for key in ("error", "message", "detail", "description"):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        nested = data.get("data")
+        if isinstance(nested, dict):
+            return self._extract_error(nested)
+        return None
 
-        if item.get("hasVideo") is True:
-            score += 120
-        if item.get("hasAudio") is True:
-            score += 20
-        if "video/mp4" in mime:
-            score += 60
-        elif "video/" in mime:
-            score += 30
-        if urlparse(url).path.lower().endswith(".mp4"):
-            score += 40
+    def _is_terminal_failure(self, status: str, error_text: str | None) -> bool:
+        if error_text and "success" not in error_text.lower():
+            return True
+        return status in {"failed", "error", "cancelled", "canceled", "not_found", "not found"}
 
-        width = self._as_int(item.get("width"))
-        height = self._as_int(item.get("height"))
-        if width and height:
-            if height >= width:
-                score += 2000
-            if width == self.PREFERRED_WIDTH and height == self.PREFERRED_HEIGHT:
-                score += 10000
-            else:
-                score += max(0, 5000 - abs(width - self.PREFERRED_WIDTH) - abs(height - self.PREFERRED_HEIGHT))
-            score += min(width, self.PREFERRED_WIDTH)
-            score += min(height, self.PREFERRED_HEIGHT)
-
-        quality = str(item.get("qualityLabel") or item.get("quality") or "")
-        quality_digits = "".join(ch for ch in quality if ch.isdigit())
-        if quality_digits:
-            try:
-                score += min(int(quality_digits), 2160)
-            except ValueError:
-                pass
-
-        bitrate = item.get("bitrate") or item.get("audioBitrate")
-        if isinstance(bitrate, int) and bitrate > 0:
-            score += min(bitrate // 10000, 100)
-
-        return score
-
-    def _score_progressive_candidate(self, item: Dict[str, Any], url: str) -> int:
-        score = self._score_candidate(item, url)
-        if item.get("hasAudio") is True:
-            score += 5000
-        else:
-            score -= 5000
-        return score
-
-    def _score_audio_candidate(self, item: Dict[str, Any], url: str) -> int:
-        score = 0
-
-        mime = str(
-            item.get("mimeType")
-            or item.get("mime_type")
-            or item.get("contentType")
-            or item.get("type")
-            or ""
-        ).lower()
-        xtags = str(item.get("xtags") or "").lower()
-        extension = str(item.get("extension") or "").lower()
-
-        if "audio/mp4" in mime:
-            score += 4000
-        elif "audio/" in mime:
-            score += 2000
-
-        if extension in {"m4a", "mp4"}:
-            score += 600
-        elif extension in {"weba", "webm"}:
-            score += 200
-
-        if "acont=original" in xtags:
-            score += 2000
-        if "lang=ru" in xtags:
-            score += 1000
-        if item.get("isDrc") is False:
-            score += 300
-        if item.get("isDrc") is True or "drc=1" in xtags:
-            score -= 500
-
-        size = self._as_int(item.get("size"))
-        if size:
-            score += min(size // 1000, 1500)
-
-        if str(item.get("itag") or "") == "140":
-            score += 500
-
-        return score
-
-    def _pick_best_stream_item(self, items: Any, score_fn) -> Optional[Dict[str, Any]]:
-        if not isinstance(items, list):
-            return None
-
-        best_item = None
-        best_score = -1
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            url = self._extract_candidate_url(item)
-            if not url:
-                continue
-            score = score_fn(item, url)
-            if score > best_score:
-                best_score = score
-                best_item = item
-        return best_item
-
-    def _extract_stream_info(self, item: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-        if not isinstance(item, dict):
-            return None
-
-        url = self._extract_candidate_url(item)
-        if not url:
-            return None
-        parsed = urlparse(url)
-        itag = item.get("itag") or parse_qs(parsed.query).get("itag", [None])[0]
-
-        return {
-            "url": url,
-            "itag": itag,
-            "mime_type": item.get("mimeType") or item.get("mime_type") or item.get("contentType"),
-            "extension": item.get("extension"),
-            "quality": item.get("quality") or item.get("qualityLabel"),
-            "width": item.get("width"),
-            "height": item.get("height"),
-            "has_audio": item.get("hasAudio"),
-            "is_drc": item.get("isDrc"),
-            "xtags": item.get("xtags"),
-            "size": item.get("size"),
-            "size_text": item.get("sizeText"),
-        }
-
-    def _extract_download_url(self, data: Dict[str, Any]) -> Optional[str]:
-        videos = data.get("videos")
-        if isinstance(videos, dict):
-            items = videos.get("items")
-            if isinstance(items, list):
-                best_url = None
-                best_score = -1
-                for item in items:
-                    if not isinstance(item, dict):
-                        continue
-                    url = self._extract_candidate_url(item)
-                    if not url:
-                        continue
-                    score = self._score_candidate(item, url)
-                    if score > best_score:
-                        best_score = score
-                        best_url = url
-                if best_url:
-                    return best_url
-
-        direct_fields = (
-            data.get("download_url"),
-            data.get("downloadUrl"),
-            data.get("video_url"),
-            data.get("videoUrl"),
-        )
-        for value in direct_fields:
-            if isinstance(value, str) and self._is_direct_media_url(value):
-                return value
-
-        best_url = None
-        best_score = -1
-        for item in self._iter_dicts(data):
-            url = self._extract_candidate_url(item)
-            if not url:
-                continue
-            score = self._score_candidate(item, url)
-            if score > best_score:
-                best_score = score
-                best_url = url
-
-        return best_url
+    def _is_terminal_success(self, status: str, download_url: str | None) -> bool:
+        if download_url:
+            return True
+        return status in {"success", "completed", "complete", "done", "finished", "ready"}
 
     def get_youtube_details(self, youtube_url: str) -> Dict[str, Any]:
         if not self.is_configured():
@@ -305,43 +160,79 @@ class RapidAPIYoutubeClient:
         if not video_id:
             return {"download_url": None, "error": "Invalid YouTube URL (cannot extract video id)"}
 
-        # The current endpoint requires `videoId`; keep `url` as an auxiliary hint.
-        data = self._get_json({"videoId": video_id, "url": youtube_url})
-        if not data:
-            return {"download_url": None, "error": "RapidAPI request failed"}
+        start_data = self._get_json(
+            "/download",
+            {
+                "format": self.video_format,
+                "id": video_id,
+                "audioQuality": self.audio_quality,
+                "addInfo": "false",
+            },
+        )
+        if not start_data:
+            return {"download_url": None, "error": "RapidAPI download request failed"}
 
-        if data.get("success") is False:
+        initial_url = self._first_direct_media_url(start_data)
+        if initial_url:
             return {
-                "download_url": None,
-                "error": data.get("message") or "RapidAPI returned success=false",
-                "raw": data,
+                "download_url": initial_url,
+                "video_id": video_id,
+                "status": "ready",
+                "error": None,
+                "raw": start_data,
             }
 
-        videos = data.get("videos") if isinstance(data.get("videos"), dict) else {}
-        audios = data.get("audios") if isinstance(data.get("audios"), dict) else {}
+        progress_id = self._extract_progress_id(start_data)
+        if not progress_id:
+            return {
+                "download_url": None,
+                "video_id": video_id,
+                "error": self._extract_error(start_data) or "RapidAPI did not return progress id",
+                "raw": start_data,
+            }
 
-        best_video_item = self._pick_best_stream_item(videos.get("items"), self._score_candidate)
-        best_audio_item = self._pick_best_stream_item(audios.get("items"), self._score_audio_candidate)
-        best_progressive_item = self._pick_best_stream_item(videos.get("items"), self._score_progressive_candidate)
+        deadline = time.monotonic() + self.timeout_seconds
+        last_status = ""
+        last_error = None
+        last_payload: Dict[str, Any] = start_data
 
-        best_video = self._extract_stream_info(best_video_item)
-        best_audio = self._extract_stream_info(best_audio_item)
-        best_progressive = self._extract_stream_info(best_progressive_item)
-        download_url = (
-            (best_progressive or {}).get("url")
-            or self._extract_download_url(data)
-        )
+        while time.monotonic() < deadline:
+            progress_data = self._get_json("/progress", {"id": progress_id})
+            if progress_data:
+                last_payload = progress_data
+                download_url = self._first_direct_media_url(progress_data)
+                status = self._extract_status(progress_data)
+                error_text = self._extract_error(progress_data)
+                last_status = status or last_status
+                last_error = error_text or last_error
+
+                if self._is_terminal_success(status, download_url):
+                    return {
+                        "download_url": download_url,
+                        "video_id": video_id,
+                        "progress_id": progress_id,
+                        "status": status or "ready",
+                        "error": None if download_url else "RapidAPI status is ready but no direct URL returned",
+                        "raw": progress_data,
+                    }
+
+                if self._is_terminal_failure(status, error_text):
+                    return {
+                        "download_url": None,
+                        "video_id": video_id,
+                        "progress_id": progress_id,
+                        "status": status,
+                        "error": error_text or f"RapidAPI reported terminal status: {status}",
+                        "raw": progress_data,
+                    }
+
+            time.sleep(self.poll_interval_seconds)
 
         return {
-            "download_url": download_url,
-            "video_download_url": (best_video or {}).get("url"),
-            "audio_download_url": (best_audio or {}).get("url"),
-            "progressive_download_url": (best_progressive or {}).get("url"),
-            "video_stream": best_video,
-            "audio_stream": best_audio,
-            "progressive_stream": best_progressive,
-            "video_id": data.get("id") or video_id,
-            "title": data.get("title"),
-            "error": None if (best_video or best_progressive) else "No direct media URL found in RapidAPI response",
-            "raw": data,
+            "download_url": None,
+            "video_id": video_id,
+            "progress_id": progress_id,
+            "status": last_status or "timeout",
+            "error": last_error or "RapidAPI progress polling timed out",
+            "raw": last_payload,
         }

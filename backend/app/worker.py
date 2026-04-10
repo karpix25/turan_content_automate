@@ -10,7 +10,6 @@ from .integrations.vizard import VizardClient
 from .integrations.scrape_creators import ScrapeCreatorsClient
 from .integrations.rapidapi_youtube import RapidAPIYoutubeClient
 from .integrations.downloader import Downloader
-from .integrations.ytdlp_downloader import YtDlpDownloader
 from .integrations.postmypost import PostMyPostClient
 from .processor import VideoProcessor
 from .database import SessionLocal, init_database
@@ -28,10 +27,13 @@ vizard = VizardClient(api_key=os.getenv("VIZARD_API_KEY", ""))
 scraper = ScrapeCreatorsClient(api_key=os.getenv("SCRAPE_CREATORS_API_KEY", ""))
 rapidapi_yt = RapidAPIYoutubeClient(
     api_key=os.getenv("RAPIDAPI_KEY", ""),
-    host=os.getenv("RAPIDAPI_HOST", "youtube-media-downloader.p.rapidapi.com"),
+    host=os.getenv("YOUTUBE_DOWNLOAD_RAPIDAPI_HOST", "youtube-mp4-mp3-downloader.p.rapidapi.com"),
+    video_format=os.getenv("YOUTUBE_DOWNLOAD_FORMAT", "720"),
+    audio_quality=os.getenv("YOUTUBE_DOWNLOAD_AUDIO_QUALITY", "128"),
+    poll_interval_seconds=float(os.getenv("YOUTUBE_DOWNLOAD_POLL_INTERVAL_SECONDS", "2")),
+    timeout_seconds=float(os.getenv("YOUTUBE_DOWNLOAD_TIMEOUT_SECONDS", "90")),
 )
 downloader = Downloader(output_dir=os.getenv("OUTPUT_DIR", "./output"))
-ytdlp_downloader = YtDlpDownloader(output_dir=os.getenv("OUTPUT_DIR", "./output"))
 pmp_client = PostMyPostClient(api_key=os.getenv("POSTMYPOST_API_KEY", ""))
 processor = VideoProcessor()
 
@@ -300,82 +302,6 @@ def _build_youtube_download_headers(watch_url: str) -> dict[str, str]:
     }
 
 
-def _track_temp_path(paths: list[str], path: str | None) -> str | None:
-    if path:
-        paths.append(path)
-    return path
-
-
-def _download_rapidapi_youtube_media(
-    task_id: int,
-    watch_url: str,
-    details: dict,
-    temp_paths: list[str],
-) -> str | None:
-    video_stream = details.get("video_stream") or {}
-    audio_stream = details.get("audio_stream") or {}
-    progressive_stream = details.get("progressive_stream") or {}
-
-    video_url = _normalize_external_url((details or {}).get("video_download_url") or "")
-    audio_url = _normalize_external_url((details or {}).get("audio_download_url") or "")
-    progressive_url = _normalize_external_url((details or {}).get("progressive_download_url") or "")
-    headers = _build_youtube_download_headers(watch_url)
-
-    if video_url:
-        logging.info(
-            "Task %s: selected YouTube video stream quality=%s size=%s has_audio=%s itag=%s",
-            task_id,
-            video_stream.get("quality"),
-            video_stream.get("size_text"),
-            video_stream.get("has_audio"),
-            video_stream.get("itag"),
-        )
-    if audio_url:
-        logging.info(
-            "Task %s: selected YouTube audio stream mime=%s xtags=%s itag=%s",
-            task_id,
-            audio_stream.get("mime_type"),
-            audio_stream.get("xtags"),
-            audio_stream.get("itag"),
-        )
-    if progressive_url:
-        logging.info(
-            "Task %s: selected YouTube progressive fallback quality=%s size=%s itag=%s",
-            task_id,
-            progressive_stream.get("quality"),
-            progressive_stream.get("size_text"),
-            progressive_stream.get("itag"),
-        )
-
-    if video_url and audio_url:
-        video_path = _track_temp_path(
-            temp_paths,
-            downloader.download_media(video_url, f"yt_{task_id}_video", headers=headers),
-        )
-        if video_path:
-            audio_path = _track_temp_path(
-                temp_paths,
-                downloader.download_media(audio_url, f"yt_{task_id}_audio", headers=headers),
-            )
-            if audio_path:
-                muxed_path = os.path.join(downloader.output_dir, f"yt_{task_id}_source.mp4")
-                try:
-                    return _track_temp_path(
-                        temp_paths,
-                        processor.mux_video_and_audio(video_path, audio_path, muxed_path),
-                    )
-                except Exception as e:
-                    logging.warning("Task %s: failed to mux YouTube A/V streams: %s", task_id, e)
-
-    if progressive_url:
-        return _track_temp_path(
-            temp_paths,
-            downloader.download_media(progressive_url, f"yt_{task_id}_progressive", headers=headers),
-        )
-
-    return None
-
-
 def _plan_publish_times_for_outputs(db, user: models.User, outputs_count: int, manual_publish_at):
     if outputs_count < 1:
         return []
@@ -441,7 +367,6 @@ def process_content_task(task_id: int):
     task.status = "processing"
     db.commit()
     input_videos: List[str] = []
-    temp_paths: List[str] = []
 
     try:
         source_url = _normalize_external_url(task.source_url)
@@ -491,47 +416,26 @@ def process_content_task(task_id: int):
             provider_source_url = _build_youtube_watch_url(youtube_video_id)
 
             details = rapidapi_yt.get_youtube_details(provider_source_url)
-            local_file = _download_rapidapi_youtube_media(
-                task_id=task_id,
-                watch_url=provider_source_url,
-                details=details or {},
-                temp_paths=temp_paths,
+            download_url = _normalize_external_url((details or {}).get("download_url") or "")
+            if not download_url:
+                rapidapi_error = (details or {}).get("error")
+                raise Exception(
+                    f"Failed to download YouTube video via configured RapidAPI provider: "
+                    f"{rapidapi_error or 'No downloadable media URL'}"
+                )
+
+            logging.info(
+                "Task %s: RapidAPI provider returned YouTube download status=%s progress_id=%s",
+                task_id,
+                (details or {}).get("status"),
+                (details or {}).get("progress_id"),
             )
 
-            if not local_file:
-                rapidapi_error = (details or {}).get("error") or "RapidAPI media download failed"
-                logging.warning(
-                    "RapidAPI YouTube download failed. Fallback to yt-dlp. Reason: %s",
-                    rapidapi_error,
-                )
-                local_file = _track_temp_path(
-                    temp_paths,
-                    ytdlp_downloader.download_youtube(provider_source_url, f"yt_{task_id}_ytdlp"),
-                )
-
-            if not local_file:
-                logging.warning(
-                    "yt-dlp YouTube download failed. Fallback to ScrapeCreators. task_id=%s",
-                    task_id,
-                )
-                sc_details = scraper.get_youtube_details(provider_source_url)
-                download_url = _normalize_external_url((sc_details or {}).get("download_url") or "")
-                if download_url:
-                    local_file = _track_temp_path(
-                        temp_paths,
-                        downloader.download_media(
-                            download_url,
-                            f"yt_{task_id}_fallback",
-                            headers=_build_youtube_download_headers(provider_source_url),
-                        ),
-                    )
-                if not local_file:
-                    sc_error = (sc_details or {}).get("error")
-                    raise Exception(
-                        f"Failed to download YouTube video: RapidAPI={rapidapi_error}; "
-                        f"yt-dlp=failed; "
-                        f"ScrapeCreators={sc_error or 'No downloadable media URL'}"
-                    )
+            local_file = downloader.download_media(
+                download_url,
+                f"yt_{task_id}",
+                headers=_build_youtube_download_headers(provider_source_url),
+            )
 
             if not local_file:
                 raise Exception("Failed to download YouTube video from provider URL")
@@ -703,7 +607,7 @@ def process_content_task(task_id: int):
         db.commit()
         raise
     finally:
-        for path in list(dict.fromkeys(input_videos + temp_paths)):
+        for path in input_videos:
             if not path:
                 continue
             try:
