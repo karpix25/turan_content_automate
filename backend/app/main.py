@@ -167,6 +167,14 @@ def parse_optional_account_id(value: str | None) -> int | None:
     except ValueError:
         raise HTTPException(status_code=400, detail="account_id must be an integer")
 
+
+def normalize_percent(value: int | None, *, field_name: str) -> int:
+    if value is None:
+        raise HTTPException(status_code=400, detail=f"{field_name} is required")
+    if value < 0 or value > 100:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be between 0 and 100")
+    return int(value)
+
 @app.get("/")
 def read_root():
     return {"status": "ok", "message": "Content processing API is running"}
@@ -198,6 +206,12 @@ def update_settings(telegram_id: str, settings: schemas.UserSettingsUpdate, db: 
         update_data["publish_limit_per_day"] = normalized_limit
         update_data["publish_window_start_msk"] = normalized_start
         update_data["publish_window_end_msk"] = normalized_end
+
+    if "plate_start_percent" in update_data:
+        update_data["plate_start_percent"] = normalize_percent(
+            update_data.get("plate_start_percent"),
+            field_name="plate_start_percent",
+        )
 
     for key, value in update_data.items():
         setattr(user, key, value)

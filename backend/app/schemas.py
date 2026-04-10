@@ -12,6 +12,7 @@ class UserSettingsUpdate(BaseModel):
     publish_window_start_msk: Optional[str] = None
     publish_window_end_msk: Optional[str] = None
     selected_plate_id: Optional[int] = None
+    plate_start_percent: Optional[int] = None
 
 class VideoTaskCreate(BaseModel):
     source_url: str
@@ -77,6 +78,7 @@ class UserSettings(BaseModel):
     publish_window_start_msk: str
     publish_window_end_msk: str
     selected_plate_id: Optional[int]
+    plate_start_percent: int
 
     class Config:
         from_attributes = True

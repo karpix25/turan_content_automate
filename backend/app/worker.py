@@ -441,6 +441,7 @@ def process_content_task(task_id: int):
 
         subtitles_enabled = False
         ass_path = None
+        plate_start_percent = max(0, min(100, int(getattr(user, "plate_start_percent", 0) or 0)))
 
         active_plate = db.query(models.Plate).filter(models.Plate.id == user.selected_plate_id).first()
         plate_path = _resolve_media_file_path(active_plate.file_path if active_plate else None, media_kind="plates")
@@ -517,6 +518,7 @@ def process_content_task(task_id: int):
                     input_path=video_path,
                     output_path=account_output,
                     plate_path=plate_path,
+                    plate_start_percent=plate_start_percent,
                     ass_path=ass_path,
                     cta_path=ending_path,
                     subtitles_enabled=subtitles_enabled,
@@ -573,6 +575,7 @@ def process_content_task(task_id: int):
                 input_path=video_path,
                 output_path=base_output,
                 plate_path=plate_path,
+                plate_start_percent=plate_start_percent,
                 ass_path=ass_path,
                 cta_path=None,
                 subtitles_enabled=subtitles_enabled,

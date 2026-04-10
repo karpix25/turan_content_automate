@@ -44,6 +44,11 @@ def init_database() -> None:
             )
         )
         conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS plate_start_percent INTEGER DEFAULT 0"
+            )
+        )
+        conn.execute(
             text("UPDATE users SET auto_schedule_enabled = FALSE WHERE auto_schedule_enabled IS NULL")
         )
         conn.execute(
@@ -54,6 +59,15 @@ def init_database() -> None:
         )
         conn.execute(
             text("UPDATE users SET publish_window_end_msk = '22:00:00' WHERE publish_window_end_msk IS NULL OR publish_window_end_msk = ''")
+        )
+        conn.execute(
+            text("UPDATE users SET plate_start_percent = 0 WHERE plate_start_percent IS NULL")
+        )
+        conn.execute(
+            text("UPDATE users SET plate_start_percent = 0 WHERE plate_start_percent < 0")
+        )
+        conn.execute(
+            text("UPDATE users SET plate_start_percent = 100 WHERE plate_start_percent > 100")
         )
         conn.execute(
             text(

@@ -9,6 +9,7 @@ type UserSettings = {
   publish_window_start_msk: string;
   publish_window_end_msk: string;
   selected_plate_id?: number | null;
+  plate_start_percent?: number;
 };
 
 type VideoTaskItem = {
@@ -68,6 +69,8 @@ const normalizeTelegramId = (value: unknown): string => {
   return /^\d{5,20}$/.test(text) ? text : '';
 };
 
+const clampPercent = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
+
 const App = () => {
   const [activeTab, setActiveTab] = useState('branding');
   const [loading, setLoading] = useState(false);
@@ -81,6 +84,7 @@ const App = () => {
   const [plateFile, setPlateFile] = useState<File | null>(null);
   const [platePreviewUrl, setPlatePreviewUrl] = useState('');
   const [selectedPlateId, setSelectedPlateId] = useState<number | null>(null);
+  const [plateStartPercent, setPlateStartPercent] = useState(0);
   const [uploadingPlate, setUploadingPlate] = useState(false);
   const [telegramId, setTelegramId] = useState('');
   const [telegramIdInput, setTelegramIdInput] = useState('');
@@ -139,6 +143,7 @@ const App = () => {
         setPublishWindowStartMsk(response.data.publish_window_start_msk || '10:00:00');
         setPublishWindowEndMsk(response.data.publish_window_end_msk || '22:00:00');
         setSelectedPlateId(response.data.selected_plate_id ?? null);
+        setPlateStartPercent(clampPercent(response.data.plate_start_percent ?? 0));
       } catch (error) {}
     };
     loadSettings();
@@ -329,6 +334,7 @@ const App = () => {
       await axios.post(`${API_BASE}/settings/${telegramId}/update`, {
         subtitles_enabled: false,
         selected_plate_id: selectedPlateId,
+        plate_start_percent: plateStartPercent,
       });
       flashSaved();
     } catch (error) {} finally {
@@ -499,6 +505,38 @@ const App = () => {
                     <ChevronRight size={18} className="text-[#c7c7cc]" />
                   </button>
                   <input ref={fileInputRef} type="file" accept="image/png,image/webp" onChange={handlePlateSelected} className="hidden" />
+                </div>
+              </div>
+              <div className="tg-card">
+                <div className="p-4 border-b">
+                  <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Момент появления</h3>
+                </div>
+                <div className="p-4 space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">Плашка стартует с {plateStartPercent}% ролика</p>
+                      <p className="text-xs text-[#707579] mt-1">
+                        0% покажет её сразу, 50% запустит с середины, 100% только в самом конце.
+                      </p>
+                    </div>
+                    <div className="min-w-[64px] h-10 px-3 rounded-xl bg-slate-100 text-slate-900 font-bold text-sm flex items-center justify-center">
+                      {plateStartPercent}%
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={plateStartPercent}
+                    onChange={(e) => setPlateStartPercent(clampPercent(Number(e.target.value)))}
+                    className="w-full accent-[#24a1de]"
+                  />
+                  <div className="flex justify-between text-[11px] uppercase tracking-wide text-[#9aa1ac]">
+                    <span>С начала</span>
+                    <span>С середины</span>
+                    <span>С конца</span>
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -777,7 +815,20 @@ const App = () => {
                  </div>
               </div>
             </div>
-            <p className="mt-4 text-[11px] font-bold text-white uppercase tracking-widest bg-black/20 px-3 py-1 rounded-full backdrop-blur-sm">Предпросмотр активен</p>
+            <div className="mt-4 space-y-2 flex flex-col items-center">
+              <p className="text-[11px] font-bold text-white uppercase tracking-widest bg-black/20 px-3 py-1 rounded-full backdrop-blur-sm">
+                Предпросмотр активен
+              </p>
+              <div className="w-[220px] max-w-full rounded-full bg-white/15 overflow-hidden">
+                <div
+                  className="h-1.5 bg-white/80"
+                  style={{ width: `${plateStartPercent}%` }}
+                />
+              </div>
+              <p className="text-[11px] text-white/85">
+                Плашка начнёт появляться с {plateStartPercent}% хронометража ролика.
+              </p>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

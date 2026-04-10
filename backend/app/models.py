@@ -21,6 +21,7 @@ class User(Base):
     publish_window_start_msk = Column(String, default="10:00:00", nullable=False)
     publish_window_end_msk = Column(String, default="22:00:00", nullable=False)
     selected_plate_id = Column(Integer, nullable=True)
+    plate_start_percent = Column(Integer, default=0, nullable=False)
 
 class Plate(Base):
     __tablename__ = "plates"

@@ -66,10 +66,16 @@ class VideoProcessor:
         s = seconds % 60
         return f"{h}:{m:02d}:{s:05.2f}"
 
+    def _normalize_percent(self, value: Optional[int]) -> int:
+        if value is None:
+            return 0
+        return max(0, min(100, int(value)))
+
     def process_video(self, 
                       input_path: str, 
                       output_path: str, 
                       plate_path: Optional[str] = None, 
+                      plate_start_percent: int = 0,
                       ass_path: Optional[str] = None,
                       cta_path: Optional[str] = None,
                       subtitles_enabled: bool = False,
@@ -116,7 +122,13 @@ class VideoProcessor:
 
         if plate_path:
             plate = ffmpeg.input(plate_path)
-            video = ffmpeg.overlay(video, plate)
+            normalized_plate_start_percent = self._normalize_percent(plate_start_percent)
+            processed_main_duration = main_duration / profile["speed"] if profile["speed"] else main_duration
+            plate_start_seconds = processed_main_duration * normalized_plate_start_percent / 100.0
+            if plate_start_seconds > 0:
+                video = ffmpeg.overlay(video, plate, enable=f"gte(t,{plate_start_seconds:.3f})")
+            else:
+                video = ffmpeg.overlay(video, plate)
 
         if cta_path:
             cta_probe = self._probe_media(cta_path)
@@ -178,6 +190,7 @@ class VideoProcessor:
         output_base_path: str,
         variants_count: int = 2,
         plate_path: Optional[str] = None,
+        plate_start_percent: int = 0,
         ass_path: Optional[str] = None,
         cta_path: Optional[str] = None,
         cta_paths: Optional[List[Optional[str]]] = None,
@@ -199,6 +212,7 @@ class VideoProcessor:
                 input_path=input_path,
                 output_path=variant_output,
                 plate_path=plate_path,
+                plate_start_percent=plate_start_percent,
                 ass_path=ass_path,
                 cta_path=variant_cta_path,
                 subtitles_enabled=subtitles_enabled,
