@@ -71,6 +71,41 @@ class VideoProcessor:
             return 0
         return max(0, min(100, int(value)))
 
+    def mux_video_and_audio(self, video_path: str, audio_path: str, output_path: str) -> str:
+        logger.info("Muxing media streams into %s", output_path)
+
+        video_ext = os.path.splitext(video_path)[1].lower()
+        audio_ext = os.path.splitext(audio_path)[1].lower()
+        video_codec = "copy" if video_ext in {".mp4", ".m4v"} else "libx264"
+        audio_codec = "copy" if audio_ext in {".m4a", ".aac", ".mp4"} else "aac"
+
+        try:
+            video_input = ffmpeg.input(video_path)
+            audio_input = ffmpeg.input(audio_path)
+
+            output_kwargs: Dict[str, object] = {
+                "vcodec": video_codec,
+                "acodec": audio_codec,
+                "movflags": "+faststart",
+                "map_metadata": "-1",
+                "shortest": None,
+            }
+            if video_codec != "copy":
+                output_kwargs["pix_fmt"] = "yuv420p"
+
+            (
+                ffmpeg
+                .output(video_input.video, audio_input.audio, output_path, **output_kwargs)
+                .overwrite_output()
+                .run(capture_stdout=True, capture_stderr=True)
+            )
+            return output_path
+        except ffmpeg.Error as e:
+            stderr = e.stderr.decode("utf-8", errors="ignore") if getattr(e, "stderr", None) else ""
+            if stderr:
+                logger.error("FFmpeg mux failed for %s: %s", output_path, stderr)
+            raise
+
     def process_video(self, 
                       input_path: str, 
                       output_path: str, 

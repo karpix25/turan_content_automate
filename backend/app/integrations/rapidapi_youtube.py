@@ -162,6 +162,96 @@ class RapidAPIYoutubeClient:
 
         return score
 
+    def _score_progressive_candidate(self, item: Dict[str, Any], url: str) -> int:
+        score = self._score_candidate(item, url)
+        if item.get("hasAudio") is True:
+            score += 5000
+        else:
+            score -= 5000
+        return score
+
+    def _score_audio_candidate(self, item: Dict[str, Any], url: str) -> int:
+        score = 0
+
+        mime = str(
+            item.get("mimeType")
+            or item.get("mime_type")
+            or item.get("contentType")
+            or item.get("type")
+            or ""
+        ).lower()
+        xtags = str(item.get("xtags") or "").lower()
+        extension = str(item.get("extension") or "").lower()
+
+        if "audio/mp4" in mime:
+            score += 4000
+        elif "audio/" in mime:
+            score += 2000
+
+        if extension in {"m4a", "mp4"}:
+            score += 600
+        elif extension in {"weba", "webm"}:
+            score += 200
+
+        if "acont=original" in xtags:
+            score += 2000
+        if "lang=ru" in xtags:
+            score += 1000
+        if item.get("isDrc") is False:
+            score += 300
+        if item.get("isDrc") is True or "drc=1" in xtags:
+            score -= 500
+
+        size = self._as_int(item.get("size"))
+        if size:
+            score += min(size // 1000, 1500)
+
+        if str(item.get("itag") or "") == "140":
+            score += 500
+
+        return score
+
+    def _pick_best_stream_item(self, items: Any, score_fn) -> Optional[Dict[str, Any]]:
+        if not isinstance(items, list):
+            return None
+
+        best_item = None
+        best_score = -1
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            url = self._extract_candidate_url(item)
+            if not url:
+                continue
+            score = score_fn(item, url)
+            if score > best_score:
+                best_score = score
+                best_item = item
+        return best_item
+
+    def _extract_stream_info(self, item: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not isinstance(item, dict):
+            return None
+
+        url = self._extract_candidate_url(item)
+        if not url:
+            return None
+
+        return {
+            "url": url,
+            "itag": item.get("itag"),
+            "mime_type": item.get("mimeType") or item.get("mime_type") or item.get("contentType"),
+            "extension": item.get("extension"),
+            "quality": item.get("quality") or item.get("qualityLabel"),
+            "width": item.get("width"),
+            "height": item.get("height"),
+            "has_audio": item.get("hasAudio"),
+            "is_drc": item.get("isDrc"),
+            "xtags": item.get("xtags"),
+            "size": item.get("size"),
+            "size_text": item.get("sizeText"),
+        }
+
     def _extract_download_url(self, data: Dict[str, Any]) -> Optional[str]:
         videos = data.get("videos")
         if isinstance(videos, dict):
@@ -225,11 +315,31 @@ class RapidAPIYoutubeClient:
                 "raw": data,
             }
 
-        download_url = self._extract_download_url(data)
+        videos = data.get("videos") if isinstance(data.get("videos"), dict) else {}
+        audios = data.get("audios") if isinstance(data.get("audios"), dict) else {}
+
+        best_video_item = self._pick_best_stream_item(videos.get("items"), self._score_candidate)
+        best_audio_item = self._pick_best_stream_item(audios.get("items"), self._score_audio_candidate)
+        best_progressive_item = self._pick_best_stream_item(videos.get("items"), self._score_progressive_candidate)
+
+        best_video = self._extract_stream_info(best_video_item)
+        best_audio = self._extract_stream_info(best_audio_item)
+        best_progressive = self._extract_stream_info(best_progressive_item)
+        download_url = (
+            (best_progressive or {}).get("url")
+            or self._extract_download_url(data)
+        )
+
         return {
             "download_url": download_url,
+            "video_download_url": (best_video or {}).get("url"),
+            "audio_download_url": (best_audio or {}).get("url"),
+            "progressive_download_url": (best_progressive or {}).get("url"),
+            "video_stream": best_video,
+            "audio_stream": best_audio,
+            "progressive_stream": best_progressive,
             "video_id": data.get("id") or video_id,
             "title": data.get("title"),
-            "error": None if download_url else "No direct media URL found in RapidAPI response",
+            "error": None if (best_video or best_progressive) else "No direct media URL found in RapidAPI response",
             "raw": data,
         }
