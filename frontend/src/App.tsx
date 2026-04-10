@@ -1,6 +1,27 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Image as ImageIcon, Video, Upload, CalendarClock, RefreshCcw, LayoutGrid, ChevronRight, X, Eye } from 'lucide-react';
+import {
+  Image as ImageIcon,
+  Video,
+  Upload,
+  CalendarClock,
+  RefreshCcw,
+  LayoutGrid,
+  ChevronRight,
+  X,
+  Eye,
+  Search,
+  CalendarDays,
+  Clock3,
+  CheckCircle2,
+  AlertTriangle,
+  Loader2,
+  Download,
+  Globe2,
+  PlaySquare,
+  Camera,
+  Music2,
+} from 'lucide-react';
 import axios from 'axios';
 
 type UserSettings = {
@@ -18,9 +39,11 @@ type VideoTaskItem = {
   type: string;
   status: string;
   output_path?: string | null;
+  target_account_id?: number | null;
   publish_at?: string | null;
   publishing_status: string;
   created_at: string;
+  updated_at: string;
 };
 
 type PublishAccount = {
@@ -70,6 +93,24 @@ const normalizeTelegramId = (value: unknown): string => {
 };
 
 const clampPercent = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
+const cleanTaskSource = (value: string) =>
+  String(value || '')
+    .split(' [slot ', 1)[0]
+    .split(' [variant ', 1)[0]
+    .split(' [account ', 1)[0]
+    .trim();
+
+const formatDateTimeLabel = (value?: string | null) => {
+  if (!value) return 'Не назначено';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Не назначено';
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+};
 
 const App = () => {
   const [activeTab, setActiveTab] = useState('branding');
@@ -90,6 +131,9 @@ const App = () => {
   const [telegramIdInput, setTelegramIdInput] = useState('');
   const [tasks, setTasks] = useState<VideoTaskItem[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
+  const [queueStatusFilter, setQueueStatusFilter] = useState<'all' | 'active' | 'scheduled' | 'published' | 'failed'>('all');
+  const [queuePlatformFilter, setQueuePlatformFilter] = useState<'all' | 'instagram' | 'youtube' | 'tiktok' | 'other'>('all');
+  const [queueSearch, setQueueSearch] = useState('');
   const [scheduleInputs, setScheduleInputs] = useState<Record<number, string>>({});
   const [activeTaskId, setActiveTaskId] = useState<number | null>(null);
   const [publishAccounts, setPublishAccounts] = useState<PublishAccount[]>([]);
@@ -384,6 +428,90 @@ const App = () => {
     return labels[status] || status;
   };
 
+  const getProcessingLabel = (status: string) => {
+    const labels: Record<string, string> = {
+      pending: 'В очереди',
+      processing: 'Обработка',
+      completed: 'Готово',
+      failed: 'Ошибка',
+    };
+    return labels[status] || status;
+  };
+
+  const getProcessingTone = (status: string) => {
+    const tones: Record<string, string> = {
+      pending: 'bg-slate-100 text-slate-600 border-slate-200',
+      processing: 'bg-amber-100 text-amber-700 border-amber-200',
+      completed: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+      failed: 'bg-rose-100 text-rose-700 border-rose-200',
+    };
+    return tones[status] || 'bg-slate-100 text-slate-600 border-slate-200';
+  };
+
+  const getPublicationTone = (status: string) => {
+    const tones: Record<string, string> = {
+      published: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+      scheduled: 'bg-sky-100 text-sky-700 border-sky-200',
+      not_published: 'bg-slate-100 text-slate-600 border-slate-200',
+      in_progress: 'bg-violet-100 text-violet-700 border-violet-200',
+      failed: 'bg-rose-100 text-rose-700 border-rose-200',
+    };
+    return tones[status] || 'bg-slate-100 text-slate-600 border-slate-200';
+  };
+
+  const getPlatformMeta = (platform: string) => {
+    if (platform === 'youtube') {
+      return {
+        label: 'YouTube',
+        tone: 'bg-rose-100 text-rose-700 border-rose-200',
+        icon: <PlaySquare size={14} />,
+      };
+    }
+    if (platform === 'instagram') {
+      return {
+        label: 'Instagram',
+        tone: 'bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200',
+        icon: <Camera size={14} />,
+      };
+    }
+    if (platform === 'tiktok') {
+      return {
+        label: 'TikTok',
+        tone: 'bg-cyan-100 text-cyan-700 border-cyan-200',
+        icon: <Music2 size={14} />,
+      };
+    }
+    return {
+      label: 'Другое',
+      tone: 'bg-slate-100 text-slate-700 border-slate-200',
+      icon: <Globe2 size={14} />,
+    };
+  };
+
+  const getTaskDisplayTitle = (task: VideoTaskItem) => {
+    const source = cleanTaskSource(task.source_url);
+    if (task.type === 'youtube' && /^[A-Za-z0-9_-]{11}$/.test(source)) {
+      return `YouTube video ${source}`;
+    }
+    try {
+      const parsed = new URL(source);
+      const host = parsed.hostname.replace(/^www\./, '');
+      const path = `${parsed.pathname}${parsed.search}`.replace(/\/$/, '') || '/';
+      return `${host}${path}`;
+    } catch {
+      return source || `Задача #${task.id}`;
+    }
+  };
+
+  const getTaskSourceHint = (task: VideoTaskItem) => {
+    const labels: Record<string, string> = {
+      youtube: 'Источник: YouTube',
+      instagram: 'Источник: Instagram',
+      vizard: 'Источник: Vizard',
+    };
+    return labels[task.type] || `Источник: ${task.type}`;
+  };
+
   const enabledAccounts = publishAccounts.filter((item) => item.enabled);
   const enabledByNetwork = enabledAccounts.reduce<Record<string, number>>((acc, item) => {
     const network = normalizeNetwork(item.channel_code);
@@ -405,6 +533,55 @@ const App = () => {
   };
 
   const currentSection = sectionMeta[activeTab] || sectionMeta.branding;
+  const accountsById = publishAccounts.reduce<Record<number, PublishAccount>>((acc, account) => {
+    acc[account.account_id] = account;
+    return acc;
+  }, {});
+  const queueStatusOptions: Array<{ id: 'all' | 'active' | 'scheduled' | 'published' | 'failed'; label: string }> = [
+    { id: 'all', label: 'Все' },
+    { id: 'active', label: 'В работе' },
+    { id: 'scheduled', label: 'Запланировано' },
+    { id: 'published', label: 'Опубликовано' },
+    { id: 'failed', label: 'Ошибки' },
+  ];
+  const queuePlatformOptions: Array<{ id: 'all' | 'instagram' | 'youtube' | 'tiktok' | 'other'; label: string }> = [
+    { id: 'all', label: 'Все платформы' },
+    { id: 'youtube', label: 'YouTube' },
+    { id: 'instagram', label: 'Instagram' },
+    { id: 'tiktok', label: 'TikTok' },
+    { id: 'other', label: 'Другое' },
+  ];
+  const queueCounters = {
+    all: tasks.length,
+    active: tasks.filter((task) => ['pending', 'processing', 'in_progress'].includes(task.status) || task.publishing_status === 'in_progress').length,
+    scheduled: tasks.filter((task) => task.publishing_status === 'scheduled').length,
+    published: tasks.filter((task) => task.publishing_status === 'published').length,
+    failed: tasks.filter((task) => task.status === 'failed' || task.publishing_status === 'failed').length,
+  };
+  const filteredTasks = tasks.filter((task) => {
+    const account = task.target_account_id ? accountsById[task.target_account_id] : undefined;
+    const platform = normalizeNetwork(account?.channel_code || task.type);
+    const title = getTaskDisplayTitle(task).toLowerCase();
+    const searchable = [
+      title,
+      cleanTaskSource(task.source_url).toLowerCase(),
+      account?.account_name?.toLowerCase() || '',
+      account?.channel_name?.toLowerCase() || '',
+      platform,
+    ].join(' ');
+
+    const matchesSearch = !queueSearch.trim() || searchable.includes(queueSearch.trim().toLowerCase());
+    const matchesPlatform = queuePlatformFilter === 'all' || platform === queuePlatformFilter;
+    const matchesStatus =
+      queueStatusFilter === 'all' ||
+      (queueStatusFilter === 'active' &&
+        (['pending', 'processing'].includes(task.status) || task.publishing_status === 'in_progress')) ||
+      (queueStatusFilter === 'scheduled' && task.publishing_status === 'scheduled') ||
+      (queueStatusFilter === 'published' && task.publishing_status === 'published') ||
+      (queueStatusFilter === 'failed' && (task.status === 'failed' || task.publishing_status === 'failed'));
+
+    return matchesSearch && matchesPlatform && matchesStatus;
+  });
 
   const handleHeaderAction = async () => {
     if (activeTab === 'branding') {
@@ -702,52 +879,183 @@ const App = () => {
                 <p className="text-[12px] uppercase tracking-[0.18em] text-slate-500">Мониторинг</p>
                 <h2 className="text-[22px] font-bold mt-2 text-slate-900">Очередь публикаций</h2>
                 <p className="text-sm text-slate-600 mt-2">
-                  Здесь только задачи: статус обработки, ручная дата публикации и скачивание готового файла, если он ещё доступен локально.
+                  Здесь видны превью, площадка публикации, статус обработки, время выхода и быстрые действия по каждому ролику.
                 </p>
+              </div>
+              <div className="tg-card p-4 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_220px] gap-3">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] text-[#707579] uppercase tracking-wide">Поиск по ролику или каналу</span>
+                    <div className="relative">
+                      <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9aa1ac]" />
+                      <input
+                        type="text"
+                        value={queueSearch}
+                        onChange={(e) => setQueueSearch(e.target.value)}
+                        placeholder="Например: YouTube, Instagram, канал или ID"
+                        className="input-field h-10 w-full pl-10"
+                      />
+                    </div>
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] text-[#707579] uppercase tracking-wide">Платформа</span>
+                    <select
+                      value={queuePlatformFilter}
+                      onChange={(e) => setQueuePlatformFilter(e.target.value as typeof queuePlatformFilter)}
+                      className="input-field h-10"
+                    >
+                      {queuePlatformOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {queueStatusOptions.map((option) => (
+                    <button
+                      key={option.id}
+                      onClick={() => setQueueStatusFilter(option.id)}
+                      className={`shrink-0 px-3 py-2 rounded-full border text-xs font-bold transition-colors ${
+                        queueStatusFilter === option.id
+                          ? 'bg-slate-900 text-white border-slate-900'
+                          : 'bg-white text-slate-600 border-slate-200'
+                      }`}
+                    >
+                      {option.label} · {queueCounters[option.id]}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="tg-card">
                 <div className="p-4 border-b flex items-center justify-between">
                   <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Очередь публикаций</h3>
                   <button onClick={() => telegramId && loadTasks(telegramId)} className="text-[#24a1de]"><RefreshCcw size={16} /></button>
                 </div>
-                <div className="divide-y overflow-auto max-h-[500px]">
-                  {tasks.map(task => (
-                    <div key={task.id} className="p-4 space-y-3">
-                       <div className="flex justify-between items-start">
-                          <div className="flex-1 min-w-0 mr-4">
-                             <p className="text-xs font-bold text-[#707579] uppercase truncate">ID #{task.id} · {task.status}</p>
-                             <p className="text-sm font-medium text-slate-900 truncate mt-1">{task.source_url}</p>
+                <div className="divide-y overflow-auto max-h-[780px]">
+                  {tasksLoading && (
+                    <>
+                      {[1, 2, 3].map((item) => (
+                        <div key={item} className="p-4">
+                          <div className="animate-pulse flex gap-4">
+                            <div className="w-24 aspect-[9/16] rounded-2xl bg-slate-200" />
+                            <div className="flex-1 space-y-3">
+                              <div className="h-4 w-40 bg-slate-200 rounded" />
+                              <div className="h-3 w-28 bg-slate-100 rounded" />
+                              <div className="h-10 w-full bg-slate-100 rounded-xl" />
+                              <div className="h-9 w-full bg-slate-100 rounded-xl" />
+                            </div>
                           </div>
-                          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full uppercase ${task.publishing_status === 'published' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'}`}>
-                             {getStatusLabel(task.publishing_status)}
-                          </span>
-                       </div>
-                       <div className="flex gap-2">
-                          <input
-                            type="datetime-local"
-                            value={scheduleInputs[task.id] || ''}
-                            onChange={(e) => setScheduleInputs(prev => ({ ...prev, [task.id]: e.target.value }))}
-                            className="input-field text-xs h-9 flex-1 py-1"
-                          />
-                          <button 
-                            onClick={() => saveTaskSchedule(task.id)}
-                            className="h-9 px-4 bg-blue-50 text-[#24a1de] text-xs font-bold rounded-lg"
-                          >
-                            Задать
-                          </button>
-                          {task.output_path && task.status === 'completed' && (
-                            <a
-                              href={`${API_BASE}/tasks/${telegramId}/${task.id}/file`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="h-9 px-4 bg-green-50 text-green-700 text-xs font-bold rounded-lg inline-flex items-center"
-                            >
-                              Скачать
-                            </a>
-                          )}
-                       </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                  {!tasksLoading && filteredTasks.length === 0 && (
+                    <div className="p-8 text-center text-sm text-[#707579]">
+                      По текущим фильтрам ничего не найдено. Попробуй сменить платформу, статус или строку поиска.
                     </div>
-                  ))}
+                  )}
+                  {!tasksLoading && filteredTasks.map(task => {
+                    const account = task.target_account_id ? accountsById[task.target_account_id] : undefined;
+                    const platform = normalizeNetwork(account?.channel_code || task.type);
+                    const platformMeta = getPlatformMeta(platform);
+                    const previewUrl = task.output_path && task.status === 'completed' && telegramId
+                      ? `${API_BASE}/tasks/${telegramId}/${task.id}/file`
+                      : '';
+                    return (
+                      <div key={task.id} className="p-4 space-y-4">
+                        <div className="flex gap-4 items-start">
+                          <div className="w-24 shrink-0">
+                            <div className="relative aspect-[9/16] rounded-[22px] overflow-hidden bg-gradient-to-br from-slate-900 via-slate-700 to-slate-500 shadow-sm">
+                              {previewUrl ? (
+                                <video
+                                  src={previewUrl}
+                                  className="absolute inset-0 w-full h-full object-cover"
+                                  muted
+                                  playsInline
+                                  preload="metadata"
+                                />
+                              ) : (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center text-white/90 gap-2">
+                                  {platformMeta.icon}
+                                  <span className="text-[10px] font-bold uppercase tracking-[0.18em]">{platformMeta.label}</span>
+                                </div>
+                              )}
+                              <div className="absolute top-2 left-2">
+                                <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full border backdrop-blur-sm bg-white/90 ${platformMeta.tone}`}>
+                                  {platformMeta.icon}
+                                  {platformMeta.label}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex-1 min-w-0 space-y-3">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-[15px] font-semibold text-slate-900 truncate">{getTaskDisplayTitle(task)}</p>
+                                <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1 text-[12px] text-[#707579]">
+                                  <span>{getTaskSourceHint(task)}</span>
+                                  <span>ID #{task.id}</span>
+                                  <span>{account?.account_name || 'Локальная очередь'}</span>
+                                </div>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full border ${getProcessingTone(task.status)}`}>
+                                  {task.status === 'processing' ? <Loader2 size={13} className="animate-spin" /> : task.status === 'completed' ? <CheckCircle2 size={13} /> : task.status === 'failed' ? <AlertTriangle size={13} /> : <Clock3 size={13} />}
+                                  {getProcessingLabel(task.status)}
+                                </span>
+                                <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full border ${getPublicationTone(task.publishing_status)}`}>
+                                  {task.publishing_status === 'published' ? <CheckCircle2 size={13} /> : task.publishing_status === 'failed' ? <AlertTriangle size={13} /> : task.publishing_status === 'in_progress' ? <Loader2 size={13} className="animate-spin" /> : <CalendarDays size={13} />}
+                                  {getStatusLabel(task.publishing_status)}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[12px] text-slate-600">
+                              <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2">
+                                <p className="text-[11px] uppercase tracking-wide text-[#8b93a1]">Создано</p>
+                                <p className="mt-1 font-medium text-slate-900">{formatDateTimeLabel(task.created_at)}</p>
+                              </div>
+                              <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2">
+                                <p className="text-[11px] uppercase tracking-wide text-[#8b93a1]">Публикация</p>
+                                <p className="mt-1 font-medium text-slate-900">{formatDateTimeLabel(task.publish_at)}</p>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
+                              <input
+                                type="datetime-local"
+                                value={scheduleInputs[task.id] || ''}
+                                onChange={(e) => setScheduleInputs(prev => ({ ...prev, [task.id]: e.target.value }))}
+                                className="input-field text-xs h-10 py-1"
+                              />
+                              <button
+                                onClick={() => saveTaskSchedule(task.id)}
+                                disabled={activeTaskId === task.id}
+                                className="h-10 px-4 bg-blue-50 text-[#24a1de] text-xs font-bold rounded-xl disabled:opacity-50"
+                              >
+                                {activeTaskId === task.id ? '...' : 'Обновить дату'}
+                              </button>
+                              {task.output_path && task.status === 'completed' ? (
+                                <a
+                                  href={previewUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="h-10 px-4 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-xl inline-flex items-center justify-center gap-2"
+                                >
+                                  <Download size={14} />
+                                  Скачать
+                                </a>
+                              ) : (
+                                <div className="h-10 px-4 bg-slate-100 text-slate-400 text-xs font-bold rounded-xl inline-flex items-center justify-center">
+                                  Нет файла
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </motion.div>
