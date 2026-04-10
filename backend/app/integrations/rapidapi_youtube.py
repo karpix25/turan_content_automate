@@ -162,8 +162,8 @@ class RapidAPIYoutubeClient:
         if not video_id:
             return {"download_url": None, "error": "Invalid YouTube URL (cannot extract video id)"}
 
-        # Keep both params for compatibility across endpoint revisions.
-        data = self._get_json({"id": video_id, "url": youtube_url})
+        # The current endpoint requires `videoId`; keep `url` as an auxiliary hint.
+        data = self._get_json({"videoId": video_id, "url": youtube_url})
         if not data:
             return {"download_url": None, "error": "RapidAPI request failed"}
 
