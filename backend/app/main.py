@@ -134,11 +134,12 @@ def normalize_ending_platform(value: str | None) -> str:
         "insta": "instagram",
         "yt": "youtube",
         "you_tube": "youtube",
+        "tt": "tiktok",
     }
     platform = aliases.get(platform, platform)
-    if platform in {"instagram", "youtube", "universal"}:
+    if platform in {"instagram", "youtube", "tiktok", "universal"}:
         return platform
-    raise HTTPException(status_code=400, detail="platform must be one of: instagram, youtube, universal")
+    raise HTTPException(status_code=400, detail="platform must be one of: instagram, youtube, tiktok, universal")
 
 
 def parse_optional_account_id(value: str | None) -> int | None:

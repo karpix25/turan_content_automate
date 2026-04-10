@@ -428,6 +428,14 @@ const App = () => {
           )}
         </div>
 
+        <input
+          ref={endingInputRef}
+          type="file"
+          accept="video/mp4,video/quicktime,video/webm,video/x-matroska"
+          onChange={(e) => void handleEndingSelected(e)}
+          className="hidden"
+        />
+
         <AnimatePresence mode="wait">
           {activeTab === 'branding' && (
             <motion.div key="branding" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
@@ -453,13 +461,6 @@ const App = () => {
                 </div>
               </div>
 
-              <input
-                ref={endingInputRef}
-                type="file"
-                accept="video/mp4,video/quicktime,video/webm,video/x-matroska"
-                onChange={(e) => void handleEndingSelected(e)}
-                className="hidden"
-              />
             </motion.div>
           )}
 
