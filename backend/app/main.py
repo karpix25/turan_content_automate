@@ -91,8 +91,7 @@ def normalize_source_url(value: str, task_type: str | None = None) -> str:
     if not url:
         raise HTTPException(status_code=400, detail="source_url is empty")
     if (task_type or "").strip().lower() == "youtube":
-        video_id = extract_youtube_video_id(url)
-        return video_id or url
+        return normalize_youtube_url(url)
     if not url.startswith(("http://", "https://")):
         url = f"https://{url}"
     return url
@@ -123,8 +122,22 @@ def extract_youtube_video_id(url: str) -> str | None:
 
 
 def normalize_youtube_url(url: str) -> str:
-    video_id = extract_youtube_video_id(url)
-    return video_id if video_id else url
+    raw = (url or "").strip()
+    video_id = extract_youtube_video_id(raw)
+    if not video_id:
+        return raw
+
+    if re.fullmatch(r"[A-Za-z0-9_-]{11}", raw):
+        return f"https://www.youtube.com/watch?v={video_id}"
+
+    parsed = urlparse(raw)
+    host = parsed.netloc.lower()
+    path_parts = [part for part in parsed.path.split("/") if part]
+
+    if "youtube.com" in host and len(path_parts) >= 2 and path_parts[0] == "shorts":
+        return f"https://www.youtube.com/shorts/{video_id}"
+
+    return f"https://www.youtube.com/watch?v={video_id}"
 
 
 def validate_youtube_url(url: str) -> None:

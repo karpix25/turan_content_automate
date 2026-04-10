@@ -242,6 +242,17 @@ def _normalize_external_url(value: str) -> str:
     return url
 
 
+def _is_youtube_shorts_url(url: str) -> bool:
+    raw = (url or "").strip()
+    if not raw or re.fullmatch(r"[A-Za-z0-9_-]{11}", raw):
+        return False
+
+    parsed = urlparse(raw)
+    host = parsed.netloc.lower()
+    path_parts = [part for part in parsed.path.split("/") if part]
+    return "youtube.com" in host and len(path_parts) >= 2 and path_parts[0] == "shorts"
+
+
 def _resolve_media_file_path(path: str | None, media_kind: str) -> str | None:
     value = (path or "").strip()
     if not value:
@@ -295,6 +306,30 @@ def _build_youtube_watch_url(video_id: str) -> str:
     return f"https://www.youtube.com/watch?v={video_id}"
 
 
+def _download_vizard_project_clips(db, task: models.VideoTask, source_url: str, **create_kwargs) -> List[str]:
+    p_id = asyncio.run(vizard.create_project(source_url, **create_kwargs))
+    if not p_id:
+        raise Exception("Failed to create Vizard project")
+
+    task.vizard_project_id = p_id
+    db.commit()
+
+    clips = asyncio.run(vizard.poll_until_complete(p_id))
+    if not clips:
+        raise Exception("Vizard conversion timed out or failed")
+
+    input_videos: List[str] = []
+    for i, clip in enumerate(clips):
+        url = clip.get("videoUrl")
+        if not url:
+            raise Exception(f"Vizard clip #{i} has no download URL")
+        local_file = downloader.download_video(url, f"vizard_{p_id}_{i}")
+        if not local_file:
+            raise Exception(f"Failed to download Vizard clip #{i}")
+        input_videos.append(local_file)
+    return input_videos
+
+
 def _build_youtube_download_headers(watch_url: str) -> dict[str, str]:
     return {
         "Origin": "https://www.youtube.com",
@@ -311,6 +346,38 @@ def _plan_publish_times_for_outputs(db, user: models.User, outputs_count: int, m
         return [None] * outputs_count
     return plan_next_publish_times(db=db, user=user, count=outputs_count)
 
+
+def _get_base_source_label(source_url: str) -> str:
+    base = (source_url or "").split(" [slot ", 1)[0]
+    base = base.split(" [variant ", 1)[0]
+    base = base.split(" [clip ", 1)[0]
+    base = base.split(" [account ", 1)[0]
+    return base
+
+
+def _resolve_publishing_status(publish_at, should_sync: bool) -> str:
+    if publish_at:
+        return "scheduled"
+    return "in_progress" if should_sync else "not_published"
+
+
+def _build_source_label(
+    base_source: str,
+    *,
+    clip_index: int | None = None,
+    slot_index: int | None = None,
+    account_id: int | None = None,
+) -> str:
+    label = base_source
+    if clip_index is not None:
+        label += f" [clip {clip_index}]"
+    if slot_index is not None:
+        label += f" [slot {slot_index}]"
+    if account_id is not None:
+        label += f" [account {account_id}]"
+    return label
+
+
 def _upsert_variant_task(
     db,
     base_task: models.VideoTask,
@@ -319,14 +386,14 @@ def _upsert_variant_task(
     publish_at,
     target_account_id: int | None,
 ) -> models.VideoTask:
-    base_source = base_task.source_url.split(" [slot ", 1)[0].split(" [variant ", 1)[0]
+    base_source = _get_base_source_label(base_task.source_url)
     existing = db.query(models.VideoTask).filter(
         models.VideoTask.user_id == base_task.user_id,
         models.VideoTask.output_path == output_path,
         models.VideoTask.id != base_task.id,
     ).first()
 
-    publishing_status = "scheduled" if publish_at else "in_progress"
+    publishing_status = _resolve_publishing_status(publish_at, should_sync=True)
 
     if existing:
         existing.type = base_task.type
@@ -356,6 +423,54 @@ def _upsert_variant_task(
     db.refresh(variant_task)
     return variant_task
 
+
+def _upsert_processed_task(
+    db,
+    base_task: models.VideoTask,
+    output_path: str,
+    source_label: str,
+    publish_at,
+    target_account_id: int | None,
+    should_sync: bool,
+) -> models.VideoTask:
+    existing = db.query(models.VideoTask).filter(
+        models.VideoTask.user_id == base_task.user_id,
+        models.VideoTask.output_path == output_path,
+        models.VideoTask.id != base_task.id,
+    ).first()
+
+    publishing_status = _resolve_publishing_status(publish_at, should_sync=should_sync)
+
+    if existing:
+        existing.type = base_task.type
+        existing.status = "completed"
+        existing.vizard_project_id = base_task.vizard_project_id
+        existing.source_url = source_label
+        existing.publish_at = publish_at
+        existing.target_account_id = target_account_id
+        existing.postmypost_id = None
+        existing.postmypost_file_id = None
+        existing.publishing_status = publishing_status
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    clip_task = models.VideoTask(
+        user_id=base_task.user_id,
+        source_url=source_label,
+        type=base_task.type,
+        status="completed",
+        vizard_project_id=base_task.vizard_project_id,
+        output_path=output_path,
+        publish_at=publish_at,
+        target_account_id=target_account_id,
+        publishing_status=publishing_status,
+    )
+    db.add(clip_task)
+    db.commit()
+    db.refresh(clip_task)
+    return clip_task
+
 @celery_app.task(name="process_content_task")
 def process_content_task(task_id: int):
     db = SessionLocal()
@@ -374,27 +489,7 @@ def process_content_task(task_id: int):
             raise Exception("Source URL is empty")
 
         if task.type == "vizard":
-            # 1. Send to Vizard
-            p_id = asyncio.run(vizard.create_project(source_url))
-            if not p_id:
-                raise Exception("Failed to create Vizard project")
-            task.vizard_project_id = p_id
-            db.commit()
-
-            # 2. Poll Vizard
-            clips = asyncio.run(vizard.poll_until_complete(p_id))
-            if not clips:
-                raise Exception("Vizard conversion timed out or failed")
-            
-            # 3. Download clips
-            for i, clip in enumerate(clips):
-                url = clip.get("videoUrl")
-                if not url:
-                    raise Exception(f"Vizard clip #{i} has no download URL")
-                local_file = downloader.download_video(url, f"vizard_{p_id}_{i}")
-                if not local_file:
-                    raise Exception(f"Failed to download Vizard clip #{i}")
-                input_videos.append(local_file)
+            input_videos.extend(_download_vizard_project_clips(db, task, source_url))
 
         elif task.type == "instagram":
             details = scraper.get_instagram_details(source_url)
@@ -413,45 +508,59 @@ def process_content_task(task_id: int):
             youtube_video_id = _extract_youtube_video_id(source_url)
             if not youtube_video_id:
                 raise Exception("Failed to normalize YouTube video id")
-            provider_source_url = _build_youtube_watch_url(youtube_video_id)
+            if _is_youtube_shorts_url(source_url):
+                provider_source_url = f"https://www.youtube.com/shorts/{youtube_video_id}"
+                details = rapidapi_yt.get_youtube_details(provider_source_url)
+                download_url = _normalize_external_url((details or {}).get("download_url") or "")
+                if not download_url:
+                    rapidapi_error = (details or {}).get("error")
+                    raise Exception(
+                        f"Failed to download YouTube Shorts via configured RapidAPI provider: "
+                        f"{rapidapi_error or 'No downloadable media URL'}"
+                    )
 
-            details = rapidapi_yt.get_youtube_details(provider_source_url)
-            download_url = _normalize_external_url((details or {}).get("download_url") or "")
-            if not download_url:
-                rapidapi_error = (details or {}).get("error")
-                raise Exception(
-                    f"Failed to download YouTube video via configured RapidAPI provider: "
-                    f"{rapidapi_error or 'No downloadable media URL'}"
+                logging.info(
+                    "Task %s: routed YouTube Shorts to RapidAPI status=%s progress_id=%s",
+                    task_id,
+                    (details or {}).get("status"),
+                    (details or {}).get("progress_id"),
                 )
 
-            logging.info(
-                "Task %s: RapidAPI provider returned YouTube download status=%s progress_id=%s",
-                task_id,
-                (details or {}).get("status"),
-                (details or {}).get("progress_id"),
-            )
+                local_file = downloader.download_media(
+                    download_url,
+                    f"yt_{task_id}",
+                    headers=_build_youtube_download_headers(provider_source_url),
+                )
 
-            local_file = downloader.download_media(
-                download_url,
-                f"yt_{task_id}",
-                headers=_build_youtube_download_headers(provider_source_url),
-            )
-
-            if not local_file:
-                raise Exception("Failed to download YouTube video from provider URL")
-            input_videos.append(local_file)
+                if not local_file:
+                    raise Exception("Failed to download YouTube Shorts from provider URL")
+                input_videos.append(local_file)
+            else:
+                logging.info("Task %s: routed full YouTube video to Vizard", task_id)
+                input_videos.extend(
+                    _download_vizard_project_clips(
+                        db,
+                        task,
+                        source_url,
+                        video_type=2,
+                        prefer_length=1,
+                        lang="auto",
+                        ratio_of_clip=1,
+                        get_clips=1,
+                        highlight_switch=0,
+                        subtitle_switch=1,
+                        auto_broll_switch=0,
+                        headline_switch=0,
+                        remove_silence_switch=1,
+                    )
+                )
 
         if not input_videos:
             raise Exception("No input videos were downloaded")
-
-        video_path = input_videos[0]
-        if len(input_videos) > 1:
+        process_all_clips = bool(task.vizard_project_id)
+        source_items = list(enumerate(input_videos, start=1)) if process_all_clips else [(1, input_videos[0])]
+        if not process_all_clips and len(input_videos) > 1:
             logging.info(f"Task {task_id}: got {len(input_videos)} source clips, processing first clip only")
-        if not video_path:
-            raise Exception("Downloaded video path is empty")
-
-        video_root, _ = os.path.splitext(video_path)
-        base_output = f"{video_root}_final.mp4"
 
         subtitles_enabled = False
         ass_path = None
@@ -467,7 +576,7 @@ def process_content_task(task_id: int):
                 active_plate.file_path,
             )
         target_account_ids = _get_target_account_ids(db, user.id)
-        if task.type in {"instagram", "youtube"} and not target_account_ids:
+        if task.type in {"instagram", "youtube"} and not target_account_ids and not process_all_clips:
             raise Exception(
                 "No PostMyPost accounts configured/enabled for this user. "
                 "Enable channels in UI or set POSTMYPOST_CHANNEL_IDS."
@@ -496,110 +605,151 @@ def process_content_task(task_id: int):
             variants_count,
             len(ending_clips),
         )
-        used_ending_ids_by_platform: dict[str, set[int]] = {}
-        if target_account_ids:
-            account_outputs: List[tuple[int, str, int]] = []
-            for account_id in target_account_ids:
-                slot_idx = account_variant_index.get(account_id, 1)
-                platform_code = account_platform_map.get(account_id, "universal")
-                ending = _pick_platform_ending(
-                    clips=ending_clips,
-                    platform=platform_code,
-                    account_id=account_id,
-                    used_ids_by_platform=used_ending_ids_by_platform,
-                )
-                ending_path = _resolve_media_file_path(ending.file_path if ending else None, media_kind="cta")
-                if ending and ending.file_path and not ending_path:
-                    logging.warning(
-                        "Task %s: ending file missing for account=%s platform=%s ending_id=%s path=%s",
+        outputs_count = len(source_items) * (len(target_account_ids) if target_account_ids else 1)
+        publish_times = _plan_publish_times_for_outputs(
+            db=db,
+            user=user,
+            outputs_count=outputs_count,
+            manual_publish_at=None if process_all_clips else task.publish_at,
+        )
+
+        should_sync_outputs = bool(target_account_ids)
+        base_source = _get_base_source_label(task.source_url)
+        rendered_outputs: List[dict] = []
+        publish_index = 0
+
+        for clip_index, video_path in source_items:
+            if not video_path:
+                raise Exception("Downloaded video path is empty")
+
+            video_root, _ = os.path.splitext(video_path)
+            clip_used_ending_ids_by_platform: dict[str, set[int]] = {}
+
+            if target_account_ids:
+                for account_id in target_account_ids:
+                    slot_idx = account_variant_index.get(account_id, 1)
+                    platform_code = account_platform_map.get(account_id, "universal")
+                    ending = _pick_platform_ending(
+                        clips=ending_clips,
+                        platform=platform_code,
+                        account_id=account_id,
+                        used_ids_by_platform=clip_used_ending_ids_by_platform,
+                    )
+                    ending_path = _resolve_media_file_path(ending.file_path if ending else None, media_kind="cta")
+                    if ending and ending.file_path and not ending_path:
+                        logging.warning(
+                            "Task %s: ending file missing for clip=%s account=%s platform=%s ending_id=%s path=%s",
+                            task_id,
+                            clip_index,
+                            account_id,
+                            platform_code,
+                            getattr(ending, "id", None),
+                            ending.file_path,
+                        )
+                    logging.info(
+                        "Task %s: clip=%s account=%s platform=%s slot=%s ending_id=%s ending_path=%s",
                         task_id,
+                        clip_index,
                         account_id,
                         platform_code,
+                        slot_idx,
                         getattr(ending, "id", None),
-                        ending.file_path,
+                        ending_path,
                     )
-                logging.info(
-                    "Task %s: account=%s platform=%s slot=%s ending_id=%s ending_path=%s",
-                    task_id,
-                    account_id,
-                    platform_code,
-                    slot_idx,
-                    getattr(ending, "id", None),
-                    ending_path,
-                )
-                account_output = f"{video_root}_final_s{slot_idx}_a{account_id}.mp4"
+                    account_output = f"{video_root}_final_s{slot_idx}_a{account_id}.mp4"
+                    processor.process_video(
+                        input_path=video_path,
+                        output_path=account_output,
+                        plate_path=plate_path,
+                        plate_start_percent=plate_start_percent,
+                        ass_path=ass_path,
+                        cta_path=ending_path,
+                        subtitles_enabled=subtitles_enabled,
+                        unique_seed=(clip_index * 1000) + slot_idx if process_all_clips else slot_idx,
+                    )
+                    publish_at = publish_times[publish_index] if len(publish_times) > publish_index else None
+                    publish_index += 1
+                    rendered_outputs.append(
+                        {
+                            "output_path": account_output,
+                            "publish_at": publish_at,
+                            "target_account_id": account_id,
+                            "source_label": _build_source_label(
+                                base_source,
+                                clip_index=clip_index if process_all_clips else None,
+                                slot_index=slot_idx,
+                                account_id=account_id,
+                            ),
+                        }
+                    )
+            else:
+                base_output = f"{video_root}_final.mp4"
                 processor.process_video(
                     input_path=video_path,
-                    output_path=account_output,
+                    output_path=base_output,
                     plate_path=plate_path,
                     plate_start_percent=plate_start_percent,
                     ass_path=ass_path,
-                    cta_path=ending_path,
+                    cta_path=None,
                     subtitles_enabled=subtitles_enabled,
-                    unique_seed=slot_idx,
+                    unique_seed=clip_index if process_all_clips else 1,
                 )
-                account_outputs.append((account_id, account_output, slot_idx))
+                publish_at = publish_times[publish_index] if len(publish_times) > publish_index else None
+                publish_index += 1
+                rendered_outputs.append(
+                    {
+                        "output_path": base_output,
+                        "publish_at": publish_at,
+                        "target_account_id": None,
+                        "source_label": _build_source_label(
+                            base_source,
+                            clip_index=clip_index if process_all_clips else None,
+                        ),
+                    }
+                )
 
-            publish_times = _plan_publish_times_for_outputs(
-                db=db,
-                user=user,
-                outputs_count=len(account_outputs),
-                manual_publish_at=task.publish_at,
-            )
+        if not rendered_outputs:
+            raise Exception("No rendered outputs were produced")
 
-            primary_account_id, primary_output, primary_slot = account_outputs[0]
-            primary_publish_at = publish_times[0] if publish_times else None
-            task.output_path = primary_output
-            task.target_account_id = primary_account_id
-            task.source_url = f"{task.source_url.split(' [slot ', 1)[0]} [slot {primary_slot}]"
-            task.publish_at = primary_publish_at
-            task.status = "completed"
-            task.publishing_status = "scheduled" if primary_publish_at else "in_progress"
-            db.commit()
-            db.refresh(task)
+        primary_output = rendered_outputs[0]
+        task.output_path = primary_output["output_path"]
+        task.target_account_id = primary_output["target_account_id"]
+        task.source_url = primary_output["source_label"]
+        task.publish_at = primary_output["publish_at"]
+        task.status = "completed"
+        task.postmypost_id = None
+        task.postmypost_file_id = None
+        task.publishing_status = _resolve_publishing_status(primary_output["publish_at"], should_sync=should_sync_outputs)
+        db.commit()
+        db.refresh(task)
 
+        if should_sync_outputs:
             logging.info(
-                "Task %s: enqueue sync_publication_task for primary account %s (publish_at=%s)",
+                "Task %s: enqueue sync_publication_task for primary output account=%s publish_at=%s",
                 task.id,
-                primary_account_id,
-                primary_publish_at,
+                primary_output["target_account_id"],
+                primary_output["publish_at"],
             )
             celery_app.send_task("sync_publication_task", args=[task.id])
 
-            for index, (account_id, account_output, slot_idx) in enumerate(account_outputs[1:], start=1):
-                publish_at = publish_times[index] if len(publish_times) > index else task.publish_at
-                variant_task = _upsert_variant_task(
-                    db=db,
-                    base_task=task,
-                    output_path=account_output,
-                    variant_index=slot_idx,
-                    publish_at=publish_at,
-                    target_account_id=account_id,
-                )
-                logging.info(
-                    "Task %s: enqueue sync_publication_task for variant account %s (publish_at=%s)",
-                    variant_task.id,
-                    account_id,
-                    publish_at,
-                )
-                celery_app.send_task("sync_publication_task", args=[variant_task.id])
-        else:
-            # No connected publication accounts; render a single local-ready output.
-            processor.process_video(
-                input_path=video_path,
-                output_path=base_output,
-                plate_path=plate_path,
-                plate_start_percent=plate_start_percent,
-                ass_path=ass_path,
-                cta_path=None,
-                subtitles_enabled=subtitles_enabled,
-                unique_seed=1,
+        for derived_output in rendered_outputs[1:]:
+            derived_task = _upsert_processed_task(
+                db=db,
+                base_task=task,
+                output_path=derived_output["output_path"],
+                source_label=derived_output["source_label"],
+                publish_at=derived_output["publish_at"],
+                target_account_id=derived_output["target_account_id"],
+                should_sync=should_sync_outputs,
             )
-            task.output_path = base_output
-            task.target_account_id = None
-            task.status = "completed"
-            task.publishing_status = "scheduled" if task.publish_at else "not_published"
-            db.commit()
+            if should_sync_outputs:
+                logging.info(
+                    "Task %s: enqueue sync_publication_task for derived output account=%s publish_at=%s",
+                    derived_task.id,
+                    derived_output["target_account_id"],
+                    derived_output["publish_at"],
+                )
+                celery_app.send_task("sync_publication_task", args=[derived_task.id])
 
     except Exception as e:
         logging.exception(f"Task {task_id} failed: {e}")

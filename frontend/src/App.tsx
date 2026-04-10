@@ -551,12 +551,17 @@ const App = () => {
     { id: 'tiktok', label: 'TikTok' },
     { id: 'other', label: 'Другое' },
   ];
+  const platformFilteredTasks = tasks.filter((task) => {
+    const account = task.target_account_id ? accountsById[task.target_account_id] : undefined;
+    const platform = normalizeNetwork(account?.channel_code || task.type);
+    return queuePlatformFilter === 'all' || platform === queuePlatformFilter;
+  });
   const queueCounters = {
-    all: tasks.length,
-    active: tasks.filter((task) => ['pending', 'processing', 'in_progress'].includes(task.status) || task.publishing_status === 'in_progress').length,
-    scheduled: tasks.filter((task) => task.publishing_status === 'scheduled').length,
-    published: tasks.filter((task) => task.publishing_status === 'published').length,
-    failed: tasks.filter((task) => task.status === 'failed' || task.publishing_status === 'failed').length,
+    all: platformFilteredTasks.length,
+    active: platformFilteredTasks.filter((task) => ['pending', 'processing', 'in_progress'].includes(task.status) || task.publishing_status === 'in_progress').length,
+    scheduled: platformFilteredTasks.filter((task) => task.publishing_status === 'scheduled').length,
+    published: platformFilteredTasks.filter((task) => task.publishing_status === 'published').length,
+    failed: platformFilteredTasks.filter((task) => task.status === 'failed' || task.publishing_status === 'failed').length,
   };
   const filteredTasks = tasks.filter((task) => {
     const account = task.target_account_id ? accountsById[task.target_account_id] : undefined;

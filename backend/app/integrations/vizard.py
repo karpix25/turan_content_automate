@@ -15,17 +15,53 @@ class VizardClient:
             "Content-Type": "application/json"
         }
 
-    async def create_project(self, video_url: str, template_id: Optional[str] = None) -> Optional[int]:
+    async def create_project(
+        self,
+        video_url: str,
+        template_id: Optional[str] = None,
+        *,
+        video_type: Optional[int] = None,
+        prefer_length: Optional[int] = None,
+        lang: Optional[str] = None,
+        ratio_of_clip: Optional[int] = None,
+        get_clips: Optional[int] = None,
+        highlight_switch: Optional[int] = None,
+        subtitle_switch: Optional[int] = None,
+        auto_broll_switch: Optional[int] = None,
+        headline_switch: Optional[int] = None,
+        remove_silence_switch: Optional[int] = None,
+        project_name: Optional[str] = None,
+    ) -> Optional[int]:
         """
         Submits a video URL to Vizard for clipping.
         Returns the projectId.
         """
         url = f"{self.BASE_URL}/project/create"
-        payload = {
-            "videoUrl": video_url
-        }
+        payload = {"videoUrl": video_url}
         if template_id:
             payload["templateId"] = template_id
+        if video_type is not None:
+            payload["videoType"] = video_type
+        if prefer_length is not None:
+            payload["preferLength"] = prefer_length
+        if lang:
+            payload["lang"] = lang
+        if ratio_of_clip is not None:
+            payload["ratioOfClip"] = ratio_of_clip
+        if get_clips is not None:
+            payload["getClips"] = get_clips
+        if highlight_switch is not None:
+            payload["highlightSwitch"] = highlight_switch
+        if subtitle_switch is not None:
+            payload["subtitleSwitch"] = subtitle_switch
+        if auto_broll_switch is not None:
+            payload["autoBrollSwitch"] = auto_broll_switch
+        if headline_switch is not None:
+            payload["headlineSwitch"] = headline_switch
+        if remove_silence_switch is not None:
+            payload["removeSilenceSwitch"] = remove_silence_switch
+        if project_name:
+            payload["projectName"] = project_name
 
         async with httpx.AsyncClient() as client:
             try:
