@@ -12,6 +12,12 @@ class YtDlpDownloader:
     def __init__(self, output_dir: str):
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
+        self.cookies_file = (os.getenv("YTDLP_COOKIES_FILE", "") or "").strip()
+        self.player_clients = [
+            item.strip()
+            for item in (os.getenv("YTDLP_PLAYER_CLIENTS", "android,web") or "").split(",")
+            if item.strip()
+        ]
 
     def _find_downloaded_file(self, prefix: str) -> Optional[str]:
         candidates = [
@@ -37,7 +43,18 @@ class YtDlpDownloader:
                 "bestvideo+bestaudio/"
                 "best[ext=mp4]/best"
             ),
+            "extractor_args": {
+                "youtube": {
+                    "player_client": self.player_clients or ["android", "web"],
+                }
+            },
         }
+        if self.cookies_file:
+            if os.path.isfile(self.cookies_file):
+                options["cookiefile"] = self.cookies_file
+                logger.info("yt-dlp will use cookies file %s", self.cookies_file)
+            else:
+                logger.warning("YTDLP_COOKIES_FILE is set but file is missing: %s", self.cookies_file)
         try:
             with YoutubeDL(options) as ydl:
                 ydl.extract_info(source_url, download=True)
