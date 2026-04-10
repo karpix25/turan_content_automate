@@ -57,6 +57,7 @@ class PostMyPostAccountOut(BaseModel):
 class EndingClipOut(BaseModel):
     id: int
     user_id: int
+    account_id: Optional[int]
     file_path: str
     label: Optional[str]
     platform: str

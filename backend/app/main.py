@@ -140,6 +140,16 @@ def normalize_ending_platform(value: str | None) -> str:
         return platform
     raise HTTPException(status_code=400, detail="platform must be one of: instagram, youtube, universal")
 
+
+def parse_optional_account_id(value: str | None) -> int | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="account_id must be an integer")
+
 @app.get("/")
 def read_root():
     return {"status": "ok", "message": "Content processing API is running"}
@@ -439,21 +449,39 @@ async def upload_ending(
     telegram_id: str,
     platform: str = Form(...),
     label: str = Form(""),
+    account_id: str = Form(""),
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
     user = get_or_create_user(db, telegram_id)
     normalized_platform = normalize_ending_platform(platform)
+    normalized_account_id = parse_optional_account_id(account_id)
     endings_dir = os.getenv("CTA_DIR", "/app/database/media/cta")
     os.makedirs(endings_dir, exist_ok=True)
 
-    file_name = f"{telegram_id}_{normalized_platform}_{file.filename}"
+    account_segment = f"_a{normalized_account_id}" if normalized_account_id is not None else ""
+    file_name = f"{telegram_id}_{normalized_platform}{account_segment}_{file.filename}"
     file_path = os.path.join(endings_dir, file_name)
     with open(file_path, "wb") as f:
         f.write(await file.read())
 
+    existing = db.query(models.CTAClip).filter(
+        models.CTAClip.user_id == user.id,
+        models.CTAClip.platform == normalized_platform,
+        models.CTAClip.account_id == normalized_account_id,
+    ).all()
+    for row in existing:
+        old_path = row.file_path
+        db.delete(row)
+        if old_path and old_path != file_path and os.path.isfile(old_path):
+            try:
+                os.remove(old_path)
+            except OSError:
+                logging.warning("Failed to remove previous ending file: %s", old_path)
+
     ending = models.CTAClip(
         user_id=user.id,
+        account_id=normalized_account_id,
         file_path=file_path,
         label=label or file.filename,
         platform=normalized_platform,
@@ -469,4 +497,4 @@ def list_endings(telegram_id: str, db: Session = Depends(get_db)):
     user = get_or_create_user(db, telegram_id)
     return db.query(models.CTAClip).filter(
         models.CTAClip.user_id == user.id
-    ).order_by(models.CTAClip.id.desc()).all()
+    ).order_by(models.CTAClip.account_id.asc().nullsfirst(), models.CTAClip.id.desc()).all()

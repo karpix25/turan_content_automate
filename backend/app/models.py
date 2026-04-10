@@ -33,6 +33,7 @@ class CTAClip(Base):
     __tablename__ = "cta_clips"
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"))
+    account_id = Column(Integer, nullable=True, index=True)
     file_path = Column(String)
     label = Column(String)
     platform = Column(String, default="universal", nullable=False)  # 'instagram', 'youtube', 'universal'

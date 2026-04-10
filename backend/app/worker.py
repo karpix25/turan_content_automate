@@ -159,17 +159,45 @@ def _get_account_platform_map(account_ids: List[int]) -> dict[int, str]:
 def _pick_platform_ending(
     clips: List[models.CTAClip],
     platform: str,
+    account_id: int | None,
     used_ids_by_platform: dict[str, set[int]],
 ) -> models.CTAClip | None:
     normalized = _normalize_platform_code(platform)
-    exact = [clip for clip in clips if _normalize_platform_code(getattr(clip, "platform", None)) == normalized]
-    universal = [clip for clip in clips if _normalize_platform_code(getattr(clip, "platform", None)) == "universal"]
-    fallback_any = list(clips)
-    pool = exact if exact else universal if universal else fallback_any
+    exact_account = [
+        clip for clip in clips
+        if getattr(clip, "account_id", None) == account_id
+        and _normalize_platform_code(getattr(clip, "platform", None)) == normalized
+    ]
+    exact_global = [
+        clip for clip in clips
+        if getattr(clip, "account_id", None) is None
+        and _normalize_platform_code(getattr(clip, "platform", None)) == normalized
+    ]
+    universal_account = [
+        clip for clip in clips
+        if getattr(clip, "account_id", None) == account_id
+        and _normalize_platform_code(getattr(clip, "platform", None)) == "universal"
+    ]
+    universal_global = [
+        clip for clip in clips
+        if getattr(clip, "account_id", None) is None
+        and _normalize_platform_code(getattr(clip, "platform", None)) == "universal"
+    ]
+    fallback_any = [
+        clip for clip in clips
+        if getattr(clip, "account_id", None) in {None, account_id}
+    ]
+    pool = (
+        exact_account
+        if exact_account else exact_global
+        if exact_global else universal_account
+        if universal_account else universal_global
+        if universal_global else fallback_any
+    )
     if not pool:
         return None
 
-    used_key = normalized if (exact or universal) else "fallback_any"
+    used_key = f"{account_id}:{normalized}" if pool is not fallback_any else f"{account_id}:fallback_any"
     used = used_ids_by_platform.setdefault(used_key, set())
     for clip in pool:
         if clip.id not in used:
@@ -423,7 +451,9 @@ def process_content_task(task_id: int):
             account_ids=target_account_ids,
             account_platform_map=account_platform_map,
         )
-        ending_clips = db.query(models.CTAClip).filter(models.CTAClip.user_id == user.id).all()
+        ending_clips = db.query(models.CTAClip).filter(
+            models.CTAClip.user_id == user.id
+        ).order_by(models.CTAClip.id.desc()).all()
         logging.info(
             "Task %s: user_id=%s telegram_id=%s accounts=%s variants_count=%s endings_loaded=%s",
             task_id,
@@ -442,6 +472,7 @@ def process_content_task(task_id: int):
                 ending = _pick_platform_ending(
                     clips=ending_clips,
                     platform=platform_code,
+                    account_id=account_id,
                     used_ids_by_platform=used_ending_ids_by_platform,
                 )
                 ending_path = _resolve_media_file_path(ending.file_path if ending else None, media_kind="cta")

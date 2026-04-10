@@ -40,6 +40,7 @@ type PublishAccount = {
 type EndingClip = {
   id: number;
   user_id: number;
+  account_id?: number | null;
   file_path: string;
   label?: string | null;
   platform: string;
@@ -101,11 +102,11 @@ const App = () => {
   const [channelsError, setChannelsError] = useState('');
   const [savingChannelSettings, setSavingChannelSettings] = useState(false);
   const [endingClips, setEndingClips] = useState<EndingClip[]>([]);
-  const [uploadingEndingPlatform, setUploadingEndingPlatform] = useState<string | null>(null);
+  const [uploadingEndingAccountId, setUploadingEndingAccountId] = useState<number | null>(null);
+  const [endingUploadTarget, setEndingUploadTarget] = useState<PublishAccount | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const instaEndingInputRef = useRef<HTMLInputElement | null>(null);
-  const youtubeEndingInputRef = useRef<HTMLInputElement | null>(null);
+  const endingInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const webApp = window.Telegram?.WebApp;
@@ -207,6 +208,22 @@ const App = () => {
     } catch (error) {}
   };
 
+  const normalizeNetwork = (code?: string | null) => {
+    const normalized = (code || '').trim().toLowerCase();
+    if (normalized.includes('instagram') || normalized === 'ig' || normalized === 'insta') return 'instagram';
+    if (normalized.includes('youtube') || normalized === 'yt') return 'youtube';
+    if (normalized.includes('tiktok') || normalized === 'tt') return 'tiktok';
+    if (normalized === 'instagram' || normalized === 'youtube' || normalized === 'tiktok') return normalized;
+    return normalized || 'other';
+  };
+
+  const getEndingForAccount = (accountId: number, platform?: string | null) => {
+    const exact = endingClips.find((item) => item.account_id === accountId);
+    if (exact) return exact;
+    const normalizedPlatform = normalizeNetwork(platform);
+    return endingClips.find((item) => !item.account_id && normalizeNetwork(item.platform) === normalizedPlatform) || null;
+  };
+
   const buildDescriptionsPayload = (source: Record<number, string>) => {
     return Object.entries(source).reduce<Record<string, string>>((acc, [accountId, value]) => {
       const text = (value || '').trim();
@@ -285,28 +302,29 @@ const App = () => {
     }
   };
 
-  const handlePickEnding = (platform: 'instagram' | 'youtube') => {
-    if (platform === 'instagram') instaEndingInputRef.current?.click();
-    if (platform === 'youtube') youtubeEndingInputRef.current?.click();
+  const handlePickEnding = (account: PublishAccount) => {
+    setEndingUploadTarget(account);
+    endingInputRef.current?.click();
   };
 
-  const handleEndingSelected = async (
-    platform: 'instagram' | 'youtube',
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) => {
+  const handleEndingSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file || !telegramId) return;
+    if (!file || !telegramId || !endingUploadTarget) return;
+    const platform = normalizeNetwork(endingUploadTarget.channel_code);
+    if (!['instagram', 'youtube', 'tiktok'].includes(platform)) return;
     const formData = new FormData();
     formData.append('file', file);
     formData.append('platform', platform);
     formData.append('label', file.name);
-    setUploadingEndingPlatform(platform);
+    formData.append('account_id', String(endingUploadTarget.account_id));
+    setUploadingEndingAccountId(endingUploadTarget.account_id);
     try {
       await axios.post(`${API_BASE}/upload/ending/${telegramId}`, formData);
       await loadEndingClips(telegramId);
     } catch (error) {
     } finally {
-      setUploadingEndingPlatform(null);
+      setUploadingEndingAccountId(null);
+      setEndingUploadTarget(null);
       event.target.value = '';
     }
   };
@@ -358,14 +376,7 @@ const App = () => {
     return labels[status] || status;
   };
 
-  const instagramEndings = endingClips.filter((item) => item.platform === 'instagram');
-  const youtubeEndings = endingClips.filter((item) => item.platform === 'youtube');
   const enabledAccounts = publishAccounts.filter((item) => item.enabled);
-  const normalizeNetwork = (code?: string | null) => {
-    const normalized = (code || '').trim().toLowerCase();
-    if (normalized === 'instagram' || normalized === 'youtube' || normalized === 'tiktok') return normalized;
-    return normalized || 'other';
-  };
   const enabledByNetwork = enabledAccounts.reduce<Record<string, number>>((acc, item) => {
     const network = normalizeNetwork(item.channel_code);
     acc[network] = (acc[network] || 0) + 1;
@@ -442,69 +453,13 @@ const App = () => {
                 </div>
               </div>
 
-              <div className="tg-card overflow-hidden">
-                <div className="p-4 border-b">
-                  <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Концовки</h3>
-                </div>
-                <div className="divide-y">
-                  <button
-                    onClick={() => handlePickEnding('instagram')}
-                    className="w-full flex items-center gap-4 p-4 hover:bg-slate-50 transition-colors active:bg-slate-100"
-                  >
-                    <div className="p-3 bg-pink-50 text-pink-600 rounded-xl">
-                      <Video size={20} />
-                    </div>
-                    <div className="flex-1 text-left">
-                      <p className="font-semibold text-[16px]">
-                        {uploadingEndingPlatform === 'instagram' ? 'Загрузка...' : 'Загрузить концовку для Instagram'}
-                      </p>
-                      <p className="text-xs text-[#707579]">Файлов: {instagramEndings.length}</p>
-                    </div>
-                    <ChevronRight size={18} className="text-[#c7c7cc]" />
-                  </button>
-                  <button
-                    onClick={() => handlePickEnding('youtube')}
-                    className="w-full flex items-center gap-4 p-4 hover:bg-slate-50 transition-colors active:bg-slate-100"
-                  >
-                    <div className="p-3 bg-red-50 text-red-600 rounded-xl">
-                      <Video size={20} />
-                    </div>
-                    <div className="flex-1 text-left">
-                      <p className="font-semibold text-[16px]">
-                        {uploadingEndingPlatform === 'youtube' ? 'Загрузка...' : 'Загрузить концовку для YouTube'}
-                      </p>
-                      <p className="text-xs text-[#707579]">Файлов: {youtubeEndings.length}</p>
-                    </div>
-                    <ChevronRight size={18} className="text-[#c7c7cc]" />
-                  </button>
-                </div>
-                <input
-                  ref={instaEndingInputRef}
-                  type="file"
-                  accept="video/mp4,video/quicktime,video/webm,video/x-matroska"
-                  onChange={(e) => void handleEndingSelected('instagram', e)}
-                  className="hidden"
-                />
-                <input
-                  ref={youtubeEndingInputRef}
-                  type="file"
-                  accept="video/mp4,video/quicktime,video/webm,video/x-matroska"
-                  onChange={(e) => void handleEndingSelected('youtube', e)}
-                  className="hidden"
-                />
-                {endingClips.length > 0 && (
-                  <div className="p-4 border-t bg-slate-50">
-                    <p className="text-[12px] font-semibold text-[#707579] mb-2">Последние загруженные</p>
-                    <div className="space-y-1">
-                      {endingClips.slice(0, 4).map((clip) => (
-                        <p key={clip.id} className="text-[12px] text-slate-700 truncate">
-                          [{clip.platform}] {clip.label || clip.file_path.split('/').pop()}
-                        </p>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+              <input
+                ref={endingInputRef}
+                type="file"
+                accept="video/mp4,video/quicktime,video/webm,video/x-matroska"
+                onChange={(e) => void handleEndingSelected(e)}
+                className="hidden"
+              />
             </motion.div>
           )}
 
@@ -587,15 +542,37 @@ const App = () => {
                    </div>
                  )}
                  <div className="divide-y">
-                    {publishAccounts.map(acc => (
+                    {publishAccounts.map(acc => {
+                      const currentEnding = getEndingForAccount(acc.account_id, acc.channel_code);
+                      const network = normalizeNetwork(acc.channel_code);
+                      const canUploadEnding = ['instagram', 'youtube', 'tiktok'].includes(network);
+                      return (
                       <div key={acc.account_id} className="p-4 space-y-3">
                          <div className="flex items-center justify-between">
                            <div>
                               <p className="font-semibold text-[15px]">{acc.account_name}</p>
-                              <p className="text-[12px] text-[#707579]">{acc.channel_name || 'Instagram/TikTok'}</p>
+                              <p className="text-[12px] text-[#707579]">{acc.channel_name || 'Канал'} · {network}</p>
                            </div>
                            <button onClick={() => togglePublishAccount(acc.account_id)} className={`w-12 h-6 rounded-full transition-all flex items-center p-1 ${acc.enabled ? 'bg-[#34c759]' : 'bg-[#e9e9eb]'}`}>
                               <div className={`w-4 h-4 bg-white rounded-full shadow-sm transform transition-all ${acc.enabled ? 'translate-x-6' : 'translate-x-0'}`} />
+                           </button>
+                         </div>
+                         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 flex items-center gap-3">
+                           <div className="p-2 rounded-lg bg-white text-slate-700 border border-slate-200">
+                             <Video size={16} />
+                           </div>
+                           <div className="flex-1 min-w-0">
+                             <p className="text-[11px] text-[#707579] uppercase tracking-wide">Видео концовка</p>
+                             <p className="text-[13px] text-slate-800 truncate">
+                               {currentEnding ? (currentEnding.label || currentEnding.file_path.split('/').pop()) : 'Не загружена'}
+                             </p>
+                           </div>
+                           <button
+                             onClick={() => handlePickEnding(acc)}
+                             disabled={!canUploadEnding || uploadingEndingAccountId === acc.account_id}
+                             className="h-9 px-3 bg-blue-50 text-[#24a1de] text-xs font-bold rounded-lg disabled:opacity-50"
+                           >
+                             {uploadingEndingAccountId === acc.account_id ? 'Загрузка...' : 'Загрузить'}
                            </button>
                          </div>
                          <label className="flex flex-col gap-1">
@@ -614,7 +591,7 @@ const App = () => {
                            />
                          </label>
                       </div>
-                    ))}
+                    )})}
                  </div>
               </div>
 
