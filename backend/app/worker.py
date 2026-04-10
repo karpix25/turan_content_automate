@@ -160,6 +160,30 @@ def _get_account_platform_map(account_ids: List[int]) -> dict[int, str]:
         return {}
 
 
+def _get_channel_plate_config(
+    db,
+    user: models.User,
+    account_id: int | None,
+) -> tuple[str | None, int]:
+    selected_plate_id = getattr(user, "selected_plate_id", None)
+    plate_start_percent = max(0, min(100, int(getattr(user, "plate_start_percent", 0) or 0)))
+
+    if account_id is not None:
+        row = db.query(models.UserPublishChannel).filter(
+            models.UserPublishChannel.user_id == user.id,
+            models.UserPublishChannel.account_id == account_id,
+        ).first()
+        if row:
+            if row.selected_plate_id is not None:
+                selected_plate_id = row.selected_plate_id
+            if row.plate_start_percent is not None:
+                plate_start_percent = max(0, min(100, int(row.plate_start_percent or 0)))
+
+    active_plate = db.query(models.Plate).filter(models.Plate.id == selected_plate_id).first() if selected_plate_id else None
+    plate_path = _resolve_media_file_path(active_plate.file_path if active_plate else None, media_kind="plates")
+    return plate_path, plate_start_percent
+
+
 def _pick_platform_ending(
     clips: List[models.CTAClip],
     platform: str,
@@ -564,17 +588,6 @@ def process_content_task(task_id: int):
 
         subtitles_enabled = False
         ass_path = None
-        plate_start_percent = max(0, min(100, int(getattr(user, "plate_start_percent", 0) or 0)))
-
-        active_plate = db.query(models.Plate).filter(models.Plate.id == user.selected_plate_id).first()
-        plate_path = _resolve_media_file_path(active_plate.file_path if active_plate else None, media_kind="plates")
-        if active_plate and active_plate.file_path and not plate_path:
-            logging.warning(
-                "Task %s: selected plate file missing plate_id=%s path=%s",
-                task_id,
-                active_plate.id,
-                active_plate.file_path,
-            )
         target_account_ids = _get_target_account_ids(db, user.id)
         if task.type in {"instagram", "youtube"} and not target_account_ids and not process_all_clips:
             raise Exception(
@@ -629,6 +642,7 @@ def process_content_task(task_id: int):
                 for account_id in target_account_ids:
                     slot_idx = account_variant_index.get(account_id, 1)
                     platform_code = account_platform_map.get(account_id, "universal")
+                    plate_path, plate_start_percent = _get_channel_plate_config(db, user, account_id)
                     ending = _pick_platform_ending(
                         clips=ending_clips,
                         platform=platform_code,
@@ -684,6 +698,7 @@ def process_content_task(task_id: int):
                     )
             else:
                 base_output = f"{video_root}_final.mp4"
+                plate_path, plate_start_percent = _get_channel_plate_config(db, user, None)
                 processor.process_video(
                     input_path=video_path,
                     output_path=base_output,

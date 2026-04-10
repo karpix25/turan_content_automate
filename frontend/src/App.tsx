@@ -8,8 +8,6 @@ import {
   RefreshCcw,
   LayoutGrid,
   ChevronRight,
-  X,
-  Eye,
   Search,
   CalendarDays,
   Clock3,
@@ -55,6 +53,9 @@ type PublishAccount = {
   channel_name?: string | null;
   enabled: boolean;
   description?: string | null;
+  selected_plate_id?: number | null;
+  plate_start_percent?: number | null;
+  plate_file_path?: string | null;
 };
 
 type EndingClip = {
@@ -113,20 +114,14 @@ const formatDateTimeLabel = (value?: string | null) => {
 };
 
 const App = () => {
-  const [activeTab, setActiveTab] = useState('branding');
+  const [activeTab, setActiveTab] = useState('channels');
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
 
   const [autoScheduleEnabled, setAutoScheduleEnabled] = useState(false);
   const [publishLimitPerDay, setPublishLimitPerDay] = useState(3);
   const [publishWindowStartMsk, setPublishWindowStartMsk] = useState('10:00:00');
   const [publishWindowEndMsk, setPublishWindowEndMsk] = useState('22:00:00');
-  const [plateFile, setPlateFile] = useState<File | null>(null);
-  const [platePreviewUrl, setPlatePreviewUrl] = useState('');
-  const [selectedPlateId, setSelectedPlateId] = useState<number | null>(null);
-  const [plateStartPercent, setPlateStartPercent] = useState(0);
-  const [uploadingPlate, setUploadingPlate] = useState(false);
   const [telegramId, setTelegramId] = useState('');
   const [telegramIdInput, setTelegramIdInput] = useState('');
   const [tasks, setTasks] = useState<VideoTaskItem[]>([]);
@@ -141,6 +136,11 @@ const App = () => {
   const [channelsLoading, setChannelsLoading] = useState(false);
   const [channelsError, setChannelsError] = useState('');
   const [savingChannelSettings, setSavingChannelSettings] = useState(false);
+  const [selectedPlateIdByAccount, setSelectedPlateIdByAccount] = useState<Record<number, number | null>>({});
+  const [plateStartPercentByAccount, setPlateStartPercentByAccount] = useState<Record<number, number>>({});
+  const [plateFilePathByAccount, setPlateFilePathByAccount] = useState<Record<number, string>>({});
+  const [plateUploadTarget, setPlateUploadTarget] = useState<PublishAccount | null>(null);
+  const [uploadingPlateAccountId, setUploadingPlateAccountId] = useState<number | null>(null);
   const [endingClips, setEndingClips] = useState<EndingClip[]>([]);
   const [uploadingEndingAccountId, setUploadingEndingAccountId] = useState<number | null>(null);
   const [endingUploadTarget, setEndingUploadTarget] = useState<PublishAccount | null>(null);
@@ -186,8 +186,6 @@ const App = () => {
         setPublishLimitPerDay(response.data.publish_limit_per_day || 3);
         setPublishWindowStartMsk(response.data.publish_window_start_msk || '10:00:00');
         setPublishWindowEndMsk(response.data.publish_window_end_msk || '22:00:00');
-        setSelectedPlateId(response.data.selected_plate_id ?? null);
-        setPlateStartPercent(clampPercent(response.data.plate_start_percent ?? 0));
       } catch (error) {}
     };
     loadSettings();
@@ -226,6 +224,24 @@ const App = () => {
       setChannelDescriptions(
         response.data.reduce<Record<number, string>>((acc, item) => {
           acc[item.account_id] = item.description || '';
+          return acc;
+        }, {}),
+      );
+      setSelectedPlateIdByAccount(
+        response.data.reduce<Record<number, number | null>>((acc, item) => {
+          acc[item.account_id] = item.selected_plate_id ?? null;
+          return acc;
+        }, {}),
+      );
+      setPlateStartPercentByAccount(
+        response.data.reduce<Record<number, number>>((acc, item) => {
+          acc[item.account_id] = clampPercent(item.plate_start_percent ?? 0);
+          return acc;
+        }, {}),
+      );
+      setPlateFilePathByAccount(
+        response.data.reduce<Record<number, string>>((acc, item) => {
+          acc[item.account_id] = item.plate_file_path || '';
           return acc;
         }, {}),
       );
@@ -270,21 +286,55 @@ const App = () => {
     }, {});
   };
 
+  const buildPlateIdsPayload = (source: Record<number, number | null>) =>
+    Object.entries(source).reduce<Record<string, number | null>>((acc, [accountId, value]) => {
+      acc[accountId] = value ?? null;
+      return acc;
+    }, {});
+
+  const buildPlatePercentsPayload = (source: Record<number, number>) =>
+    Object.entries(source).reduce<Record<string, number>>((acc, [accountId, value]) => {
+      acc[accountId] = clampPercent(Number(value) || 0);
+      return acc;
+    }, {});
+
   const savePublishChannelSettings = async (
     accounts: PublishAccount[],
     descriptions: Record<number, string>,
+    plateIds: Record<number, number | null>,
+    platePercents: Record<number, number>,
   ) => {
     if (!telegramId) return;
     const accountIds = accounts.filter((item) => item.enabled).map((item) => item.account_id);
     const payload = {
       account_ids: accountIds,
       descriptions: buildDescriptionsPayload(descriptions),
+      selected_plate_ids: buildPlateIdsPayload(plateIds),
+      plate_start_percents: buildPlatePercentsPayload(platePercents),
     };
     const response = await axios.post<PublishAccount[]>(`${API_BASE}/postmypost/channels/${telegramId}`, payload);
     setPublishAccounts(response.data);
     setChannelDescriptions(
       response.data.reduce<Record<number, string>>((acc, item) => {
         acc[item.account_id] = item.description || '';
+        return acc;
+      }, {}),
+    );
+    setSelectedPlateIdByAccount(
+      response.data.reduce<Record<number, number | null>>((acc, item) => {
+        acc[item.account_id] = item.selected_plate_id ?? null;
+        return acc;
+      }, {}),
+    );
+    setPlateStartPercentByAccount(
+      response.data.reduce<Record<number, number>>((acc, item) => {
+        acc[item.account_id] = clampPercent(item.plate_start_percent ?? 0);
+        return acc;
+      }, {}),
+    );
+    setPlateFilePathByAccount(
+      response.data.reduce<Record<number, string>>((acc, item) => {
+        acc[item.account_id] = item.plate_file_path || '';
         return acc;
       }, {}),
     );
@@ -297,15 +347,15 @@ const App = () => {
     );
     setPublishAccounts(nextAccounts);
     try {
-      await savePublishChannelSettings(nextAccounts, channelDescriptions);
+      await savePublishChannelSettings(nextAccounts, channelDescriptions, selectedPlateIdByAccount, plateStartPercentByAccount);
     } catch (error) {}
   };
 
-  const saveDescriptions = async () => {
+  const saveChannelSettings = async () => {
     if (!telegramId) return;
     setSavingChannelSettings(true);
     try {
-      await savePublishChannelSettings(publishAccounts, channelDescriptions);
+      await savePublishChannelSettings(publishAccounts, channelDescriptions, selectedPlateIdByAccount, plateStartPercentByAccount);
     } catch (error) {
     } finally {
       setSavingChannelSettings(false);
@@ -319,22 +369,30 @@ const App = () => {
     void loadEndingClips(telegramId);
   }, [telegramId]);
 
-  const handlePickFile = () => fileInputRef.current?.click();
+  const handlePickPlate = (account: PublishAccount) => {
+    setPlateUploadTarget(account);
+    fileInputRef.current?.click();
+  };
 
   const handlePlateSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file || !telegramId) return;
-    if (platePreviewUrl) URL.revokeObjectURL(platePreviewUrl);
-    setPlatePreviewUrl(URL.createObjectURL(file));
-    setPlateFile(file);
+    if (!file || !telegramId || !plateUploadTarget) return;
     const formData = new FormData();
     formData.append('file', file);
-    setUploadingPlate(true);
+    setUploadingPlateAccountId(plateUploadTarget.account_id);
     try {
       const response = await axios.post<{ plate_id: number }>(`${API_BASE}/upload/plate/${telegramId}`, formData);
-      setSelectedPlateId(response.data.plate_id);
+      setSelectedPlateIdByAccount((prev) => ({
+        ...prev,
+        [plateUploadTarget.account_id]: response.data.plate_id,
+      }));
+      setPlateFilePathByAccount((prev) => ({
+        ...prev,
+        [plateUploadTarget.account_id]: file.name,
+      }));
     } catch (error) {} finally {
-      setUploadingPlate(false);
+      setUploadingPlateAccountId(null);
+      setPlateUploadTarget(null);
       event.target.value = '';
     }
   };
@@ -369,21 +427,6 @@ const App = () => {
   const flashSaved = () => {
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
-  };
-
-  const saveBrandingSettings = async () => {
-    if (!telegramId) return;
-    setLoading(true);
-    try {
-      await axios.post(`${API_BASE}/settings/${telegramId}/update`, {
-        subtitles_enabled: false,
-        selected_plate_id: selectedPlateId,
-        plate_start_percent: plateStartPercent,
-      });
-      flashSaved();
-    } catch (error) {} finally {
-      setLoading(false);
-    }
   };
 
   const savePlanningSettings = async () => {
@@ -526,13 +569,12 @@ const App = () => {
     .join(' · ');
 
   const sectionMeta: Record<string, { title: string; actionLabel: string | null }> = {
-    branding: { title: 'Брендинг', actionLabel: 'Сохранить' },
     channels: { title: 'Каналы', actionLabel: 'Сохранить' },
     planning: { title: 'Планирование', actionLabel: 'Сохранить' },
     queue: { title: 'Очередь', actionLabel: null },
   };
 
-  const currentSection = sectionMeta[activeTab] || sectionMeta.branding;
+  const currentSection = sectionMeta[activeTab] || sectionMeta.channels;
   const accountsById = publishAccounts.reduce<Record<number, PublishAccount>>((acc, account) => {
     acc[account.account_id] = account;
     return acc;
@@ -589,12 +631,8 @@ const App = () => {
   });
 
   const handleHeaderAction = async () => {
-    if (activeTab === 'branding') {
-      await saveBrandingSettings();
-      return;
-    }
     if (activeTab === 'channels') {
-      await saveDescriptions();
+      await saveChannelSettings();
       flashSaved();
       return;
     }
@@ -659,78 +697,13 @@ const App = () => {
         />
 
         <AnimatePresence mode="wait">
-          {activeTab === 'branding' && (
-            <motion.div key="branding" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
-              <div className="tg-card p-4 bg-gradient-to-br from-slate-950 to-slate-800 text-white">
-                <p className="text-[12px] uppercase tracking-[0.18em] text-slate-300">Зона бренда</p>
-                <h2 className="text-[22px] font-bold mt-2">Плашка для роликов</h2>
-                <p className="text-sm text-slate-300 mt-2">
-                  Здесь хранится визуальный оверлей, который накладывается на каждый финальный ролик перед публикацией.
-                </p>
-              </div>
-              <div className="tg-card overflow-hidden">
-                <div className="p-4 border-b">
-                  <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Наложение логотипа</h3>
-                </div>
-                <div className="p-0">
-                  <button 
-                    onClick={handlePickFile}
-                    className="w-full flex items-center gap-4 p-4 hover:bg-slate-50 transition-colors active:bg-slate-100"
-                  >
-                    <div className="p-3 bg-blue-50 text-[#24a1de] rounded-xl">
-                      <Upload size={20} />
-                    </div>
-                    <div className="flex-1 text-left">
-                      <p className="font-semibold text-[16px]">{uploadingPlate ? 'Загрузка...' : 'Загрузить плашку'}</p>
-                      <p className="text-xs text-[#707579]">{plateFile ? plateFile.name : 'PNG или WebP с прозрачностью'}</p>
-                    </div>
-                    <ChevronRight size={18} className="text-[#c7c7cc]" />
-                  </button>
-                  <input ref={fileInputRef} type="file" accept="image/png,image/webp" onChange={handlePlateSelected} className="hidden" />
-                </div>
-              </div>
-              <div className="tg-card">
-                <div className="p-4 border-b">
-                  <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Момент появления</h3>
-                </div>
-                <div className="p-4 space-y-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">Плашка стартует с {plateStartPercent}% ролика</p>
-                      <p className="text-xs text-[#707579] mt-1">
-                        0% покажет её сразу, 50% запустит с середины, 100% только в самом конце.
-                      </p>
-                    </div>
-                    <div className="min-w-[64px] h-10 px-3 rounded-xl bg-slate-100 text-slate-900 font-bold text-sm flex items-center justify-center">
-                      {plateStartPercent}%
-                    </div>
-                  </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={plateStartPercent}
-                    onChange={(e) => setPlateStartPercent(clampPercent(Number(e.target.value)))}
-                    className="w-full accent-[#24a1de]"
-                  />
-                  <div className="flex justify-between text-[11px] uppercase tracking-wide text-[#9aa1ac]">
-                    <span>С начала</span>
-                    <span>С середины</span>
-                    <span>С конца</span>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          )}
-
           {activeTab === 'channels' && (
             <motion.div key="channels" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
               <div className="tg-card p-4 bg-gradient-to-br from-[#fff6e7] to-[#fffaf2] border border-[#f5dfb2]">
                 <p className="text-[12px] uppercase tracking-[0.18em] text-[#9a6b13]">Публикация</p>
                 <h2 className="text-[22px] font-bold mt-2 text-slate-900">Каналы и их материалы</h2>
                 <p className="text-sm text-slate-600 mt-2">
-                  У каждого аккаунта свой статус, своё описание и своя видео-концовка. Здесь настраивается именно то, что уйдёт в PostMyPost.
+                  У каждого аккаунта свои описание, концовка и плашка. Здесь настраивается всё, что попадёт в финальный ролик и уйдёт в PostMyPost.
                 </p>
               </div>
               <div className="tg-card overflow-hidden">
@@ -760,6 +733,12 @@ const App = () => {
                       const currentEnding = getEndingForAccount(acc.account_id, acc.channel_code);
                       const network = normalizeNetwork(acc.channel_code);
                       const canUploadEnding = ['instagram', 'youtube', 'tiktok'].includes(network);
+                      const platePercent = plateStartPercentByAccount[acc.account_id] ?? 0;
+                      const plateLabel = plateFilePathByAccount[acc.account_id]
+                        ? plateFilePathByAccount[acc.account_id].split('/').pop()
+                        : selectedPlateIdByAccount[acc.account_id]
+                          ? `Плашка #${selectedPlateIdByAccount[acc.account_id]}`
+                          : 'Не загружена';
                       return (
                       <div key={acc.account_id} className="p-4 space-y-3">
                          <div className="flex items-center justify-between">
@@ -789,6 +768,49 @@ const App = () => {
                              {uploadingEndingAccountId === acc.account_id ? 'Загрузка...' : 'Загрузить'}
                            </button>
                          </div>
+                         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+                           <div className="flex items-center gap-3">
+                             <div className="p-2 rounded-lg bg-white text-slate-700 border border-slate-200">
+                               <ImageIcon size={16} />
+                             </div>
+                             <div className="flex-1 min-w-0">
+                               <p className="text-[11px] text-[#707579] uppercase tracking-wide">Плашка канала</p>
+                               <p className="text-[13px] text-slate-800 truncate">{plateLabel}</p>
+                             </div>
+                             <button
+                               onClick={() => handlePickPlate(acc)}
+                               disabled={uploadingPlateAccountId === acc.account_id}
+                               className="h-9 px-3 bg-blue-50 text-[#24a1de] text-xs font-bold rounded-lg disabled:opacity-50"
+                             >
+                               {uploadingPlateAccountId === acc.account_id ? 'Загрузка...' : 'Загрузить'}
+                             </button>
+                           </div>
+                           <div className="space-y-2">
+                             <div className="flex items-center justify-between gap-3">
+                               <div>
+                                 <p className="text-[12px] font-semibold text-slate-900">Появление с {platePercent}%</p>
+                                 <p className="text-[11px] text-[#707579]">0% сразу, 50% с середины, 100% в конце.</p>
+                               </div>
+                               <div className="min-w-[58px] h-9 px-3 rounded-xl bg-white text-slate-900 font-bold text-xs flex items-center justify-center border border-slate-200">
+                                 {platePercent}%
+                               </div>
+                             </div>
+                             <input
+                               type="range"
+                               min={0}
+                               max={100}
+                               step={1}
+                               value={platePercent}
+                               onChange={(e) =>
+                                 setPlateStartPercentByAccount((prev) => ({
+                                   ...prev,
+                                   [acc.account_id]: clampPercent(Number(e.target.value)),
+                                 }))
+                               }
+                               className="w-full accent-[#24a1de]"
+                             />
+                           </div>
+                         </div>
                          <label className="flex flex-col gap-1">
                            <span className="text-[11px] text-[#707579] uppercase tracking-wide">Описание для этого канала</span>
                            <textarea
@@ -807,6 +829,7 @@ const App = () => {
                       </div>
                     )})}
                  </div>
+                 <input ref={fileInputRef} type="file" accept="image/png,image/webp" onChange={handlePlateSelected} className="hidden" />
               </div>
             </motion.div>
           )}
@@ -1067,88 +1090,8 @@ const App = () => {
           )}
         </AnimatePresence>
       </main>
-
-      {/* Floating Preview Toggle */}
-      {activeTab === 'branding' && (
-        <button onClick={() => setShowPreview(true)} className="fab-preview">
-          <Eye size={24} />
-        </button>
-      )}
-
-      {/* Preview Overlay */}
-      <AnimatePresence>
-        {showPreview && (
-          <motion.div 
-            initial={{ opacity: 0 }} 
-            animate={{ opacity: 1 }} 
-            exit={{ opacity: 0 }}
-            className="preview-overlay"
-          >
-            <button onClick={() => setShowPreview(false)} className="close-btn">
-               <X size={24} />
-            </button>
-            
-            <div className="phone-frame mt-8">
-              <div className="phone-notch"></div>
-              
-              <div className="absolute inset-0 bg-[#e9e9eb]">
-                <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1518173946687-a4c8a9b746f5?auto=format&fit=crop&q=80')] bg-cover bg-center opacity-60 grayscale-[0.2]" />
-                <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/20 to-transparent" />
-              </div>
-
-              <div className="absolute top-10 right-6 z-20">
-                {platePreviewUrl ? (
-                  <img src={platePreviewUrl} className="max-w-[70px] h-auto drop-shadow-md" />
-                ) : (
-                  <div className="w-12 h-12 bg-white/30 backdrop-blur rounded flex items-center justify-center border border-white/20">
-                    <ImageIcon className="text-white/40" size={16} />
-                  </div>
-                )}
-              </div>
-
-              <div className="absolute inset-0 flex items-center justify-center px-4 pointer-events-none z-20">
-                <div
-                  style={{ color: '#ffffff', textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}
-                  className="text-center font-black uppercase leading-[1.1] text-[8vw]"
-                >
-                  Создавай Быстро<br />Публикуй Легко
-                </div>
-              </div>
-
-              <div className="absolute bottom-10 left-6 right-6 flex items-end justify-between z-20">
-                 <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-full bg-white/40 backdrop-blur border border-white/30" />
-                    <div className="space-y-1">
-                       <div className="w-16 h-1 bg-white/40 rounded" />
-                       <div className="w-10 h-0.5 bg-white/20 rounded" />
-                    </div>
-                 </div>
-                 <div className="w-6 h-6 rounded-full border border-white/40 flex items-center justify-center">
-                    <div className="w-2 h-2 rounded-sm bg-white/40" />
-                 </div>
-              </div>
-            </div>
-            <div className="mt-4 space-y-2 flex flex-col items-center">
-              <p className="text-[11px] font-bold text-white uppercase tracking-widest bg-black/20 px-3 py-1 rounded-full backdrop-blur-sm">
-                Предпросмотр активен
-              </p>
-              <div className="w-[220px] max-w-full rounded-full bg-white/15 overflow-hidden">
-                <div
-                  className="h-1.5 bg-white/80"
-                  style={{ width: `${plateStartPercent}%` }}
-                />
-              </div>
-              <p className="text-[11px] text-white/85">
-                Плашка начнёт появляться с {plateStartPercent}% хронометража ролика.
-              </p>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       <nav className="bottom-nav">
         {[
-          { id: 'branding', icon: ImageIcon, label: 'Брендинг' },
           { id: 'channels', icon: LayoutGrid, label: 'Каналы' },
           { id: 'planning', icon: CalendarClock, label: 'План' },
           { id: 'queue', icon: RefreshCcw, label: 'Очередь' }

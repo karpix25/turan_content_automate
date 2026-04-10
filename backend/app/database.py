@@ -97,3 +97,23 @@ def init_database() -> None:
                 "ALTER TABLE user_publish_channels ADD COLUMN IF NOT EXISTS publication_description TEXT"
             )
         )
+        conn.execute(
+            text(
+                "ALTER TABLE user_publish_channels ADD COLUMN IF NOT EXISTS selected_plate_id INTEGER"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE user_publish_channels ADD COLUMN IF NOT EXISTS plate_start_percent INTEGER"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE user_publish_channels SET plate_start_percent = 0 WHERE plate_start_percent IS NOT NULL AND plate_start_percent < 0"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE user_publish_channels SET plate_start_percent = 100 WHERE plate_start_percent IS NOT NULL AND plate_start_percent > 100"
+            )
+        )

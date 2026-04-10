@@ -276,6 +276,10 @@ def get_postmypost_channels(telegram_id: str, db: Session = Depends(get_db)):
 
     channels_by_id = {int(item["id"]): item for item in channels if isinstance(item, dict) and item.get("id") is not None}
     row_map = get_user_channel_row_map(db, user.id)
+    plate_map = {
+        plate.id: plate
+        for plate in db.query(models.Plate).filter(models.Plate.user_id == user.id).all()
+    }
 
     result: list[schemas.PostMyPostAccountOut] = []
     for account in accounts:
@@ -288,6 +292,16 @@ def get_postmypost_channels(telegram_id: str, db: Session = Depends(get_db)):
         channel_info = channels_by_id.get(channel_id) if channel_id is not None else None
 
         row = row_map.get(account_id)
+        selected_plate_id = row.selected_plate_id if row and row.selected_plate_id is not None else user.selected_plate_id
+        plate_start_percent = (
+            row.plate_start_percent
+            if row and row.plate_start_percent is not None
+            else user.plate_start_percent
+        )
+        plate_file_path = None
+        if selected_plate_id is not None:
+            plate = plate_map.get(int(selected_plate_id))
+            plate_file_path = plate.file_path if plate else None
         result.append(
             schemas.PostMyPostAccountOut(
                 account_id=account_id,
@@ -298,6 +312,9 @@ def get_postmypost_channels(telegram_id: str, db: Session = Depends(get_db)):
                 channel_name=channel_info.get("name") if channel_info else None,
                 enabled=bool(row.enabled) if row else True,
                 description=(row.publication_description if row else None),
+                selected_plate_id=selected_plate_id,
+                plate_start_percent=plate_start_percent,
+                plate_file_path=plate_file_path,
             )
         )
     return result
@@ -311,6 +328,8 @@ def update_postmypost_channels(
     user = get_or_create_user(db, telegram_id)
     selected_ids = {int(item) for item in (payload.account_ids or [])}
     descriptions_raw = payload.descriptions or {}
+    selected_plate_ids_raw = payload.selected_plate_ids or {}
+    plate_start_percents_raw = payload.plate_start_percents or {}
 
     try:
         project_id = get_postmypost_project_id()
@@ -328,6 +347,8 @@ def update_postmypost_channels(
     existing_by_account = {row.account_id: row for row in existing_rows}
 
     normalized_descriptions: dict[int, str | None] = {}
+    normalized_selected_plate_ids: dict[int, int | None] = {}
+    normalized_plate_start_percents: dict[int, int | None] = {}
     for key, value in descriptions_raw.items():
         try:
             account_id = int(key)
@@ -338,6 +359,33 @@ def update_postmypost_channels(
         text_value = (value or "").strip()
         normalized_descriptions[account_id] = text_value if text_value else None
 
+    for key, value in selected_plate_ids_raw.items():
+        try:
+            account_id = int(key)
+        except (TypeError, ValueError):
+            continue
+        if account_id not in valid_ids:
+            continue
+        if value in (None, "", 0, "0"):
+            normalized_selected_plate_ids[account_id] = None
+            continue
+        try:
+            normalized_selected_plate_ids[account_id] = int(value)
+        except (TypeError, ValueError):
+            continue
+
+    for key, value in plate_start_percents_raw.items():
+        try:
+            account_id = int(key)
+        except (TypeError, ValueError):
+            continue
+        if account_id not in valid_ids:
+            continue
+        if value in (None, ""):
+            normalized_plate_start_percents[account_id] = None
+            continue
+        normalized_plate_start_percents[account_id] = normalize_percent(value, field_name="plate_start_percent")
+
     for account_id in valid_ids:
         should_enable = account_id in selected_ids
         account_description = normalized_descriptions.get(account_id)
@@ -346,13 +394,24 @@ def update_postmypost_channels(
             row.enabled = should_enable
             if account_id in normalized_descriptions:
                 row.publication_description = account_description
-        elif should_enable or account_id in normalized_descriptions:
+            if account_id in normalized_selected_plate_ids:
+                row.selected_plate_id = normalized_selected_plate_ids[account_id]
+            if account_id in normalized_plate_start_percents:
+                row.plate_start_percent = normalized_plate_start_percents[account_id]
+        elif (
+            should_enable
+            or account_id in normalized_descriptions
+            or account_id in normalized_selected_plate_ids
+            or account_id in normalized_plate_start_percents
+        ):
             db.add(
                 models.UserPublishChannel(
                     user_id=user.id,
                     account_id=account_id,
                     enabled=should_enable,
                     publication_description=account_description,
+                    selected_plate_id=normalized_selected_plate_ids.get(account_id),
+                    plate_start_percent=normalized_plate_start_percents.get(account_id),
                 )
             )
 

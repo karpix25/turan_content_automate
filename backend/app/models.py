@@ -72,5 +72,7 @@ class UserPublishChannel(Base):
     account_id = Column(Integer, index=True, nullable=False)
     enabled = Column(Boolean, default=True, nullable=False)
     publication_description = Column(String, nullable=True)
+    selected_plate_id = Column(Integer, nullable=True)
+    plate_start_percent = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
