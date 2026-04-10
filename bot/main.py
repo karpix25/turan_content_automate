@@ -22,7 +22,11 @@ dp = Dispatcher(bot)
 SUPPORTED_URL_RE = re.compile(r"(https?://[^\s]+|(?:www\.)?(?:youtube\.com|youtu\.be|instagram\.com)/[^\s]+)", re.IGNORECASE)
 
 def extract_youtube_video_id(url: str) -> str | None:
-    parsed = urlparse((url or "").strip())
+    raw = (url or "").strip()
+    if re.fullmatch(r"[A-Za-z0-9_-]{11}", raw):
+        return raw
+
+    parsed = urlparse(raw)
     host = parsed.netloc.lower()
     path_parts = [part for part in parsed.path.split("/") if part]
 
@@ -43,7 +47,7 @@ def extract_youtube_video_id(url: str) -> str | None:
 
 def normalize_youtube_url(url: str) -> str:
     video_id = extract_youtube_video_id(url)
-    return f"https://www.youtube.com/watch?v={video_id}" if video_id else url
+    return video_id if video_id else url
 
 
 def normalize_source_url(text: str) -> str | None:
@@ -95,17 +99,17 @@ async def send_user_id(message: types.Message):
 @dp.message_handler(regexp=r'(https?://)?(www\.)?(youtube\.com|youtu\.be|instagram\.com)/.+')
 async def handle_link(message: types.Message):
     raw_text = message.text or ""
+    task_type = detect_task_type(raw_text)
     url = normalize_source_url(raw_text)
     if not url:
         await message.reply("❌ Не удалось распознать ссылку. Отправь прямую ссылку на YouTube/Instagram.")
         return
 
-    if ("youtube.com" in url or "youtu.be" in url) and not is_valid_youtube_url(url):
+    if task_type == "youtube" and not is_valid_youtube_url(url):
         await message.reply("❌ Похоже, ссылка на YouTube/Shorts битая (некорректный ID видео).")
         return
 
     user_id = str(message.from_user.id)
-    task_type = detect_task_type(url)
 
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:

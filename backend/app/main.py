@@ -8,6 +8,7 @@ from .publish_planner import validate_schedule_settings
 import os
 import logging
 import datetime
+import re
 from urllib.parse import urlparse, parse_qs
 from celery import Celery
 from dotenv import load_dotenv
@@ -85,19 +86,24 @@ def resolve_output_file_path(output_path: str) -> str | None:
     return None
 
 
-def normalize_source_url(value: str) -> str:
+def normalize_source_url(value: str, task_type: str | None = None) -> str:
     url = (value or "").strip().strip("<>()[]{}\"'.,;")
     if not url:
         raise HTTPException(status_code=400, detail="source_url is empty")
+    if (task_type or "").strip().lower() == "youtube":
+        video_id = extract_youtube_video_id(url)
+        return video_id or url
     if not url.startswith(("http://", "https://")):
         url = f"https://{url}"
-    if "youtube.com" in url or "youtu.be" in url:
-        url = normalize_youtube_url(url)
     return url
 
 
 def extract_youtube_video_id(url: str) -> str | None:
-    parsed = urlparse((url or "").strip())
+    raw = (url or "").strip()
+    if re.fullmatch(r"[A-Za-z0-9_-]{11}", raw):
+        return raw
+
+    parsed = urlparse(raw)
     host = parsed.netloc.lower()
     path_parts = [part for part in parsed.path.split("/") if part]
 
@@ -118,7 +124,7 @@ def extract_youtube_video_id(url: str) -> str | None:
 
 def normalize_youtube_url(url: str) -> str:
     video_id = extract_youtube_video_id(url)
-    return f"https://www.youtube.com/watch?v={video_id}" if video_id else url
+    return video_id if video_id else url
 
 
 def validate_youtube_url(url: str) -> None:
@@ -202,7 +208,7 @@ def update_settings(telegram_id: str, settings: schemas.UserSettingsUpdate, db: 
 def create_task(telegram_id: str, payload: schemas.VideoTaskCreate, db: Session = Depends(get_db)):
     user = get_or_create_user(db, telegram_id)
     publish_at = normalize_utc_naive(payload.publish_at)
-    source_url = normalize_source_url(payload.source_url)
+    source_url = normalize_source_url(payload.source_url, payload.type)
 
     if payload.type == "youtube":
         validate_youtube_url(source_url)

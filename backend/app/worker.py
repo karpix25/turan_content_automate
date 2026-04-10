@@ -231,12 +231,10 @@ def _normalize_external_url(value: str) -> str:
     url = (value or "").strip().strip("<>()[]{}\"'.,;")
     if not url:
         return url
+    if _extract_youtube_video_id(url):
+        return url
     if not url.startswith(("http://", "https://")):
         url = f"https://{url}"
-    if "youtube.com" in url or "youtu.be" in url:
-        video_id = _extract_youtube_video_id(url)
-        if video_id:
-            url = f"https://www.youtube.com/watch?v={video_id}"
     return url
 
 
@@ -261,7 +259,11 @@ def _resolve_media_file_path(path: str | None, media_kind: str) -> str | None:
 
 
 def _extract_youtube_video_id(url: str) -> str | None:
-    parsed = urlparse((url or "").strip())
+    raw = (url or "").strip()
+    if re.fullmatch(r"[A-Za-z0-9_-]{11}", raw):
+        return raw
+
+    parsed = urlparse(raw)
     host = parsed.netloc.lower()
     path_parts = [part for part in parsed.path.split("/") if part]
 
@@ -283,6 +285,10 @@ def _extract_youtube_video_id(url: str) -> str | None:
 def _validate_youtube_url_or_raise(url: str) -> None:
     if _extract_youtube_video_id(url) is None:
         raise Exception("Invalid YouTube URL (expected 11-char video id)")
+
+
+def _build_youtube_watch_url(video_id: str) -> str:
+    return f"https://www.youtube.com/watch?v={video_id}"
 
 
 def _plan_publish_times_for_outputs(db, user: models.User, outputs_count: int, manual_publish_at):
@@ -393,7 +399,12 @@ def process_content_task(task_id: int):
 
         elif task.type == "youtube":
             _validate_youtube_url_or_raise(source_url)
-            details = rapidapi_yt.get_youtube_details(source_url)
+            youtube_video_id = _extract_youtube_video_id(source_url)
+            if not youtube_video_id:
+                raise Exception("Failed to normalize YouTube video id")
+            provider_source_url = _build_youtube_watch_url(youtube_video_id)
+
+            details = rapidapi_yt.get_youtube_details(provider_source_url)
             download_url = _normalize_external_url((details or {}).get("download_url") or "")
 
             if not download_url:
@@ -402,7 +413,7 @@ def process_content_task(task_id: int):
                     "RapidAPI YouTube did not return downloadable URL. Fallback to ScrapeCreators. Reason: %s",
                     rapidapi_error,
                 )
-                sc_details = scraper.get_youtube_details(source_url)
+                sc_details = scraper.get_youtube_details(provider_source_url)
                 download_url = _normalize_external_url((sc_details or {}).get("download_url") or "")
                 if not download_url:
                     sc_error = (sc_details or {}).get("error")
