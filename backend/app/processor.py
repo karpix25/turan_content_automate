@@ -11,6 +11,42 @@ class VideoProcessor:
     def __init__(self):
         logger.info("VideoProcessor initialized (subtitles/transcription disabled).")
 
+    def _probe_media(self, media_path: str) -> Dict:
+        return ffmpeg.probe(media_path)
+
+    def _get_first_stream(self, probe_data: Dict, codec_type: str) -> Optional[Dict]:
+        for stream in probe_data.get("streams", []):
+            if stream.get("codec_type") == codec_type:
+                return stream
+        return None
+
+    def _parse_frame_rate(self, value: str | None) -> Optional[float]:
+        raw = (value or "").strip()
+        if not raw or raw == "0/0":
+            return None
+        if "/" in raw:
+            num, den = raw.split("/", 1)
+            try:
+                numerator = float(num)
+                denominator = float(den)
+                if denominator == 0:
+                    return None
+                return numerator / denominator
+            except ValueError:
+                return None
+        try:
+            return float(raw)
+        except ValueError:
+            return None
+
+    def _build_silent_audio(self, duration: float, sample_rate: int) -> ffmpeg.nodes.FilterableStream:
+        safe_duration = max(duration, 0.1)
+        return ffmpeg.input(
+            f"anullsrc=r={sample_rate}:cl=stereo",
+            f="lavfi",
+            t=safe_duration,
+        ).audio
+
     def transcribe(self, video_path: str) -> List[Dict]:
         """
         Whisper transcription is disabled in this build.
@@ -45,17 +81,28 @@ class VideoProcessor:
         3. Simple concatenation with CTA (if provided).
         """
         logger.info(f"Rendering final video: {output_path}")
-        
-        # 1. Start with the input stream
+
+        main_probe = self._probe_media(input_path)
+        main_video_stream = self._get_first_stream(main_probe, "video")
+        main_audio_stream = self._get_first_stream(main_probe, "audio")
+        if not main_video_stream:
+            raise RuntimeError(f"Input video stream not found: {input_path}")
+
+        target_width = int(main_video_stream.get("width") or 720)
+        target_height = int(main_video_stream.get("height") or 1280)
+        target_fps = self._parse_frame_rate(
+            main_video_stream.get("avg_frame_rate") or main_video_stream.get("r_frame_rate")
+        )
+        target_sample_rate = int((main_audio_stream or {}).get("sample_rate") or 44100)
+        main_duration = float(main_probe.get("format", {}).get("duration") or 0.0)
+
         stream = ffmpeg.input(input_path)
         video = stream.video
-        audio = stream.audio
+        audio = stream.audio if main_audio_stream else self._build_silent_audio(main_duration, target_sample_rate)
 
-        # 2. Add Subtitles
         if subtitles_enabled and ass_path:
             video = video.filter('subtitles', ass_path, force_style="Alignment=2")
 
-        # 2.1 Lightweight visual/audio uniqueness profile.
         profile = self._build_unique_profile(unique_seed)
         video = video.filter(
             "eq",
@@ -67,50 +114,63 @@ class VideoProcessor:
         video = video.filter("setpts", f"PTS/{profile['speed']}")
         audio = audio.filter("atempo", profile["speed"])
 
-        # 3. Add Plate (Overlay)
         if plate_path:
             plate = ffmpeg.input(plate_path)
-            # Center the plate or place it at the top/bottom as needed
-            # For now, let's assume it's a fixed size transparent overlay
             video = ffmpeg.overlay(video, plate)
 
-        # 4. Final render (intermediate or final)
-        # Note: Concatenation with CTA is easier done as a separate step or a complex filter.
-        # Given it's CPU, we'll try to do it in one pass if possible.
-        
         if cta_path:
-            # Concatenation logic in FFmpeg is tricky for disparate files.
-            # Using the concat filter.
-            cta_stream = ffmpeg.input(cta_path)
-            cta_v = cta_stream.video
-            cta_a = cta_stream.audio
-            
-            # Ensure same resolution/frame rate for concat
-            video = ffmpeg.concat(video, cta_v, v=1, a=0)
-            audio = ffmpeg.concat(audio, cta_a, v=0, a=1)
+            cta_probe = self._probe_media(cta_path)
+            cta_video_stream = self._get_first_stream(cta_probe, "video")
+            cta_audio_stream = self._get_first_stream(cta_probe, "audio")
+            if not cta_video_stream:
+                raise RuntimeError(f"CTA video stream not found: {cta_path}")
 
-        # Final output
+            cta_duration = float(cta_probe.get("format", {}).get("duration") or 0.0)
+            cta_stream = ffmpeg.input(cta_path)
+            cta_v = cta_stream.video.filter("scale", target_width, target_height).filter("setsar", "1")
+            if target_fps:
+                cta_v = cta_v.filter("fps", fps=target_fps)
+
+            cta_a = (
+                cta_stream.audio
+                if cta_audio_stream
+                else self._build_silent_audio(cta_duration, target_sample_rate)
+            )
+            cta_a = cta_a.filter("aresample", target_sample_rate)
+
+            video = video.filter("setsar", "1")
+            joined = ffmpeg.concat(video, audio, cta_v, cta_a, v=1, a=1).node
+            video = joined[0]
+            audio = joined[1]
+
         unique_tag = uuid.uuid4().hex
-        (
-            ffmpeg
-            .output(
+        try:
+            (
+                ffmpeg
+                .output(
                 video,
                 audio,
                 output_path,
                 vcodec='libx264',
                 acodec='aac',
                 threads='auto',
+                pix_fmt='yuv420p',
                 movflags='+faststart',
                 map_metadata='-1',
             )
-            .global_args(
+                .global_args(
                 "-metadata", f"title=content-studio-{unique_tag}",
                 "-metadata", f"comment=uniq-{unique_tag}",
                 "-metadata", f"description=variant-{profile['variant_id']}",
             )
-            .overwrite_output()
-            .run()
-        )
+                .overwrite_output()
+                .run(capture_stdout=True, capture_stderr=True)
+            )
+        except ffmpeg.Error as e:
+            stderr = e.stderr.decode("utf-8", errors="ignore") if getattr(e, "stderr", None) else ""
+            if stderr:
+                logger.error("FFmpeg render failed for %s: %s", output_path, stderr)
+            raise
 
     def render_unique_variants(
         self,
