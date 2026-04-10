@@ -91,29 +91,39 @@ def normalize_source_url(value: str) -> str:
         raise HTTPException(status_code=400, detail="source_url is empty")
     if not url.startswith(("http://", "https://")):
         url = f"https://{url}"
+    if "youtube.com" in url or "youtu.be" in url:
+        url = normalize_youtube_url(url)
     return url
 
 
-def validate_youtube_url(url: str) -> None:
-    parsed = urlparse(url)
+def extract_youtube_video_id(url: str) -> str | None:
+    parsed = urlparse((url or "").strip())
     host = parsed.netloc.lower()
     path_parts = [part for part in parsed.path.split("/") if part]
 
     if "youtu.be" in host:
-        if not path_parts or len(path_parts[0]) != 11:
-            raise HTTPException(status_code=400, detail="Invalid YouTube short link")
-        return
+        candidate = path_parts[0] if path_parts else ""
+        return candidate if len(candidate) == 11 else None
 
     if "youtube.com" in host:
         if len(path_parts) >= 2 and path_parts[0] == "shorts":
-            if len(path_parts[1]) != 11:
-                raise HTTPException(status_code=400, detail="Invalid YouTube Shorts ID")
-            return
+            candidate = path_parts[1]
+            return candidate if len(candidate) == 11 else None
         if parsed.path == "/watch":
-            video_id = parse_qs(parsed.query).get("v", [""])[0]
-            if len(video_id) != 11:
-                raise HTTPException(status_code=400, detail="Invalid YouTube watch URL")
-            return
+            candidate = parse_qs(parsed.query).get("v", [""])[0]
+            return candidate if len(candidate) == 11 else None
+
+    return None
+
+
+def normalize_youtube_url(url: str) -> str:
+    video_id = extract_youtube_video_id(url)
+    return f"https://www.youtube.com/watch?v={video_id}" if video_id else url
+
+
+def validate_youtube_url(url: str) -> None:
+    if extract_youtube_video_id(url) is None:
+        raise HTTPException(status_code=400, detail="Invalid YouTube URL")
 
 def get_postmypost_project_id() -> int:
     project_id_raw = os.getenv("POSTMYPOST_PROJECT_ID", "").strip()

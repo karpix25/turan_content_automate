@@ -21,6 +21,31 @@ dp = Dispatcher(bot)
 
 SUPPORTED_URL_RE = re.compile(r"(https?://[^\s]+|(?:www\.)?(?:youtube\.com|youtu\.be|instagram\.com)/[^\s]+)", re.IGNORECASE)
 
+def extract_youtube_video_id(url: str) -> str | None:
+    parsed = urlparse((url or "").strip())
+    host = parsed.netloc.lower()
+    path_parts = [part for part in parsed.path.split("/") if part]
+
+    if "youtu.be" in host:
+        candidate = path_parts[0] if path_parts else ""
+        return candidate if len(candidate) == 11 else None
+
+    if "youtube.com" in host:
+        if len(path_parts) >= 2 and path_parts[0] == "shorts":
+            candidate = path_parts[1]
+            return candidate if len(candidate) == 11 else None
+        if parsed.path == "/watch":
+            candidate = parse_qs(parsed.query).get("v", [""])[0]
+            return candidate if len(candidate) == 11 else None
+
+    return None
+
+
+def normalize_youtube_url(url: str) -> str:
+    video_id = extract_youtube_video_id(url)
+    return f"https://www.youtube.com/watch?v={video_id}" if video_id else url
+
+
 def normalize_source_url(text: str) -> str | None:
     if not text:
         return None
@@ -30,27 +55,13 @@ def normalize_source_url(text: str) -> str | None:
     url = match.group(0).strip().strip("<>()[]{}\"'.,;")
     if not url.startswith(("http://", "https://")):
         url = f"https://{url}"
+    if "youtube.com" in url or "youtu.be" in url:
+        url = normalize_youtube_url(url)
     return url
 
 
 def is_valid_youtube_url(url: str) -> bool:
-    parsed = urlparse(url)
-    host = parsed.netloc.lower()
-    path_parts = [part for part in parsed.path.split("/") if part]
-
-    if "youtu.be" in host:
-        if not path_parts:
-            return False
-        return len(path_parts[0]) == 11
-
-    if "youtube.com" in host:
-        if len(path_parts) >= 2 and path_parts[0] == "shorts":
-            return len(path_parts[1]) == 11
-        if parsed.path == "/watch":
-            video_id = parse_qs(parsed.query).get("v", [""])[0]
-            return len(video_id) == 11
-
-    return True
+    return extract_youtube_video_id(url) is not None
 
 
 def detect_task_type(url: str) -> str:

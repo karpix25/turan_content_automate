@@ -233,6 +233,10 @@ def _normalize_external_url(value: str) -> str:
         return url
     if not url.startswith(("http://", "https://")):
         url = f"https://{url}"
+    if "youtube.com" in url or "youtu.be" in url:
+        video_id = _extract_youtube_video_id(url)
+        if video_id:
+            url = f"https://www.youtube.com/watch?v={video_id}"
     return url
 
 
@@ -256,26 +260,29 @@ def _resolve_media_file_path(path: str | None, media_kind: str) -> str | None:
     return None
 
 
-def _validate_youtube_url_or_raise(url: str) -> None:
-    parsed = urlparse(url)
+def _extract_youtube_video_id(url: str) -> str | None:
+    parsed = urlparse((url or "").strip())
     host = parsed.netloc.lower()
     path_parts = [part for part in parsed.path.split("/") if part]
 
     if "youtu.be" in host:
-        if not path_parts or len(path_parts[0]) != 11:
-            raise Exception("Invalid YouTube short link (expected 11-char video id)")
-        return
+        candidate = path_parts[0] if path_parts else ""
+        return candidate if len(candidate) == 11 else None
 
     if "youtube.com" in host:
         if len(path_parts) >= 2 and path_parts[0] == "shorts":
-            if len(path_parts[1]) != 11:
-                raise Exception("Invalid YouTube Shorts ID (expected 11 chars)")
-            return
+            candidate = path_parts[1]
+            return candidate if len(candidate) == 11 else None
         if parsed.path == "/watch":
-            video_id = parse_qs(parsed.query).get("v", [""])[0]
-            if len(video_id) != 11:
-                raise Exception("Invalid YouTube watch URL (missing/invalid v parameter)")
-            return
+            candidate = parse_qs(parsed.query).get("v", [""])[0]
+            return candidate if len(candidate) == 11 else None
+
+    return None
+
+
+def _validate_youtube_url_or_raise(url: str) -> None:
+    if _extract_youtube_video_id(url) is None:
+        raise Exception("Invalid YouTube URL (expected 11-char video id)")
 
 
 def _plan_publish_times_for_outputs(db, user: models.User, outputs_count: int, manual_publish_at):
