@@ -14,6 +14,7 @@ from .integrations.postmypost import PostMyPostClient
 from .processor import VideoProcessor
 from .database import SessionLocal, init_database
 from .publish_planner import plan_next_publish_times
+from .telegram_progress import update_task_status_message
 from . import models
 from dotenv import load_dotenv
 
@@ -514,6 +515,7 @@ def process_content_task(task_id: int):
     user = db.query(models.User).get(task.user_id)
     task.status = "processing"
     db.commit()
+    update_task_status_message(db, task, stage="Обработка началась", detail="Подготавливаю видео к обработке.")
     input_videos: List[str] = []
 
     try:
@@ -522,9 +524,11 @@ def process_content_task(task_id: int):
             raise Exception("Source URL is empty")
 
         if task.type == "vizard":
+            update_task_status_message(db, task, stage="Vizard", detail="Отправляю видео в Vizard и жду клипы.")
             input_videos.extend(_download_vizard_project_clips(db, task, source_url))
 
         elif task.type == "instagram":
+            update_task_status_message(db, task, stage="Скачивание", detail="Скачиваю видео из Instagram.")
             details = scraper.get_instagram_details(source_url)
             download_url = _normalize_external_url((details or {}).get("download_url") or "")
             if not download_url:
@@ -542,6 +546,7 @@ def process_content_task(task_id: int):
             if not youtube_video_id:
                 raise Exception("Failed to normalize YouTube video id")
             if _is_youtube_shorts_url(source_url):
+                update_task_status_message(db, task, stage="Скачивание", detail="Скачиваю YouTube Shorts.")
                 provider_source_url = f"https://www.youtube.com/shorts/{youtube_video_id}"
                 details = rapidapi_yt.get_youtube_details(provider_source_url)
                 download_url = _normalize_external_url((details or {}).get("download_url") or "")
@@ -570,6 +575,7 @@ def process_content_task(task_id: int):
                 input_videos.append(local_file)
             else:
                 logging.info("Task %s: routed full YouTube video to Vizard", task_id)
+                update_task_status_message(db, task, stage="Vizard", detail="Полное YouTube-видео отправлено в Vizard.")
                 input_videos.extend(
                     _download_vizard_project_clips(
                         db,
@@ -590,6 +596,7 @@ def process_content_task(task_id: int):
 
         if not input_videos:
             raise Exception("No input videos were downloaded")
+        update_task_status_message(db, task, stage="Монтаж", detail="Собираю финальные ролики.")
         process_all_clips = bool(task.vizard_project_id)
         source_items = list(enumerate(input_videos, start=1)) if process_all_clips else [(1, input_videos[0])]
         if not process_all_clips and len(input_videos) > 1:
@@ -746,6 +753,22 @@ def process_content_task(task_id: int):
         task.publishing_status = _resolve_publishing_status(primary_output["publish_at"], should_sync=should_sync_outputs)
         db.commit()
         db.refresh(task)
+        if should_sync_outputs:
+            update_task_status_message(
+                db,
+                task,
+                stage="Готово",
+                detail=f"Подготовлено роликов: {len(rendered_outputs)}. Передаю в очередь публикации.",
+                ok=True,
+            )
+        else:
+            update_task_status_message(
+                db,
+                task,
+                stage="Готово",
+                detail=f"Финальный файл собран. Роликов: {len(rendered_outputs)}.",
+                ok=True,
+            )
 
         if should_sync_outputs:
             logging.info(
@@ -779,6 +802,13 @@ def process_content_task(task_id: int):
         logging.exception(f"Task {task_id} failed: {e}")
         task.status = "failed"
         db.commit()
+        update_task_status_message(
+            db,
+            task,
+            stage="Ошибка",
+            detail=f"Обработка остановилась: {str(e)[:300]}",
+            failed=True,
+        )
         raise
     finally:
         for path in input_videos:

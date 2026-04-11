@@ -46,6 +46,9 @@ class VideoTask(Base):
     source_url = Column(String)
     type = Column(String)  # 'vizard', 'instagram', 'youtube'
     status = Column(String, default="pending")  # 'pending', 'processing', 'completed', 'failed'
+    telegram_chat_id = Column(String, nullable=True)
+    telegram_status_message_id = Column(String, nullable=True)
+    telegram_status_text = Column(String, nullable=True)
     
     # Vizard specific
     vizard_project_id = Column(Integer, nullable=True)

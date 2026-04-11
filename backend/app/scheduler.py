@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from .database import SessionLocal
 from . import models
 from .integrations.postmypost import PostMyPostClient
+from .telegram_progress import update_task_status_message
 from .worker import celery_app
 
 load_dotenv()
@@ -197,12 +198,24 @@ def sync_publication_task(task_id: int, force_now: bool = False):
         content = f"Auto content from Content Studio\nSource: {task.source_url}"
         file_id = task.postmypost_file_id
         if not file_id:
+            update_task_status_message(
+                db,
+                task,
+                stage="Публикация",
+                detail="Загружаю финальный файл в PostMyPost.",
+            )
             resolved_output_path = _resolve_task_output_path(task.output_path)
             if not resolved_output_path:
                 raise RuntimeError("Task has no local output file and no PostMyPost file id")
             file_id = pmp_client.upload_local_file(project_id=project_id, file_path=resolved_output_path)
             task.postmypost_file_id = int(file_id)
 
+        update_task_status_message(
+            db,
+            task,
+            stage="Публикация",
+            detail="Создаю или обновляю публикацию в PostMyPost.",
+        )
         if task.postmypost_id:
             response = pmp_client.update_publication(
                 publication_id=int(task.postmypost_id),
@@ -231,6 +244,23 @@ def sync_publication_task(task_id: int, force_now: bool = False):
         task.publish_at = post_at.replace(tzinfo=None)
         _cleanup_local_output(task)
         db.commit()
+        if post_at > now_utc:
+            post_label = post_at.strftime("%d.%m %H:%M UTC")
+            update_task_status_message(
+                db,
+                task,
+                stage="Запланировано",
+                detail=f"Публикация поставлена на {post_label}.",
+                ok=True,
+            )
+        else:
+            update_task_status_message(
+                db,
+                task,
+                stage="Публикация начата",
+                detail="Ролик отправлен в PostMyPost.",
+                ok=True,
+            )
         logger.info(f"Task {task_id} synced to PostMyPost publication {task.postmypost_id}")
     except Exception as e:
         logger.error(f"Failed to sync publication for task {task_id}: {e}")
@@ -238,6 +268,13 @@ def sync_publication_task(task_id: int, force_now: bool = False):
         if task:
             task.publishing_status = "failed"
             db.commit()
+            update_task_status_message(
+                db,
+                task,
+                stage="Ошибка публикации",
+                detail=f"Не удалось синхронизировать публикацию: {str(e)[:300]}",
+                failed=True,
+            )
     finally:
         db.close()
 
@@ -258,6 +295,13 @@ def unschedule_publication_task(task_id: int):
             task.publishing_status = "not_published"
             task.publish_at = None
             db.commit()
+            update_task_status_message(
+                db,
+                task,
+                stage="Снято с публикации",
+                detail="Публикация убрана из очереди.",
+                ok=True,
+            )
             return
 
         user = db.query(models.User).get(task.user_id)
@@ -271,6 +315,13 @@ def unschedule_publication_task(task_id: int):
         task.publish_at = None
         task.publishing_status = "not_published"
         db.commit()
+        update_task_status_message(
+            db,
+            task,
+            stage="Снято с публикации",
+            detail="Публикация удалена из PostMyPost.",
+            ok=True,
+        )
         logger.info(f"Task {task_id} unscheduled in PostMyPost")
     except Exception as e:
         logger.error(f"Failed to unschedule publication for task {task_id}: {e}")
@@ -278,5 +329,12 @@ def unschedule_publication_task(task_id: int):
         if task:
             task.publishing_status = "failed"
             db.commit()
+            update_task_status_message(
+                db,
+                task,
+                stage="Ошибка публикации",
+                detail=f"Не удалось снять публикацию: {str(e)[:300]}",
+                failed=True,
+            )
     finally:
         db.close()

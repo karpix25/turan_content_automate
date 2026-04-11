@@ -126,20 +126,43 @@ async def handle_link(message: types.Message):
         return
 
     user_id = str(message.from_user.id)
+    status_message = await message.reply("⏳ Получил ссылку\nЭтап: создаю задачу.")
 
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
             response = await client.post(
                 f"{BACKEND_API_URL}/tasks/{user_id}",
-                json={"source_url": url, "type": task_type},
+                json={
+                    "source_url": url,
+                    "type": task_type,
+                    "telegram_chat_id": str(status_message.chat.id),
+                    "telegram_status_message_id": str(status_message.message_id),
+                },
             )
         response.raise_for_status()
+        payload = response.json()
+        task_id = payload.get("task_id")
 
-        await message.reply(f"🚀 Task received! Type: {task_type.upper()}. I'll notify you when it's ready.")
+        await status_message.edit_text(
+            "\n".join(
+                [
+                    f"⏳ Видео #{task_id}" if task_id else "⏳ Видео",
+                    "Этап: задача создана",
+                    "Видео добавлено в очередь обработки.",
+                ]
+            ),
+            disable_web_page_preview=True,
+        )
 
     except Exception as e:
         logging.error(f"Error handling link: {e}")
-        await message.reply("❌ Sorry, something went wrong while creating the task.")
+        try:
+            await status_message.edit_text(
+                "❌ Ошибка\nЭтап: создание задачи\nНе удалось поставить видео в обработку.",
+                disable_web_page_preview=True,
+            )
+        except Exception:
+            await message.reply("❌ Sorry, something went wrong while creating the task.")
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)

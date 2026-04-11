@@ -6,6 +6,7 @@ from .database import SessionLocal, init_database
 from . import models, schemas
 from .integrations.postmypost import PostMyPostClient
 from .publish_planner import validate_schedule_settings
+from .telegram_progress import update_task_status_message
 import os
 import logging
 import datetime
@@ -355,11 +356,20 @@ def create_task(telegram_id: str, payload: schemas.VideoTaskCreate, db: Session 
         type=payload.type,
         status="pending",
         publish_at=publish_at,
-        publishing_status="scheduled" if publish_at else "not_published"
+        publishing_status="scheduled" if publish_at else "not_published",
+        telegram_chat_id=(payload.telegram_chat_id or "").strip() or None,
+        telegram_status_message_id=(payload.telegram_status_message_id or "").strip() or None,
     )
     db.add(new_task)
     db.commit()
     db.refresh(new_task)
+
+    update_task_status_message(
+        db,
+        new_task,
+        stage="Задача создана",
+        detail="Видео добавлено в очередь обработки.",
+    )
 
     try:
         celery_client.send_task("process_content_task", args=[new_task.id])
