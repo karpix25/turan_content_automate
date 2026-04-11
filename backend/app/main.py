@@ -292,16 +292,27 @@ def get_postmypost_channels(telegram_id: str, db: Session = Depends(get_db)):
         channel_info = channels_by_id.get(channel_id) if channel_id is not None else None
 
         row = row_map.get(account_id)
-        selected_plate_id = row.selected_plate_id if row and row.selected_plate_id is not None else user.selected_plate_id
+        selected_plate_ids = []
+        if row and isinstance(row.selected_plate_ids, list):
+            selected_plate_ids = [int(item) for item in row.selected_plate_ids if item is not None]
+        elif row and row.selected_plate_id is not None:
+            selected_plate_ids = [int(row.selected_plate_id)]
+        elif user.selected_plate_id is not None:
+            selected_plate_ids = [int(user.selected_plate_id)]
+
+        selected_plate_id = selected_plate_ids[0] if selected_plate_ids else None
         plate_start_percent = (
             row.plate_start_percent
             if row and row.plate_start_percent is not None
             else user.plate_start_percent
         )
-        plate_file_path = None
-        if selected_plate_id is not None:
-            plate = plate_map.get(int(selected_plate_id))
-            plate_file_path = plate.file_path if plate else None
+        plate_assets = []
+        for plate_id in selected_plate_ids:
+            plate = plate_map.get(int(plate_id))
+            if not plate:
+                continue
+            plate_assets.append(schemas.PlateAssetOut(id=plate.id, file_path=plate.file_path))
+        plate_file_path = plate_assets[0].file_path if plate_assets else None
         result.append(
             schemas.PostMyPostAccountOut(
                 account_id=account_id,
@@ -313,8 +324,10 @@ def get_postmypost_channels(telegram_id: str, db: Session = Depends(get_db)):
                 enabled=bool(row.enabled) if row else True,
                 description=(row.publication_description if row else None),
                 selected_plate_id=selected_plate_id,
+                selected_plate_ids=selected_plate_ids,
                 plate_start_percent=plate_start_percent,
                 plate_file_path=plate_file_path,
+                plate_assets=plate_assets,
             )
         )
     return result
@@ -347,7 +360,7 @@ def update_postmypost_channels(
     existing_by_account = {row.account_id: row for row in existing_rows}
 
     normalized_descriptions: dict[int, str | None] = {}
-    normalized_selected_plate_ids: dict[int, int | None] = {}
+    normalized_selected_plate_ids: dict[int, list[int]] = {}
     normalized_plate_start_percents: dict[int, int | None] = {}
     for key, value in descriptions_raw.items():
         try:
@@ -366,13 +379,14 @@ def update_postmypost_channels(
             continue
         if account_id not in valid_ids:
             continue
-        if value in (None, "", 0, "0"):
-            normalized_selected_plate_ids[account_id] = None
-            continue
-        try:
-            normalized_selected_plate_ids[account_id] = int(value)
-        except (TypeError, ValueError):
-            continue
+        raw_items = value if isinstance(value, list) else []
+        normalized_items: list[int] = []
+        for item in raw_items:
+            try:
+                normalized_items.append(int(item))
+            except (TypeError, ValueError):
+                continue
+        normalized_selected_plate_ids[account_id] = list(dict.fromkeys(normalized_items))
 
     for key, value in plate_start_percents_raw.items():
         try:
@@ -395,7 +409,8 @@ def update_postmypost_channels(
             if account_id in normalized_descriptions:
                 row.publication_description = account_description
             if account_id in normalized_selected_plate_ids:
-                row.selected_plate_id = normalized_selected_plate_ids[account_id]
+                row.selected_plate_ids = normalized_selected_plate_ids[account_id]
+                row.selected_plate_id = normalized_selected_plate_ids[account_id][0] if normalized_selected_plate_ids[account_id] else None
             if account_id in normalized_plate_start_percents:
                 row.plate_start_percent = normalized_plate_start_percents[account_id]
         elif (
@@ -410,7 +425,8 @@ def update_postmypost_channels(
                     account_id=account_id,
                     enabled=should_enable,
                     publication_description=account_description,
-                    selected_plate_id=normalized_selected_plate_ids.get(account_id),
+                    selected_plate_ids=normalized_selected_plate_ids.get(account_id),
+                    selected_plate_id=(normalized_selected_plate_ids.get(account_id) or [None])[0],
                     plate_start_percent=normalized_plate_start_percents.get(account_id),
                 )
             )
@@ -502,7 +518,7 @@ def publish_task_now(telegram_id: str, task_id: int, db: Session = Depends(get_d
     return task
 
 # File Uploads (Plates & CTA)
-@app.post("/upload/plate/{telegram_id}")
+@app.post("/upload/plate/{telegram_id}", response_model=schemas.PlateAssetOut)
 async def upload_plate(telegram_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
     user = get_or_create_user(db, telegram_id)
     plates_dir = os.getenv("PLATES_DIR", "/app/database/media/plates")
@@ -516,7 +532,42 @@ async def upload_plate(telegram_id: str, file: UploadFile = File(...), db: Sessi
     new_plate = models.Plate(user_id=user.id, file_path=file_path)
     db.add(new_plate)
     db.commit()
-    return {"status": "uploaded", "plate_id": new_plate.id, "file_path": file_path}
+    db.refresh(new_plate)
+    return schemas.PlateAssetOut(id=new_plate.id, file_path=file_path)
+
+
+@app.delete("/plates/{telegram_id}/{plate_id}")
+def delete_plate(telegram_id: str, plate_id: int, db: Session = Depends(get_db)):
+    user = get_or_create_user(db, telegram_id)
+    plate = db.query(models.Plate).filter(
+        models.Plate.id == plate_id,
+        models.Plate.user_id == user.id,
+    ).first()
+    if not plate:
+        raise HTTPException(status_code=404, detail="Plate not found")
+
+    for row in db.query(models.UserPublishChannel).filter(models.UserPublishChannel.user_id == user.id).all():
+        plate_ids = [int(item) for item in (row.selected_plate_ids or []) if item is not None]
+        if plate_id in plate_ids:
+            plate_ids = [item for item in plate_ids if item != plate_id]
+            row.selected_plate_ids = plate_ids
+            row.selected_plate_id = plate_ids[0] if plate_ids else None
+        elif row.selected_plate_id == plate_id:
+            row.selected_plate_id = None
+    if user.selected_plate_id == plate_id:
+        user.selected_plate_id = None
+
+    file_path = plate.file_path
+    db.delete(plate)
+    db.commit()
+
+    if file_path and os.path.isfile(file_path):
+        try:
+            os.remove(file_path)
+        except OSError:
+            logging.warning("Failed to remove plate file: %s", file_path)
+
+    return {"status": "deleted", "plate_id": plate_id}
 
 @app.post("/upload/cta/{telegram_id}")
 async def upload_cta(
@@ -568,20 +619,6 @@ async def upload_ending(
     with open(file_path, "wb") as f:
         f.write(await file.read())
 
-    existing = db.query(models.CTAClip).filter(
-        models.CTAClip.user_id == user.id,
-        models.CTAClip.platform == normalized_platform,
-        models.CTAClip.account_id == normalized_account_id,
-    ).all()
-    for row in existing:
-        old_path = row.file_path
-        db.delete(row)
-        if old_path and old_path != file_path and os.path.isfile(old_path):
-            try:
-                os.remove(old_path)
-            except OSError:
-                logging.warning("Failed to remove previous ending file: %s", old_path)
-
     ending = models.CTAClip(
         user_id=user.id,
         account_id=normalized_account_id,
@@ -593,6 +630,29 @@ async def upload_ending(
     db.commit()
     db.refresh(ending)
     return ending
+
+
+@app.delete("/endings/{telegram_id}/{ending_id}")
+def delete_ending(telegram_id: str, ending_id: int, db: Session = Depends(get_db)):
+    user = get_or_create_user(db, telegram_id)
+    ending = db.query(models.CTAClip).filter(
+        models.CTAClip.id == ending_id,
+        models.CTAClip.user_id == user.id,
+    ).first()
+    if not ending:
+        raise HTTPException(status_code=404, detail="Ending not found")
+
+    file_path = ending.file_path
+    db.delete(ending)
+    db.commit()
+
+    if file_path and os.path.isfile(file_path):
+        try:
+            os.remove(file_path)
+        except OSError:
+            logging.warning("Failed to remove ending file: %s", file_path)
+
+    return {"status": "deleted", "ending_id": ending_id}
 
 
 @app.get("/endings/{telegram_id}", response_model=list[schemas.EndingClipOut])

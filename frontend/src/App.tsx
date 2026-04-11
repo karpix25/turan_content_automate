@@ -54,8 +54,10 @@ type PublishAccount = {
   enabled: boolean;
   description?: string | null;
   selected_plate_id?: number | null;
+  selected_plate_ids?: number[];
   plate_start_percent?: number | null;
   plate_file_path?: string | null;
+  plate_assets?: PlateAsset[];
 };
 
 type EndingClip = {
@@ -65,6 +67,11 @@ type EndingClip = {
   file_path: string;
   label?: string | null;
   platform: string;
+};
+
+type PlateAsset = {
+  id: number;
+  file_path: string;
 };
 
 type TelegramWebApp = {
@@ -136,14 +143,15 @@ const App = () => {
   const [channelsLoading, setChannelsLoading] = useState(false);
   const [channelsError, setChannelsError] = useState('');
   const [savingChannelSettings, setSavingChannelSettings] = useState(false);
-  const [selectedPlateIdByAccount, setSelectedPlateIdByAccount] = useState<Record<number, number | null>>({});
+  const [selectedPlateIdsByAccount, setSelectedPlateIdsByAccount] = useState<Record<number, number[]>>({});
   const [plateStartPercentByAccount, setPlateStartPercentByAccount] = useState<Record<number, number>>({});
-  const [plateFilePathByAccount, setPlateFilePathByAccount] = useState<Record<number, string>>({});
   const [plateUploadTarget, setPlateUploadTarget] = useState<PublishAccount | null>(null);
   const [uploadingPlateAccountId, setUploadingPlateAccountId] = useState<number | null>(null);
   const [endingClips, setEndingClips] = useState<EndingClip[]>([]);
   const [uploadingEndingAccountId, setUploadingEndingAccountId] = useState<number | null>(null);
   const [endingUploadTarget, setEndingUploadTarget] = useState<PublishAccount | null>(null);
+  const [deletingPlateId, setDeletingPlateId] = useState<number | null>(null);
+  const [deletingEndingId, setDeletingEndingId] = useState<number | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const endingInputRef = useRef<HTMLInputElement | null>(null);
@@ -227,21 +235,20 @@ const App = () => {
           return acc;
         }, {}),
       );
-      setSelectedPlateIdByAccount(
-        response.data.reduce<Record<number, number | null>>((acc, item) => {
-          acc[item.account_id] = item.selected_plate_id ?? null;
+      setSelectedPlateIdsByAccount(
+        response.data.reduce<Record<number, number[]>>((acc, item) => {
+          const ids = Array.isArray(item.selected_plate_ids)
+            ? item.selected_plate_ids
+            : item.selected_plate_id
+              ? [item.selected_plate_id]
+              : [];
+          acc[item.account_id] = ids;
           return acc;
         }, {}),
       );
       setPlateStartPercentByAccount(
         response.data.reduce<Record<number, number>>((acc, item) => {
           acc[item.account_id] = clampPercent(item.plate_start_percent ?? 0);
-          return acc;
-        }, {}),
-      );
-      setPlateFilePathByAccount(
-        response.data.reduce<Record<number, string>>((acc, item) => {
-          acc[item.account_id] = item.plate_file_path || '';
           return acc;
         }, {}),
       );
@@ -270,11 +277,11 @@ const App = () => {
     return normalized || 'other';
   };
 
-  const getEndingForAccount = (accountId: number, platform?: string | null) => {
-    const exact = endingClips.find((item) => item.account_id === accountId);
-    if (exact) return exact;
+  const getEndingsForAccount = (accountId: number, platform?: string | null) => {
+    const exact = endingClips.filter((item) => item.account_id === accountId);
+    if (exact.length > 0) return exact;
     const normalizedPlatform = normalizeNetwork(platform);
-    return endingClips.find((item) => !item.account_id && normalizeNetwork(item.platform) === normalizedPlatform) || null;
+    return endingClips.filter((item) => !item.account_id && normalizeNetwork(item.platform) === normalizedPlatform);
   };
 
   const buildDescriptionsPayload = (source: Record<number, string>) => {
@@ -286,9 +293,9 @@ const App = () => {
     }, {});
   };
 
-  const buildPlateIdsPayload = (source: Record<number, number | null>) =>
-    Object.entries(source).reduce<Record<string, number | null>>((acc, [accountId, value]) => {
-      acc[accountId] = value ?? null;
+  const buildPlateIdsPayload = (source: Record<number, number[]>) =>
+    Object.entries(source).reduce<Record<string, number[]>>((acc, [accountId, value]) => {
+      acc[accountId] = Array.isArray(value) ? value : [];
       return acc;
     }, {});
 
@@ -301,7 +308,7 @@ const App = () => {
   const savePublishChannelSettings = async (
     accounts: PublishAccount[],
     descriptions: Record<number, string>,
-    plateIds: Record<number, number | null>,
+    plateIds: Record<number, number[]>,
     platePercents: Record<number, number>,
   ) => {
     if (!telegramId) return;
@@ -320,21 +327,20 @@ const App = () => {
         return acc;
       }, {}),
     );
-    setSelectedPlateIdByAccount(
-      response.data.reduce<Record<number, number | null>>((acc, item) => {
-        acc[item.account_id] = item.selected_plate_id ?? null;
+    setSelectedPlateIdsByAccount(
+      response.data.reduce<Record<number, number[]>>((acc, item) => {
+        const ids = Array.isArray(item.selected_plate_ids)
+          ? item.selected_plate_ids
+          : item.selected_plate_id
+            ? [item.selected_plate_id]
+            : [];
+        acc[item.account_id] = ids;
         return acc;
       }, {}),
     );
     setPlateStartPercentByAccount(
       response.data.reduce<Record<number, number>>((acc, item) => {
         acc[item.account_id] = clampPercent(item.plate_start_percent ?? 0);
-        return acc;
-      }, {}),
-    );
-    setPlateFilePathByAccount(
-      response.data.reduce<Record<number, string>>((acc, item) => {
-        acc[item.account_id] = item.plate_file_path || '';
         return acc;
       }, {}),
     );
@@ -347,7 +353,7 @@ const App = () => {
     );
     setPublishAccounts(nextAccounts);
     try {
-      await savePublishChannelSettings(nextAccounts, channelDescriptions, selectedPlateIdByAccount, plateStartPercentByAccount);
+      await savePublishChannelSettings(nextAccounts, channelDescriptions, selectedPlateIdsByAccount, plateStartPercentByAccount);
     } catch (error) {}
   };
 
@@ -355,7 +361,7 @@ const App = () => {
     if (!telegramId) return;
     setSavingChannelSettings(true);
     try {
-      await savePublishChannelSettings(publishAccounts, channelDescriptions, selectedPlateIdByAccount, plateStartPercentByAccount);
+      await savePublishChannelSettings(publishAccounts, channelDescriptions, selectedPlateIdsByAccount, plateStartPercentByAccount);
     } catch (error) {
     } finally {
       setSavingChannelSettings(false);
@@ -375,21 +381,45 @@ const App = () => {
   };
 
   const handlePlateSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || !telegramId || !plateUploadTarget) return;
-    const formData = new FormData();
-    formData.append('file', file);
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0 || !telegramId || !plateUploadTarget) return;
     setUploadingPlateAccountId(plateUploadTarget.account_id);
     try {
-      const response = await axios.post<{ plate_id: number }>(`${API_BASE}/upload/plate/${telegramId}`, formData);
-      setSelectedPlateIdByAccount((prev) => ({
-        ...prev,
-        [plateUploadTarget.account_id]: response.data.plate_id,
-      }));
-      setPlateFilePathByAccount((prev) => ({
-        ...prev,
-        [plateUploadTarget.account_id]: file.name,
-      }));
+      const uploadedAssets: PlateAsset[] = [];
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('file', file);
+        const response = await axios.post<PlateAsset>(`${API_BASE}/upload/plate/${telegramId}`, formData);
+        uploadedAssets.push(response.data);
+      }
+      const uploadedIds = uploadedAssets.map((item) => item.id);
+      setSelectedPlateIdsByAccount((prev) => {
+        const current = prev[plateUploadTarget.account_id] || [];
+        return {
+          ...prev,
+          [plateUploadTarget.account_id]: Array.from(new Set([...current, ...uploadedIds])),
+        };
+      });
+      setPublishAccounts((prev) =>
+        prev.map((item) => {
+          if (item.account_id !== plateUploadTarget.account_id) return item;
+          const currentAssets = item.plate_assets || [];
+          const mergedAssets = [...currentAssets];
+          for (const asset of uploadedAssets) {
+            if (!mergedAssets.some((existing) => existing.id === asset.id)) {
+              mergedAssets.push(asset);
+            }
+          }
+          const currentIds = item.selected_plate_ids || (item.selected_plate_id ? [item.selected_plate_id] : []);
+          return {
+            ...item,
+            selected_plate_ids: Array.from(new Set([...currentIds, ...uploadedIds])),
+            selected_plate_id: currentIds[0] || uploadedIds[0] || null,
+            plate_assets: mergedAssets,
+            plate_file_path: (mergedAssets[0] || uploadedAssets[0])?.file_path || item.plate_file_path || null,
+          };
+        }),
+      );
     } catch (error) {} finally {
       setUploadingPlateAccountId(null);
       setPlateUploadTarget(null);
@@ -403,24 +433,52 @@ const App = () => {
   };
 
   const handleEndingSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || !telegramId || !endingUploadTarget) return;
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0 || !telegramId || !endingUploadTarget) return;
     const platform = normalizeNetwork(endingUploadTarget.channel_code);
     if (!['instagram', 'youtube', 'tiktok'].includes(platform)) return;
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('platform', platform);
-    formData.append('label', file.name);
-    formData.append('account_id', String(endingUploadTarget.account_id));
     setUploadingEndingAccountId(endingUploadTarget.account_id);
     try {
-      await axios.post(`${API_BASE}/upload/ending/${telegramId}`, formData);
-      await loadEndingClips(telegramId);
+      const uploadedEndings: EndingClip[] = [];
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('platform', platform);
+        formData.append('label', file.name);
+        formData.append('account_id', String(endingUploadTarget.account_id));
+        const response = await axios.post<EndingClip>(`${API_BASE}/upload/ending/${telegramId}`, formData);
+        uploadedEndings.push(response.data);
+      }
+      setEndingClips((prev) => [...uploadedEndings, ...prev]);
     } catch (error) {
     } finally {
       setUploadingEndingAccountId(null);
       setEndingUploadTarget(null);
       event.target.value = '';
+    }
+  };
+
+  const handleDeletePlate = async (plateId: number) => {
+    if (!telegramId) return;
+    setDeletingPlateId(plateId);
+    try {
+      await axios.delete(`${API_BASE}/plates/${telegramId}/${plateId}`);
+      await loadPublishAccounts(telegramId);
+    } catch (error) {
+    } finally {
+      setDeletingPlateId(null);
+    }
+  };
+
+  const handleDeleteEnding = async (endingId: number) => {
+    if (!telegramId) return;
+    setDeletingEndingId(endingId);
+    try {
+      await axios.delete(`${API_BASE}/endings/${telegramId}/${endingId}`);
+      await loadEndingClips(telegramId);
+    } catch (error) {
+    } finally {
+      setDeletingEndingId(null);
     }
   };
 
@@ -691,6 +749,7 @@ const App = () => {
         <input
           ref={endingInputRef}
           type="file"
+          multiple
           accept="video/mp4,video/quicktime,video/webm,video/x-matroska"
           onChange={(e) => void handleEndingSelected(e)}
           className="hidden"
@@ -730,15 +789,12 @@ const App = () => {
                  )}
                  <div className="divide-y">
                     {publishAccounts.map(acc => {
-                      const currentEnding = getEndingForAccount(acc.account_id, acc.channel_code);
+                      const currentEndings = getEndingsForAccount(acc.account_id, acc.channel_code);
                       const network = normalizeNetwork(acc.channel_code);
                       const canUploadEnding = ['instagram', 'youtube', 'tiktok'].includes(network);
                       const platePercent = plateStartPercentByAccount[acc.account_id] ?? 0;
-                      const plateLabel = plateFilePathByAccount[acc.account_id]
-                        ? plateFilePathByAccount[acc.account_id].split('/').pop()
-                        : selectedPlateIdByAccount[acc.account_id]
-                          ? `Плашка #${selectedPlateIdByAccount[acc.account_id]}`
-                          : 'Не загружена';
+                      const selectedPlateIds = selectedPlateIdsByAccount[acc.account_id] || [];
+                      const plateAssets = acc.plate_assets || [];
                       return (
                       <div key={acc.account_id} className="p-4 space-y-3">
                          <div className="flex items-center justify-between">
@@ -750,23 +806,46 @@ const App = () => {
                               <div className={`w-4 h-4 bg-white rounded-full shadow-sm transform transition-all ${acc.enabled ? 'translate-x-6' : 'translate-x-0'}`} />
                            </button>
                          </div>
-                         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 flex items-center gap-3">
-                           <div className="p-2 rounded-lg bg-white text-slate-700 border border-slate-200">
-                             <Video size={16} />
+                         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+                           <div className="flex items-center gap-3">
+                             <div className="p-2 rounded-lg bg-white text-slate-700 border border-slate-200">
+                               <Video size={16} />
+                             </div>
+                             <div className="flex-1 min-w-0">
+                               <p className="text-[11px] text-[#707579] uppercase tracking-wide">Видео концовка</p>
+                               <p className="text-[13px] text-slate-800">
+                                 {currentEndings.length > 0 ? `Случайный выбор из ${currentEndings.length} файлов` : 'Не загружена'}
+                               </p>
+                             </div>
+                             <button
+                               onClick={() => handlePickEnding(acc)}
+                               disabled={!canUploadEnding || uploadingEndingAccountId === acc.account_id}
+                               className="h-9 px-3 bg-blue-50 text-[#24a1de] text-xs font-bold rounded-lg disabled:opacity-50"
+                             >
+                               {uploadingEndingAccountId === acc.account_id ? 'Загрузка...' : 'Добавить'}
+                             </button>
                            </div>
-                           <div className="flex-1 min-w-0">
-                             <p className="text-[11px] text-[#707579] uppercase tracking-wide">Видео концовка</p>
-                             <p className="text-[13px] text-slate-800 truncate">
-                               {currentEnding ? (currentEnding.label || currentEnding.file_path.split('/').pop()) : 'Не загружена'}
-                             </p>
+                           <div className="space-y-2">
+                             {currentEndings.length > 0 ? currentEndings.map((ending) => (
+                               <div key={ending.id} className="flex items-center gap-2 rounded-xl bg-white border border-slate-200 px-3 py-2">
+                                 <div className="min-w-0 flex-1">
+                                   <p className="text-[12px] font-medium text-slate-900 truncate">
+                                     {ending.label || ending.file_path.split('/').pop()}
+                                   </p>
+                                   <p className="text-[11px] text-[#707579]">#{ending.id}</p>
+                                 </div>
+                                 <button
+                                   onClick={() => void handleDeleteEnding(ending.id)}
+                                   disabled={deletingEndingId === ending.id}
+                                   className="h-8 px-3 rounded-lg bg-rose-50 text-rose-600 text-[11px] font-bold disabled:opacity-50"
+                                 >
+                                   {deletingEndingId === ending.id ? '...' : 'Удалить'}
+                                 </button>
+                               </div>
+                             )) : (
+                               <p className="text-[12px] text-[#707579]">Файлы концовки ещё не добавлены.</p>
+                             )}
                            </div>
-                           <button
-                             onClick={() => handlePickEnding(acc)}
-                             disabled={!canUploadEnding || uploadingEndingAccountId === acc.account_id}
-                             className="h-9 px-3 bg-blue-50 text-[#24a1de] text-xs font-bold rounded-lg disabled:opacity-50"
-                           >
-                             {uploadingEndingAccountId === acc.account_id ? 'Загрузка...' : 'Загрузить'}
-                           </button>
                          </div>
                          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
                            <div className="flex items-center gap-3">
@@ -775,15 +854,38 @@ const App = () => {
                              </div>
                              <div className="flex-1 min-w-0">
                                <p className="text-[11px] text-[#707579] uppercase tracking-wide">Плашка канала</p>
-                               <p className="text-[13px] text-slate-800 truncate">{plateLabel}</p>
+                               <p className="text-[13px] text-slate-800">
+                                 {selectedPlateIds.length > 0 ? `Случайный выбор из ${selectedPlateIds.length} файлов` : 'Не загружена'}
+                               </p>
                              </div>
                              <button
                                onClick={() => handlePickPlate(acc)}
                                disabled={uploadingPlateAccountId === acc.account_id}
                                className="h-9 px-3 bg-blue-50 text-[#24a1de] text-xs font-bold rounded-lg disabled:opacity-50"
                              >
-                               {uploadingPlateAccountId === acc.account_id ? 'Загрузка...' : 'Загрузить'}
+                               {uploadingPlateAccountId === acc.account_id ? 'Загрузка...' : 'Добавить'}
                              </button>
+                           </div>
+                           <div className="space-y-2">
+                             {plateAssets.length > 0 ? plateAssets.map((asset) => (
+                               <div key={asset.id} className="flex items-center gap-2 rounded-xl bg-white border border-slate-200 px-3 py-2">
+                                 <div className="min-w-0 flex-1">
+                                   <p className="text-[12px] font-medium text-slate-900 truncate">
+                                     {asset.file_path.split('/').pop()}
+                                   </p>
+                                   <p className="text-[11px] text-[#707579]">#{asset.id}</p>
+                                 </div>
+                                 <button
+                                   onClick={() => void handleDeletePlate(asset.id)}
+                                   disabled={deletingPlateId === asset.id}
+                                   className="h-8 px-3 rounded-lg bg-rose-50 text-rose-600 text-[11px] font-bold disabled:opacity-50"
+                                 >
+                                   {deletingPlateId === asset.id ? '...' : 'Удалить'}
+                                 </button>
+                               </div>
+                             )) : (
+                               <p className="text-[12px] text-[#707579]">Файлы плашки ещё не добавлены.</p>
+                             )}
                            </div>
                            <div className="space-y-2">
                              <div className="flex items-center justify-between gap-3">
@@ -829,7 +931,7 @@ const App = () => {
                       </div>
                     )})}
                  </div>
-                 <input ref={fileInputRef} type="file" accept="image/png,image/webp" onChange={handlePlateSelected} className="hidden" />
+                 <input ref={fileInputRef} type="file" multiple accept="image/png,image/webp" onChange={handlePlateSelected} className="hidden" />
               </div>
             </motion.div>
           )}

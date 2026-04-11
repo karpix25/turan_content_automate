@@ -165,7 +165,9 @@ def _get_channel_plate_config(
     user: models.User,
     account_id: int | None,
 ) -> tuple[str | None, int]:
-    selected_plate_id = getattr(user, "selected_plate_id", None)
+    selected_plate_ids: list[int] = []
+    if getattr(user, "selected_plate_id", None) is not None:
+        selected_plate_ids = [int(user.selected_plate_id)]
     plate_start_percent = max(0, min(100, int(getattr(user, "plate_start_percent", 0) or 0)))
 
     if account_id is not None:
@@ -174,12 +176,18 @@ def _get_channel_plate_config(
             models.UserPublishChannel.account_id == account_id,
         ).first()
         if row:
-            if row.selected_plate_id is not None:
-                selected_plate_id = row.selected_plate_id
+            if isinstance(row.selected_plate_ids, list):
+                selected_plate_ids = [int(item) for item in row.selected_plate_ids if item is not None]
+            elif row.selected_plate_id is not None:
+                selected_plate_ids = [int(row.selected_plate_id)]
             if row.plate_start_percent is not None:
                 plate_start_percent = max(0, min(100, int(row.plate_start_percent or 0)))
 
-    active_plate = db.query(models.Plate).filter(models.Plate.id == selected_plate_id).first() if selected_plate_id else None
+    active_plate = None
+    if selected_plate_ids:
+        candidates = db.query(models.Plate).filter(models.Plate.id.in_(selected_plate_ids)).all()
+        if candidates:
+            active_plate = random.choice(candidates)
     plate_path = _resolve_media_file_path(active_plate.file_path if active_plate else None, media_kind="plates")
     return plate_path, plate_start_percent
 
@@ -227,10 +235,11 @@ def _pick_platform_ending(
 
     used_key = f"{account_id}:{normalized}" if pool is not fallback_any else f"{account_id}:fallback_any"
     used = used_ids_by_platform.setdefault(used_key, set())
-    for clip in pool:
-        if clip.id not in used:
-            used.add(clip.id)
-            return clip
+    available = [clip for clip in pool if clip.id not in used]
+    if available:
+        choice = random.choice(available)
+        used.add(choice.id)
+        return choice
     return random.choice(pool)
 
 

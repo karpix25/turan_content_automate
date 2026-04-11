@@ -104,6 +104,11 @@ def init_database() -> None:
         )
         conn.execute(
             text(
+                "ALTER TABLE user_publish_channels ADD COLUMN IF NOT EXISTS selected_plate_ids JSONB"
+            )
+        )
+        conn.execute(
+            text(
                 "ALTER TABLE user_publish_channels ADD COLUMN IF NOT EXISTS plate_start_percent INTEGER"
             )
         )
@@ -115,5 +120,11 @@ def init_database() -> None:
         conn.execute(
             text(
                 "UPDATE user_publish_channels SET plate_start_percent = 100 WHERE plate_start_percent IS NOT NULL AND plate_start_percent > 100"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE user_publish_channels SET selected_plate_ids = jsonb_build_array(selected_plate_id) "
+                "WHERE selected_plate_id IS NOT NULL AND selected_plate_ids IS NULL"
             )
         )

@@ -43,8 +43,15 @@ class VideoTaskOut(BaseModel):
 class ChannelPreferenceUpdate(BaseModel):
     account_ids: list[int] = []
     descriptions: Optional[dict[str, str]] = None
-    selected_plate_ids: Optional[dict[str, int | None]] = None
+    selected_plate_ids: Optional[dict[str, list[int]]] = None
     plate_start_percents: Optional[dict[str, int | None]] = None
+
+class PlateAssetOut(BaseModel):
+    id: int
+    file_path: str
+
+    class Config:
+        from_attributes = True
 
 class PostMyPostAccountOut(BaseModel):
     account_id: int
@@ -56,8 +63,10 @@ class PostMyPostAccountOut(BaseModel):
     enabled: bool
     description: Optional[str]
     selected_plate_id: Optional[int]
+    selected_plate_ids: list[int] = []
     plate_start_percent: Optional[int]
     plate_file_path: Optional[str]
+    plate_assets: list[PlateAssetOut] = []
 
 
 class EndingClipOut(BaseModel):
