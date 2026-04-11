@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, UploadFile, File, Form, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from .database import SessionLocal, init_database
@@ -22,6 +23,43 @@ celery_client = Celery("api_client", broker=os.getenv("REDIS_URL", "redis://loca
 pmp_client = PostMyPostClient(api_key=os.getenv("POSTMYPOST_API_KEY", ""))
 
 app = FastAPI(title="Content Processing API")
+
+
+def _parse_csv_env(value: str | None) -> list[str]:
+    raw = (value or "").strip()
+    if not raw:
+        return []
+    parts = re.split(r"[,\n; ]+", raw)
+    return [item.strip() for item in parts if item.strip()]
+
+
+def get_allowed_cors_origins() -> list[str]:
+    return _parse_csv_env(os.getenv("CORS_ALLOWED_ORIGINS"))
+
+
+def get_telegram_admin_ids() -> set[str]:
+    return {item for item in _parse_csv_env(os.getenv("TELEGRAM_ADMIN_IDS")) if item.isdigit()}
+
+
+allowed_cors_origins = get_allowed_cors_origins()
+if allowed_cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_cors_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Accept", "Authorization", "Content-Type", "X-Requested-With"],
+    )
+
+telegram_admin_ids = get_telegram_admin_ids()
+
+
+def ensure_admin_access(telegram_id: str) -> None:
+    if not telegram_admin_ids:
+        logging.warning("TELEGRAM_ADMIN_IDS is empty; admin endpoints are not restricted")
+        return
+    if str(telegram_id).strip() not in telegram_admin_ids:
+        raise HTTPException(status_code=403, detail="Access denied")
 
 # Dependency
 def get_db():
@@ -195,11 +233,13 @@ def read_root():
 # User Settings API
 @app.get("/settings/{telegram_id}")
 def get_settings(telegram_id: str, db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
     return user
 
 @app.post("/settings/{telegram_id}/update")
 def update_settings(telegram_id: str, settings: schemas.UserSettingsUpdate, db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
     update_data = settings.dict(exclude_unset=True)
 
@@ -262,6 +302,7 @@ def create_task(telegram_id: str, payload: schemas.VideoTaskCreate, db: Session 
 
 @app.get("/postmypost/channels/{telegram_id}", response_model=list[schemas.PostMyPostAccountOut])
 def get_postmypost_channels(telegram_id: str, db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
     if not os.getenv("POSTMYPOST_API_KEY", "").strip():
         raise HTTPException(status_code=400, detail="POSTMYPOST_API_KEY is not configured")
@@ -338,6 +379,7 @@ def update_postmypost_channels(
     payload: schemas.ChannelPreferenceUpdate,
     db: Session = Depends(get_db)
 ):
+    ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
     selected_ids = {int(item) for item in (payload.account_ids or [])}
     descriptions_raw = payload.descriptions or {}
@@ -436,6 +478,7 @@ def update_postmypost_channels(
 
 @app.get("/tasks/{telegram_id}", response_model=list[schemas.VideoTaskOut])
 def list_user_tasks(telegram_id: str, db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
     tasks = db.query(models.VideoTask).filter(
         models.VideoTask.user_id == user.id
@@ -445,6 +488,7 @@ def list_user_tasks(telegram_id: str, db: Session = Depends(get_db)):
 
 @app.get("/tasks/{telegram_id}/{task_id}/file")
 def download_task_output(telegram_id: str, task_id: int, db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
     task = get_user_task_or_404(db, user.id, task_id)
 
@@ -468,6 +512,7 @@ def update_task_schedule(
     payload: schemas.VideoTaskScheduleUpdate,
     db: Session = Depends(get_db)
 ):
+    ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
     task = get_user_task_or_404(db, user.id, task_id)
 
@@ -492,6 +537,7 @@ def update_task_schedule(
 
 @app.post("/tasks/{telegram_id}/{task_id}/publish-now", response_model=schemas.VideoTaskOut)
 def publish_task_now(telegram_id: str, task_id: int, db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
     task = get_user_task_or_404(db, user.id, task_id)
 
@@ -520,6 +566,7 @@ def publish_task_now(telegram_id: str, task_id: int, db: Session = Depends(get_d
 # File Uploads (Plates & CTA)
 @app.post("/upload/plate/{telegram_id}", response_model=schemas.PlateAssetOut)
 async def upload_plate(telegram_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
     plates_dir = os.getenv("PLATES_DIR", "/app/database/media/plates")
     os.makedirs(plates_dir, exist_ok=True)
@@ -538,6 +585,7 @@ async def upload_plate(telegram_id: str, file: UploadFile = File(...), db: Sessi
 
 @app.delete("/plates/{telegram_id}/{plate_id}")
 def delete_plate(telegram_id: str, plate_id: int, db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
     plate = db.query(models.Plate).filter(
         models.Plate.id == plate_id,
@@ -577,6 +625,7 @@ async def upload_cta(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
+    ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
     normalized_platform = normalize_ending_platform(platform)
     cta_dir = os.getenv("CTA_DIR", "/app/database/media/cta")
@@ -607,6 +656,7 @@ async def upload_ending(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
+    ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
     normalized_platform = normalize_ending_platform(platform)
     normalized_account_id = parse_optional_account_id(account_id)
@@ -634,6 +684,7 @@ async def upload_ending(
 
 @app.delete("/endings/{telegram_id}/{ending_id}")
 def delete_ending(telegram_id: str, ending_id: int, db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
     ending = db.query(models.CTAClip).filter(
         models.CTAClip.id == ending_id,
@@ -657,6 +708,7 @@ def delete_ending(telegram_id: str, ending_id: int, db: Session = Depends(get_db
 
 @app.get("/endings/{telegram_id}", response_model=list[schemas.EndingClipOut])
 def list_endings(telegram_id: str, db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
     return db.query(models.CTAClip).filter(
         models.CTAClip.user_id == user.id
