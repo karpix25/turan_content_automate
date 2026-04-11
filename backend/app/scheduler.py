@@ -303,6 +303,7 @@ def unschedule_publication_task(task_id: int):
         if not task.postmypost_id:
             task.publishing_status = "not_published"
             task.publish_at = None
+            task.preview_url = None
             db.commit()
             update_task_status_message(
                 db,
@@ -322,6 +323,7 @@ def unschedule_publication_task(task_id: int):
 
         task.postmypost_id = None
         task.publish_at = None
+        task.preview_url = None
         task.publishing_status = "not_published"
         db.commit()
         update_task_status_message(

@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   Loader2,
   Download,
+  Trash2,
   Globe2,
   PlaySquare,
   Camera,
@@ -535,6 +536,19 @@ const App = () => {
       await axios.patch(`${API_BASE}/tasks/${telegramId}/${taskId}/schedule`, { publish_at: publishAt.toISOString() });
       await loadTasks(telegramId);
     } catch (error) {} finally {
+      setActiveTaskId(null);
+    }
+  };
+
+  const removeScheduledPublication = async (taskId: number) => {
+    if (!telegramId) return;
+    setActiveTaskId(taskId);
+    try {
+      await axios.patch(`${API_BASE}/tasks/${telegramId}/${taskId}/schedule`, { publish_at: null });
+      setScheduleInputs((prev) => ({ ...prev, [taskId]: '' }));
+      await loadTasks(telegramId);
+    } catch (error) {
+    } finally {
       setActiveTaskId(null);
     }
   };
@@ -1213,6 +1227,18 @@ const App = () => {
                                 </div>
                               )}
                             </div>
+                            {(task.publishing_status === 'scheduled' || task.publishing_status === 'in_progress') && (
+                              <div className="flex justify-end">
+                                <button
+                                  onClick={() => removeScheduledPublication(task.id)}
+                                  disabled={activeTaskId === task.id}
+                                  className="h-10 px-4 bg-rose-50 text-rose-700 text-xs font-bold rounded-xl inline-flex items-center justify-center gap-2 disabled:opacity-50"
+                                >
+                                  <Trash2 size={14} />
+                                  {activeTaskId === task.id ? '...' : 'Удалить из публикации'}
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>

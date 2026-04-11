@@ -332,11 +332,18 @@ class PostMyPostClient:
 
     def delete_publication(self, publication_id: int, account_ids: List[int], delete_option: int = 3) -> None:
         account_ids_csv = ",".join(str(item) for item in account_ids)
-        self._request(
-            "DELETE",
-            f"/publications/{publication_id}",
-            params={"delete_option": delete_option, "account_ids": account_ids_csv},
-        )
+        try:
+            self._request(
+                "DELETE",
+                f"/publications/{publication_id}",
+                params={"delete_option": delete_option, "account_ids": account_ids_csv},
+            )
+        except httpx.HTTPStatusError as exc:
+            response = exc.response
+            if response is not None and response.status_code == 404:
+                logger.info("PostMyPost publication %s is already absent, treating delete as successful", publication_id)
+                return
+            raise
 
     def ensure_project_id(self, project_id: Optional[int]) -> int:
         if project_id:
