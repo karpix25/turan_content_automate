@@ -47,7 +47,21 @@ def extract_youtube_video_id(url: str) -> str | None:
 
 def normalize_youtube_url(url: str) -> str:
     video_id = extract_youtube_video_id(url)
-    return video_id if video_id else url
+    if not video_id:
+        return url
+
+    raw = (url or "").strip()
+    if re.fullmatch(r"[A-Za-z0-9_-]{11}", raw):
+        return f"https://www.youtube.com/watch?v={video_id}"
+
+    parsed = urlparse(raw)
+    host = parsed.netloc.lower()
+    path_parts = [part for part in parsed.path.split("/") if part]
+
+    if "youtube.com" in host and len(path_parts) >= 2 and path_parts[0] == "shorts":
+        return f"https://www.youtube.com/shorts/{video_id}"
+
+    return f"https://www.youtube.com/watch?v={video_id}"
 
 
 def normalize_source_url(text: str) -> str | None:
