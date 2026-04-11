@@ -2,7 +2,7 @@ import os
 import logging
 import re
 import httpx
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -76,13 +76,29 @@ def detect_task_type(url: str) -> str:
         return "youtube"
     return task_type
 
+
+def build_webapp_url_for_user(base_url: str, telegram_user_id: int) -> str:
+    raw = (base_url or "").strip()
+    if not raw:
+        return raw
+    parsed = urlparse(raw)
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    query["tg_id"] = [str(telegram_user_id)]
+    encoded_query = urlencode(query, doseq=True)
+    return urlunparse(parsed._replace(query=encoded_query))
+
 @dp.message_handler(commands=['start', 'help'])
 async def send_welcome(message: types.Message):
     """
     Welcomes user and provides the Settings button.
     """
     kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("⚙️ Settings (Mini App)", web_app=types.WebAppInfo(url=WEBAPP_URL)))
+    kb.add(
+        InlineKeyboardButton(
+            "⚙️ Settings (Mini App)",
+            web_app=types.WebAppInfo(url=build_webapp_url_for_user(WEBAPP_URL, message.from_user.id)),
+        )
+    )
     
     await message.reply(
         "Welcome to the Content Processor Bot!\n\n"

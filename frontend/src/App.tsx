@@ -740,26 +740,28 @@ const App = () => {
             <p className="text-sm text-[#707579]">Telegram ID</p>
             <p className="text-xs font-mono text-slate-700">{telegramId || 'не определен'}</p>
           </div>
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              inputMode="numeric"
-              className="input-field h-10 flex-1"
-              placeholder="Введите ваш Telegram ID"
-              value={telegramIdInput}
-              onChange={(e) => setTelegramIdInput(e.target.value)}
-            />
-            <button
-              onClick={applyTelegramId}
-              className="h-10 px-4 bg-blue-50 text-[#24a1de] text-xs font-bold rounded-lg"
-            >
-              Применить
-            </button>
-          </div>
-          {!window.Telegram?.WebApp?.initDataUnsafe?.user?.id && (
-            <p className="text-[11px] text-[#707579]">
-              Если открываете интерфейс не внутри Telegram Mini App, укажите Telegram ID вручную.
-            </p>
+          {!telegramId && (
+            <>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  className="input-field h-10 flex-1"
+                  placeholder="Введите ваш Telegram ID"
+                  value={telegramIdInput}
+                  onChange={(e) => setTelegramIdInput(e.target.value)}
+                />
+                <button
+                  onClick={applyTelegramId}
+                  className="h-10 px-4 bg-blue-50 text-[#24a1de] text-xs font-bold rounded-lg"
+                >
+                  Применить
+                </button>
+              </div>
+              <p className="text-[11px] text-[#707579]">
+                Если Mini App открыт из Telegram, ID подставляется автоматически. Ручной ввод нужен только как fallback.
+              </p>
+            </>
           )}
         </div>
 
