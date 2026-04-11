@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 class PostMyPostClient:
     BASE_URL = "https://api.postmypost.io/v4.1"
     DEFAULT_PER_PAGE = 20
+    _cache: Dict[str, tuple[float, Any]] = {}
 
     def __init__(self, api_key: str):
         self.api_key = self._normalize_api_key(api_key)
@@ -19,6 +20,22 @@ class PostMyPostClient:
             "X-API-KEY": self.api_key,
             "Accept": "application/json",
         }
+        request_timeout = float(os.getenv("POSTMYPOST_REQUEST_TIMEOUT_SECONDS", "12"))
+        connect_timeout = float(os.getenv("POSTMYPOST_CONNECT_TIMEOUT_SECONDS", "4"))
+        write_timeout = float(os.getenv("POSTMYPOST_WRITE_TIMEOUT_SECONDS", "20"))
+        self.timeout = httpx.Timeout(
+            timeout=request_timeout,
+            connect=connect_timeout,
+            read=request_timeout,
+            write=write_timeout,
+            pool=connect_timeout,
+        )
+        self.max_retries = max(0, int(os.getenv("POSTMYPOST_MAX_RETRIES", "2")))
+        self.cache_ttl_seconds = max(1, int(os.getenv("POSTMYPOST_CACHE_TTL_SECONDS", "120")))
+        self.stale_cache_ttl_seconds = max(
+            self.cache_ttl_seconds,
+            int(os.getenv("POSTMYPOST_STALE_CACHE_TTL_SECONDS", "900")),
+        )
 
     @staticmethod
     def _normalize_api_key(api_key: str) -> str:
@@ -34,16 +51,72 @@ class PostMyPostClient:
         url = f"{self.BASE_URL}{path}"
         headers = kwargs.pop("headers", {})
         merged_headers = {**self.headers, **headers}
+        last_error: Exception | None = None
 
-        with httpx.Client(timeout=60.0) as client:
-            response = client.request(method, url, headers=merged_headers, **kwargs)
-            if response.status_code >= 400:
-                body = response.text[:500]
-                logger.error(
-                    f"PostMyPost API error {response.status_code} for {method} {path}: {body}"
-                )
-                response.raise_for_status()
-            return response.json()
+        for attempt in range(self.max_retries + 1):
+            try:
+                with httpx.Client(timeout=self.timeout) as client:
+                    response = client.request(method, url, headers=merged_headers, **kwargs)
+                    if response.status_code >= 500 or response.status_code == 429:
+                        body = response.text[:500]
+                        logger.warning(
+                            "PostMyPost API transient error %s for %s %s (attempt %s/%s): %s",
+                            response.status_code,
+                            method,
+                            path,
+                            attempt + 1,
+                            self.max_retries + 1,
+                            body,
+                        )
+                        response.raise_for_status()
+                    if response.status_code >= 400:
+                        body = response.text[:500]
+                        logger.error(
+                            "PostMyPost API error %s for %s %s: %s",
+                            response.status_code,
+                            method,
+                            path,
+                            body,
+                        )
+                        response.raise_for_status()
+                    return response.json()
+            except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError) as exc:
+                last_error = exc
+                if attempt >= self.max_retries:
+                    break
+                time.sleep(0.5 * (attempt + 1))
+
+        assert last_error is not None
+        raise last_error
+
+    @classmethod
+    def _get_cached_value(cls, key: str, *, max_age_seconds: int) -> Any | None:
+        cached = cls._cache.get(key)
+        if not cached:
+            return None
+        created_at, value = cached
+        if (time.time() - created_at) > max_age_seconds:
+            return None
+        return value
+
+    @classmethod
+    def _set_cached_value(cls, key: str, value: Any) -> None:
+        cls._cache[key] = (time.time(), value)
+
+    def _cached_list_call(self, key: str, loader) -> List[Dict[str, Any]]:
+        fresh = self._get_cached_value(key, max_age_seconds=self.cache_ttl_seconds)
+        if fresh is not None:
+            return fresh
+        try:
+            value = loader()
+            self._set_cached_value(key, value)
+            return value
+        except Exception as exc:
+            stale = self._get_cached_value(key, max_age_seconds=self.stale_cache_ttl_seconds)
+            if stale is not None:
+                logger.warning("Using stale PostMyPost cache for %s after error: %s", key, exc)
+                return stale
+            raise
 
     @staticmethod
     def _unwrap_data(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -77,13 +150,16 @@ class PostMyPostClient:
         return result
 
     def get_projects(self) -> List[Dict[str, Any]]:
-        return self._request_all_pages("/projects")
+        return self._cached_list_call("projects", lambda: self._request_all_pages("/projects"))
 
     def get_channels(self) -> List[Dict[str, Any]]:
-        return self._request_all_pages("/channels")
+        return self._cached_list_call("channels", lambda: self._request_all_pages("/channels"))
 
     def get_accounts(self, project_id: int) -> List[Dict[str, Any]]:
-        return self._request_all_pages("/accounts", params={"project_id": project_id})
+        return self._cached_list_call(
+            f"accounts:{project_id}",
+            lambda: self._request_all_pages("/accounts", params={"project_id": project_id}),
+        )
 
     def init_upload(self, project_id: int, file_name: str, file_size: int) -> Dict[str, Any]:
         response = self._request(

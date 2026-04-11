@@ -94,6 +94,7 @@ declare global {
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 const TELEGRAM_ID_STORAGE_KEY = 'content_studio_telegram_id';
+const ACTIVE_TAB_STORAGE_KEY = 'content_studio_active_tab';
 
 const normalizeTelegramId = (value: unknown): string => {
   const text = String(value ?? '').trim();
@@ -121,7 +122,10 @@ const formatDateTimeLabel = (value?: string | null) => {
 };
 
 const App = () => {
-  const [activeTab, setActiveTab] = useState('channels');
+  const [activeTab, setActiveTab] = useState(() => {
+    const stored = window.localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
+    return stored === 'channels' || stored === 'planning' || stored === 'queue' ? stored : 'queue';
+  });
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -155,6 +159,10 @@ const App = () => {
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const endingInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    window.localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
+  }, [activeTab]);
 
   useEffect(() => {
     const webApp = window.Telegram?.WebApp;
@@ -227,7 +235,9 @@ const App = () => {
   const loadPublishAccounts = async (targetTelegramId: string) => {
     setChannelsLoading(true);
     try {
-      const response = await axios.get<PublishAccount[]>(`${API_BASE}/postmypost/channels/${targetTelegramId}`);
+      const response = await axios.get<PublishAccount[]>(`${API_BASE}/postmypost/channels/${targetTelegramId}`, {
+        timeout: 15000,
+      });
       setPublishAccounts(response.data);
       setChannelDescriptions(
         response.data.reduce<Record<number, string>>((acc, item) => {
@@ -319,7 +329,9 @@ const App = () => {
       selected_plate_ids: buildPlateIdsPayload(plateIds),
       plate_start_percents: buildPlatePercentsPayload(platePercents),
     };
-    const response = await axios.post<PublishAccount[]>(`${API_BASE}/postmypost/channels/${telegramId}`, payload);
+    const response = await axios.post<PublishAccount[]>(`${API_BASE}/postmypost/channels/${telegramId}`, payload, {
+      timeout: 20000,
+    });
     setPublishAccounts(response.data);
     setChannelDescriptions(
       response.data.reduce<Record<number, string>>((acc, item) => {
@@ -371,9 +383,14 @@ const App = () => {
   useEffect(() => {
     if (!telegramId) return;
     void loadTasks(telegramId);
+  }, [telegramId]);
+
+  useEffect(() => {
+    if (!telegramId || activeTab !== 'channels') return;
+    if (publishAccounts.length > 0 && endingClips.length > 0) return;
     void loadPublishAccounts(telegramId);
     void loadEndingClips(telegramId);
-  }, [telegramId]);
+  }, [telegramId, activeTab]);
 
   const handlePickPlate = (account: PublishAccount) => {
     setPlateUploadTarget(account);

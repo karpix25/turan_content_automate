@@ -194,6 +194,75 @@ def get_user_channel_row_map(db: Session, user_id: int) -> dict[int, models.User
     return {row.account_id: row for row in rows}
 
 
+def build_postmypost_channels_response(
+    db: Session,
+    user: models.User,
+    accounts: list[dict],
+    channels: list[dict],
+) -> list[schemas.PostMyPostAccountOut]:
+    channels_by_id = {
+        int(item["id"]): item
+        for item in channels
+        if isinstance(item, dict) and item.get("id") is not None
+    }
+    row_map = get_user_channel_row_map(db, user.id)
+    plate_map = {
+        plate.id: plate
+        for plate in db.query(models.Plate).filter(models.Plate.user_id == user.id).all()
+    }
+
+    result: list[schemas.PostMyPostAccountOut] = []
+    for account in accounts:
+        account_id = account.get("id")
+        if account_id is None:
+            continue
+        account_id = int(account_id)
+        channel_id_raw = account.get("chanel_id", account.get("channel_id"))
+        channel_id = int(channel_id_raw) if channel_id_raw is not None else None
+        channel_info = channels_by_id.get(channel_id) if channel_id is not None else None
+
+        row = row_map.get(account_id)
+        selected_plate_ids = []
+        if row and isinstance(row.selected_plate_ids, list):
+            selected_plate_ids = [int(item) for item in row.selected_plate_ids if item is not None]
+        elif row and row.selected_plate_id is not None:
+            selected_plate_ids = [int(row.selected_plate_id)]
+        elif user.selected_plate_id is not None:
+            selected_plate_ids = [int(user.selected_plate_id)]
+
+        selected_plate_id = selected_plate_ids[0] if selected_plate_ids else None
+        plate_start_percent = (
+            row.plate_start_percent
+            if row and row.plate_start_percent is not None
+            else user.plate_start_percent
+        )
+        plate_assets = []
+        for plate_id in selected_plate_ids:
+            plate = plate_map.get(int(plate_id))
+            if not plate:
+                continue
+            plate_assets.append(schemas.PlateAssetOut(id=plate.id, file_path=plate.file_path))
+        plate_file_path = plate_assets[0].file_path if plate_assets else None
+        result.append(
+            schemas.PostMyPostAccountOut(
+                account_id=account_id,
+                account_name=str(account.get("name", f"Account {account_id}")),
+                account_login=account.get("login"),
+                channel_id=channel_id,
+                channel_code=channel_info.get("code") if channel_info else None,
+                channel_name=channel_info.get("name") if channel_info else None,
+                enabled=bool(row.enabled) if row else True,
+                description=(row.publication_description if row else None),
+                selected_plate_id=selected_plate_id,
+                selected_plate_ids=selected_plate_ids,
+                plate_start_percent=plate_start_percent,
+                plate_file_path=plate_file_path,
+                plate_assets=plate_assets,
+            )
+        )
+    return result
+
+
 def normalize_ending_platform(value: str | None) -> str:
     platform = (value or "").strip().lower()
     aliases = {
@@ -314,64 +383,7 @@ def get_postmypost_channels(telegram_id: str, db: Session = Depends(get_db)):
     except Exception as e:
         logging.error(f"Failed to load PostMyPost channels/accounts: {e}")
         raise HTTPException(status_code=502, detail=f"Failed to load channels from PostMyPost: {e}")
-
-    channels_by_id = {int(item["id"]): item for item in channels if isinstance(item, dict) and item.get("id") is not None}
-    row_map = get_user_channel_row_map(db, user.id)
-    plate_map = {
-        plate.id: plate
-        for plate in db.query(models.Plate).filter(models.Plate.user_id == user.id).all()
-    }
-
-    result: list[schemas.PostMyPostAccountOut] = []
-    for account in accounts:
-        account_id = account.get("id")
-        if account_id is None:
-            continue
-        account_id = int(account_id)
-        channel_id_raw = account.get("chanel_id", account.get("channel_id"))
-        channel_id = int(channel_id_raw) if channel_id_raw is not None else None
-        channel_info = channels_by_id.get(channel_id) if channel_id is not None else None
-
-        row = row_map.get(account_id)
-        selected_plate_ids = []
-        if row and isinstance(row.selected_plate_ids, list):
-            selected_plate_ids = [int(item) for item in row.selected_plate_ids if item is not None]
-        elif row and row.selected_plate_id is not None:
-            selected_plate_ids = [int(row.selected_plate_id)]
-        elif user.selected_plate_id is not None:
-            selected_plate_ids = [int(user.selected_plate_id)]
-
-        selected_plate_id = selected_plate_ids[0] if selected_plate_ids else None
-        plate_start_percent = (
-            row.plate_start_percent
-            if row and row.plate_start_percent is not None
-            else user.plate_start_percent
-        )
-        plate_assets = []
-        for plate_id in selected_plate_ids:
-            plate = plate_map.get(int(plate_id))
-            if not plate:
-                continue
-            plate_assets.append(schemas.PlateAssetOut(id=plate.id, file_path=plate.file_path))
-        plate_file_path = plate_assets[0].file_path if plate_assets else None
-        result.append(
-            schemas.PostMyPostAccountOut(
-                account_id=account_id,
-                account_name=str(account.get("name", f"Account {account_id}")),
-                account_login=account.get("login"),
-                channel_id=channel_id,
-                channel_code=channel_info.get("code") if channel_info else None,
-                channel_name=channel_info.get("name") if channel_info else None,
-                enabled=bool(row.enabled) if row else True,
-                description=(row.publication_description if row else None),
-                selected_plate_id=selected_plate_id,
-                selected_plate_ids=selected_plate_ids,
-                plate_start_percent=plate_start_percent,
-                plate_file_path=plate_file_path,
-                plate_assets=plate_assets,
-            )
-        )
-    return result
+    return build_postmypost_channels_response(db=db, user=user, accounts=accounts, channels=channels)
 
 @app.post("/postmypost/channels/{telegram_id}", response_model=list[schemas.PostMyPostAccountOut])
 def update_postmypost_channels(
@@ -389,6 +401,7 @@ def update_postmypost_channels(
     try:
         project_id = get_postmypost_project_id()
         accounts = pmp_client.get_accounts(project_id=project_id)
+        channels = pmp_client.get_channels()
     except Exception as e:
         logging.error(f"Failed to load PostMyPost accounts before update: {e}")
         raise HTTPException(status_code=502, detail=f"Failed to load accounts from PostMyPost: {e}")
@@ -474,7 +487,7 @@ def update_postmypost_channels(
             )
 
     db.commit()
-    return get_postmypost_channels(telegram_id=telegram_id, db=db)
+    return build_postmypost_channels_response(db=db, user=user, accounts=accounts, channels=channels)
 
 @app.get("/tasks/{telegram_id}", response_model=list[schemas.VideoTaskOut])
 def list_user_tasks(telegram_id: str, db: Session = Depends(get_db)):
