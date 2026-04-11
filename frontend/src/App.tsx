@@ -147,6 +147,7 @@ const App = () => {
   const [queueSearch, setQueueSearch] = useState('');
   const [scheduleInputs, setScheduleInputs] = useState<Record<number, string>>({});
   const [activeTaskId, setActiveTaskId] = useState<number | null>(null);
+  const [deletingTaskId, setDeletingTaskId] = useState<number | null>(null);
   const [publishAccounts, setPublishAccounts] = useState<PublishAccount[]>([]);
   const [channelDescriptions, setChannelDescriptions] = useState<Record<number, string>>({});
   const [channelsLoading, setChannelsLoading] = useState(false);
@@ -540,16 +541,21 @@ const App = () => {
     }
   };
 
-  const removeScheduledPublication = async (taskId: number) => {
+  const removeTaskFromQueue = async (taskId: number) => {
     if (!telegramId) return;
-    setActiveTaskId(taskId);
+    setDeletingTaskId(taskId);
     try {
-      await axios.patch(`${API_BASE}/tasks/${telegramId}/${taskId}/schedule`, { publish_at: null });
-      setScheduleInputs((prev) => ({ ...prev, [taskId]: '' }));
+      await axios.delete(`${API_BASE}/tasks/${telegramId}/${taskId}`);
+      setTasks((prev) => prev.filter((item) => item.id !== taskId));
+      setScheduleInputs((prev) => {
+        const next = { ...prev };
+        delete next[taskId];
+        return next;
+      });
       await loadTasks(telegramId);
     } catch (error) {
     } finally {
-      setActiveTaskId(null);
+      setDeletingTaskId(null);
     }
   };
 
@@ -1132,7 +1138,16 @@ const App = () => {
                       : '';
                     const previewUrl = task.preview_url || localPreviewUrl;
                     return (
-                      <div key={task.id} className="p-4 space-y-4">
+                      <div key={task.id} className="p-4 space-y-4 relative">
+                        <button
+                          onClick={() => removeTaskFromQueue(task.id)}
+                          disabled={deletingTaskId === task.id}
+                          title="Удалить из очереди"
+                          aria-label="Удалить из очереди"
+                          className="absolute top-3 right-3 z-10 h-8 w-8 rounded-full border border-slate-200 bg-white/85 text-slate-400 inline-flex items-center justify-center backdrop-blur-sm transition-colors hover:text-rose-600 hover:border-rose-200 hover:bg-rose-50 disabled:opacity-50"
+                        >
+                          {deletingTaskId === task.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                        </button>
                         <div className="flex gap-4 items-start">
                           <div className="w-24 shrink-0">
                             <div className="relative aspect-[9/16] rounded-[22px] overflow-hidden bg-gradient-to-br from-slate-900 via-slate-700 to-slate-500 shadow-sm">
@@ -1227,18 +1242,6 @@ const App = () => {
                                 </div>
                               )}
                             </div>
-                            {(task.publishing_status === 'scheduled' || task.publishing_status === 'in_progress') && (
-                              <div className="flex justify-end">
-                                <button
-                                  onClick={() => removeScheduledPublication(task.id)}
-                                  disabled={activeTaskId === task.id}
-                                  className="h-10 px-4 bg-rose-50 text-rose-700 text-xs font-bold rounded-xl inline-flex items-center justify-center gap-2 disabled:opacity-50"
-                                >
-                                  <Trash2 size={14} />
-                                  {activeTaskId === task.id ? '...' : 'Удалить из публикации'}
-                                </button>
-                              </div>
-                            )}
                           </div>
                         </div>
                       </div>

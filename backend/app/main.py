@@ -586,6 +586,15 @@ def publish_task_now(telegram_id: str, task_id: int, db: Session = Depends(get_d
     db.refresh(task)
     return task
 
+@app.delete("/tasks/{telegram_id}/{task_id}")
+def delete_task(telegram_id: str, task_id: int, db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    task = get_user_task_or_404(db, user.id, task_id)
+    db.delete(task)
+    db.commit()
+    return {"ok": True}
+
 # File Uploads (Plates & CTA)
 @app.post("/upload/plate/{telegram_id}", response_model=schemas.PlateAssetOut)
 async def upload_plate(telegram_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
