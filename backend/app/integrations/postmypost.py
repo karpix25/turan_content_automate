@@ -149,6 +149,50 @@ class PostMyPostClient:
 
         return result
 
+    @staticmethod
+    def extract_preview_url(payload: Any) -> str | None:
+        candidate_keys = {
+            "preview",
+            "preview_url",
+            "thumbnail",
+            "thumbnail_url",
+            "cover",
+            "cover_url",
+            "poster",
+            "poster_url",
+            "image",
+            "image_url",
+        }
+
+        def walk(node: Any) -> str | None:
+            if isinstance(node, str):
+                return node if node.startswith(("http://", "https://")) else None
+            if isinstance(node, list):
+                for item in node:
+                    found = walk(item)
+                    if found:
+                        return found
+                return None
+            if isinstance(node, dict):
+                for key in candidate_keys:
+                    value = node.get(key)
+                    found = walk(value)
+                    if found:
+                        return found
+                for key, value in node.items():
+                    key_text = str(key).lower()
+                    if any(token in key_text for token in ("preview", "thumb", "cover", "poster", "image")):
+                        found = walk(value)
+                        if found:
+                            return found
+                for value in node.values():
+                    found = walk(value)
+                    if found:
+                        return found
+            return None
+
+        return walk(payload)
+
     def get_projects(self) -> List[Dict[str, Any]]:
         return self._cached_list_call("projects", lambda: self._request_all_pages("/projects"))
 

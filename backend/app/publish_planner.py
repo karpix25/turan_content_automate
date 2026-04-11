@@ -9,6 +9,7 @@ UTC = datetime.timezone.utc
 DEFAULT_LIMIT_PER_DAY = 3
 DEFAULT_START_MSK = "10:00:00"
 DEFAULT_END_MSK = "22:00:00"
+MINUTE_OFFSETS = (11, 17, 23, 29, 37, 41, 47, 53)
 
 
 def parse_hhmmss(value: str, fallback: str) -> datetime.time:
@@ -44,22 +45,33 @@ def _build_daily_slots(day_msk: datetime.date, limit_per_day: int, start_msk: da
     start_dt = datetime.datetime.combine(day_msk, start_msk, tzinfo=MSK_TZ)
     end_dt = datetime.datetime.combine(day_msk, end_msk, tzinfo=MSK_TZ)
     if limit_per_day <= 1:
-        return [start_dt]
+        single_offset_seconds = min(17 * 60, max(60, int((end_dt - start_dt).total_seconds()) - 60))
+        return [(start_dt + datetime.timedelta(seconds=single_offset_seconds)).replace(microsecond=0)]
 
     total_seconds = int((end_dt - start_dt).total_seconds())
     if total_seconds <= 0:
         return [start_dt]
 
-    step = total_seconds / float(limit_per_day - 1)
+    bucket = total_seconds / float(limit_per_day)
     slots: list[datetime.datetime] = []
     for index in range(limit_per_day):
-        seconds = int(round(step * index))
+        offset_minutes = MINUTE_OFFSETS[index % len(MINUTE_OFFSETS)]
+        bucket_offset_seconds = min(offset_minutes * 60, max(60, int(bucket) - 60))
+        seconds = int(round(bucket * index)) + bucket_offset_seconds
         slot = start_dt + datetime.timedelta(seconds=seconds)
+        if slot >= end_dt:
+            slot = end_dt - datetime.timedelta(minutes=1)
         slots.append(slot.replace(microsecond=0))
     return slots
 
 
-def plan_next_publish_times(db, user: models.User, count: int) -> list[datetime.datetime]:
+def plan_next_publish_times(
+    db,
+    user: models.User,
+    count: int,
+    *,
+    platform_code: str | None = None,
+) -> list[datetime.datetime]:
     if count < 1:
         return []
 
@@ -84,6 +96,9 @@ def plan_next_publish_times(db, user: models.User, count: int) -> list[datetime.
     for row in occupied_rows:
         publish_at = row.publish_at
         if not publish_at:
+            continue
+        row_platform = (getattr(row, "target_platform", None) or getattr(row, "type", None) or "").strip().lower()
+        if platform_code and row_platform and row_platform != platform_code.strip().lower():
             continue
         publish_utc = publish_at.replace(tzinfo=UTC) if publish_at.tzinfo is None else publish_at.astimezone(UTC)
         occupied.add(publish_utc.replace(tzinfo=None, microsecond=0))

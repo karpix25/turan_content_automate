@@ -238,6 +238,15 @@ def sync_publication_task(task_id: int, force_now: bool = False):
         publication_id = response.get("id") if isinstance(response, dict) else None
         if publication_id:
             task.postmypost_id = str(publication_id)
+        preview_url = pmp_client.extract_preview_url(response)
+        if not preview_url and publication_id:
+            try:
+                publication_payload = pmp_client.get_publication(int(publication_id))
+                preview_url = pmp_client.extract_preview_url(publication_payload)
+            except Exception as preview_error:
+                logger.warning("Failed to fetch publication preview for task %s: %s", task_id, preview_error)
+        if preview_url:
+            task.preview_url = preview_url
 
         now_utc = datetime.datetime.now(datetime.timezone.utc)
         task.publishing_status = "scheduled" if post_at > now_utc else "in_progress"

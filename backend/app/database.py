@@ -96,6 +96,16 @@ def init_database() -> None:
         )
         conn.execute(
             text(
+                "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS target_platform VARCHAR(32)"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS preview_url TEXT"
+            )
+        )
+        conn.execute(
+            text(
                 "ALTER TABLE cta_clips ADD COLUMN IF NOT EXISTS platform VARCHAR(32) DEFAULT 'universal'"
             )
         )

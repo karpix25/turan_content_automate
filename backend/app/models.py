@@ -49,6 +49,8 @@ class VideoTask(Base):
     telegram_chat_id = Column(String, nullable=True)
     telegram_status_message_id = Column(String, nullable=True)
     telegram_status_text = Column(String, nullable=True)
+    target_platform = Column(String, nullable=True)
+    preview_url = Column(String, nullable=True)
     
     # Vizard specific
     vizard_project_id = Column(Integer, nullable=True)

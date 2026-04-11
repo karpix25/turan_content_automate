@@ -38,6 +38,8 @@ type VideoTaskItem = {
   status: string;
   output_path?: string | null;
   target_account_id?: number | null;
+  target_platform?: string | null;
+  preview_url?: string | null;
   publish_at?: string | null;
   publishing_status: string;
   created_at: string;
@@ -120,6 +122,8 @@ const formatDateTimeLabel = (value?: string | null) => {
     minute: '2-digit',
   }).format(date);
 };
+
+const isImagePreview = (value?: string | null) => /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(String(value || ''));
 
 const App = () => {
   const [activeTab, setActiveTab] = useState(() => {
@@ -670,7 +674,7 @@ const App = () => {
   ];
   const platformFilteredTasks = tasks.filter((task) => {
     const account = task.target_account_id ? accountsById[task.target_account_id] : undefined;
-    const platform = normalizeNetwork(account?.channel_code || task.type);
+    const platform = normalizeNetwork(task.target_platform || account?.channel_code || task.type);
     return queuePlatformFilter === 'all' || platform === queuePlatformFilter;
   });
   const queueCounters = {
@@ -682,7 +686,7 @@ const App = () => {
   };
   const filteredTasks = tasks.filter((task) => {
     const account = task.target_account_id ? accountsById[task.target_account_id] : undefined;
-    const platform = normalizeNetwork(account?.channel_code || task.type);
+    const platform = normalizeNetwork(task.target_platform || account?.channel_code || task.type);
     const title = getTaskDisplayTitle(task).toLowerCase();
     const searchable = [
       title,
@@ -1107,24 +1111,33 @@ const App = () => {
                   )}
                   {!tasksLoading && filteredTasks.map(task => {
                     const account = task.target_account_id ? accountsById[task.target_account_id] : undefined;
-                    const platform = normalizeNetwork(account?.channel_code || task.type);
+                    const platform = normalizeNetwork(task.target_platform || account?.channel_code || task.type);
                     const platformMeta = getPlatformMeta(platform);
-                    const previewUrl = task.output_path && task.status === 'completed' && telegramId
+                    const localPreviewUrl = task.output_path && task.status === 'completed' && telegramId
                       ? `${API_BASE}/tasks/${telegramId}/${task.id}/file`
                       : '';
+                    const previewUrl = task.preview_url || localPreviewUrl;
                     return (
                       <div key={task.id} className="p-4 space-y-4">
                         <div className="flex gap-4 items-start">
                           <div className="w-24 shrink-0">
                             <div className="relative aspect-[9/16] rounded-[22px] overflow-hidden bg-gradient-to-br from-slate-900 via-slate-700 to-slate-500 shadow-sm">
                               {previewUrl ? (
-                                <video
-                                  src={previewUrl}
-                                  className="absolute inset-0 w-full h-full object-cover"
-                                  muted
-                                  playsInline
-                                  preload="metadata"
-                                />
+                                isImagePreview(previewUrl) ? (
+                                  <img
+                                    src={previewUrl}
+                                    className="absolute inset-0 w-full h-full object-cover"
+                                    alt=""
+                                  />
+                                ) : (
+                                  <video
+                                    src={previewUrl}
+                                    className="absolute inset-0 w-full h-full object-cover"
+                                    muted
+                                    playsInline
+                                    preload="metadata"
+                                  />
+                                )
                               ) : (
                                 <div className="absolute inset-0 flex flex-col items-center justify-center text-white/90 gap-2">
                                   {platformMeta.icon}

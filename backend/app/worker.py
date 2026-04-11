@@ -371,14 +371,32 @@ def _build_youtube_download_headers(watch_url: str) -> dict[str, str]:
     }
 
 
-def _plan_publish_times_for_outputs(db, user: models.User, outputs_count: int, manual_publish_at):
+def _plan_publish_times_for_outputs(db, user: models.User, output_platforms: list[str], manual_publish_at):
+    outputs_count = len(output_platforms)
     if outputs_count < 1:
         return []
     if manual_publish_at is not None:
         return [manual_publish_at] * outputs_count
     if not bool(getattr(user, "auto_schedule_enabled", False)):
         return [None] * outputs_count
-    return plan_next_publish_times(db=db, user=user, count=outputs_count)
+
+    planned: list[datetime.datetime | None] = [None] * outputs_count
+    grouped_indices: dict[str, list[int]] = {}
+    for index, platform_code in enumerate(output_platforms):
+        normalized = _normalize_platform_code(platform_code)
+        grouped_indices.setdefault(normalized, []).append(index)
+
+    for platform_code, indices in grouped_indices.items():
+        times = plan_next_publish_times(
+            db=db,
+            user=user,
+            count=len(indices),
+            platform_code=platform_code,
+        )
+        for idx, planned_time in zip(indices, times):
+            planned[idx] = planned_time
+
+    return planned
 
 
 def _get_base_source_label(source_url: str) -> str:
@@ -419,6 +437,7 @@ def _upsert_variant_task(
     variant_index: int,
     publish_at,
     target_account_id: int | None,
+    target_platform: str | None,
 ) -> models.VideoTask:
     base_source = _get_base_source_label(base_task.source_url)
     existing = db.query(models.VideoTask).filter(
@@ -436,6 +455,7 @@ def _upsert_variant_task(
         existing.source_url = f"{base_source} [slot {variant_index}] [account {target_account_id}]"
         existing.publish_at = publish_at
         existing.target_account_id = target_account_id
+        existing.target_platform = target_platform
         existing.publishing_status = publishing_status
         db.commit()
         db.refresh(existing)
@@ -450,6 +470,7 @@ def _upsert_variant_task(
         output_path=output_path,
         publish_at=publish_at,
         target_account_id=target_account_id,
+        target_platform=target_platform,
         publishing_status=publishing_status,
     )
     db.add(variant_task)
@@ -465,6 +486,7 @@ def _upsert_processed_task(
     source_label: str,
     publish_at,
     target_account_id: int | None,
+    target_platform: str | None,
     should_sync: bool,
 ) -> models.VideoTask:
     existing = db.query(models.VideoTask).filter(
@@ -482,8 +504,10 @@ def _upsert_processed_task(
         existing.source_url = source_label
         existing.publish_at = publish_at
         existing.target_account_id = target_account_id
+        existing.target_platform = target_platform
         existing.postmypost_id = None
         existing.postmypost_file_id = None
+        existing.preview_url = None
         existing.publishing_status = publishing_status
         db.commit()
         db.refresh(existing)
@@ -498,6 +522,7 @@ def _upsert_processed_task(
         output_path=output_path,
         publish_at=publish_at,
         target_account_id=target_account_id,
+        target_platform=target_platform,
         publishing_status=publishing_status,
     )
     db.add(clip_task)
@@ -634,11 +659,18 @@ def process_content_task(task_id: int):
             variants_count,
             len(ending_clips),
         )
-        outputs_count = len(source_items) * (len(target_account_ids) if target_account_ids else 1)
+        output_platforms: list[str] = []
+        if target_account_ids:
+            for _clip_index, _video_path in source_items:
+                for account_id in target_account_ids:
+                    output_platforms.append(_normalize_platform_code(account_platform_map.get(account_id, "universal")))
+        else:
+            for _clip_index, _video_path in source_items:
+                output_platforms.append(_normalize_platform_code(task.type))
         publish_times = _plan_publish_times_for_outputs(
             db=db,
             user=user,
-            outputs_count=outputs_count,
+            output_platforms=output_platforms,
             manual_publish_at=None if process_all_clips else task.publish_at,
         )
 
@@ -704,6 +736,7 @@ def process_content_task(task_id: int):
                             "output_path": account_output,
                             "publish_at": publish_at,
                             "target_account_id": account_id,
+                            "target_platform": platform_code,
                             "source_label": _build_source_label(
                                 base_source,
                                 clip_index=clip_index if process_all_clips else None,
@@ -732,6 +765,7 @@ def process_content_task(task_id: int):
                         "output_path": base_output,
                         "publish_at": publish_at,
                         "target_account_id": None,
+                        "target_platform": _normalize_platform_code(task.type),
                         "source_label": _build_source_label(
                             base_source,
                             clip_index=clip_index if process_all_clips else None,
@@ -745,11 +779,13 @@ def process_content_task(task_id: int):
         primary_output = rendered_outputs[0]
         task.output_path = primary_output["output_path"]
         task.target_account_id = primary_output["target_account_id"]
+        task.target_platform = primary_output["target_platform"]
         task.source_url = primary_output["source_label"]
         task.publish_at = primary_output["publish_at"]
         task.status = "completed"
         task.postmypost_id = None
         task.postmypost_file_id = None
+        task.preview_url = None
         task.publishing_status = _resolve_publishing_status(primary_output["publish_at"], should_sync=should_sync_outputs)
         db.commit()
         db.refresh(task)
@@ -787,6 +823,7 @@ def process_content_task(task_id: int):
                 source_label=derived_output["source_label"],
                 publish_at=derived_output["publish_at"],
                 target_account_id=derived_output["target_account_id"],
+                target_platform=derived_output["target_platform"],
                 should_sync=should_sync_outputs,
             )
             if should_sync_outputs:
