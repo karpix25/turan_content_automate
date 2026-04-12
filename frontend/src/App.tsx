@@ -104,6 +104,26 @@ const normalizeTelegramId = (value: unknown): string => {
   return /^\d{5,20}$/.test(text) ? text : '';
 };
 
+const getTelegramIdFromInitDataHash = (): string => {
+  const hash = String(window.location.hash || '').replace(/^#/, '');
+  if (!hash) return '';
+
+  const webAppParams = new URLSearchParams(hash);
+  const rawInitData = webAppParams.get('tgWebAppData');
+  if (!rawInitData) return '';
+
+  try {
+    const initData = new URLSearchParams(rawInitData);
+    const rawUser = initData.get('user');
+    if (!rawUser) return '';
+
+    const user = JSON.parse(rawUser) as { id?: number | string };
+    return normalizeTelegramId(user?.id);
+  } catch {
+    return '';
+  }
+};
+
 const clampPercent = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
 const cleanTaskSource = (value: string) =>
   String(value || '')
@@ -176,10 +196,11 @@ const App = () => {
     if (webApp?.expand) webApp.expand();
 
     const tgUserId = normalizeTelegramId(webApp?.initDataUnsafe?.user?.id);
+    const hashId = getTelegramIdFromInitDataHash();
     const query = new URLSearchParams(window.location.search);
     const queryId = normalizeTelegramId(query.get('telegram_id') || query.get('tg_id'));
     const storedId = normalizeTelegramId(window.localStorage.getItem(TELEGRAM_ID_STORAGE_KEY));
-    const resolvedId = tgUserId || queryId || storedId;
+    const resolvedId = tgUserId || hashId || queryId || storedId;
     if (resolvedId) {
       setTelegramId(resolvedId);
       setTelegramIdInput(resolvedId);
