@@ -292,7 +292,13 @@ const App = () => {
       setChannelsError('');
     } catch (error: any) {
       const detail = error?.response?.data?.detail;
-      setChannelsError(detail ? String(detail) : 'Не удалось загрузить каналы из PostMyPost');
+      if (error?.response?.status === 403) {
+        setChannelsError('Доступ запрещен. Ваш Telegram ID не добавлен в список администраторов в .env файле.');
+      } else if (detail) {
+        setChannelsError(String(detail));
+      } else {
+        setChannelsError('Не удалось загрузить каналы из PostMyPost. Проверьте соединение с сервером.');
+      }
     } finally {
       setChannelsLoading(false);
     }

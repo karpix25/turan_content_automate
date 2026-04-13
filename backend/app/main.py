@@ -54,6 +54,27 @@ if allowed_cors_origins:
 
 telegram_admin_ids = get_telegram_admin_ids()
 
+@app.on_event("startup")
+async def startup_event():
+    logging.info("--- Backend Startup Configuration ---")
+    if not telegram_admin_ids:
+        logging.warning("TELEGRAM_ADMIN_IDS is not configured. Admin endpoints are publicly accessible!")
+    else:
+        logging.info(f"Loaded {len(telegram_admin_ids)} admin IDs: {', '.join(list(telegram_admin_ids)[:5])}{'...' if len(telegram_admin_ids) > 5 else ''}")
+    
+    pmp_key = os.getenv("POSTMYPOST_API_KEY", "").strip()
+    if not pmp_key or pmp_key == "your_postmypost_key":
+        logging.error("POSTMYPOST_API_KEY is missing or contains placeholder value!")
+    else:
+        # Mask the key for logs
+        masked_key = pmp_key[:4] + "*" * (len(pmp_key) - 8) + pmp_key[-4:] if len(pmp_key) > 8 else "****"
+        logging.info(f"POSTMYPOST_API_KEY is configured: {masked_key}")
+    
+    pmp_project = os.getenv("POSTMYPOST_PROJECT_ID", "").strip()
+    logging.info(f"POSTMYPOST_PROJECT_ID: {pmp_project or 'Not set (will use default from API)')}")
+    logging.info("-------------------------------------")
+
+
 
 def ensure_admin_access(telegram_id: str) -> None:
     if not telegram_admin_ids:
@@ -391,9 +412,18 @@ def get_postmypost_channels(telegram_id: str, db: Session = Depends(get_db)):
         channels = pmp_client.get_channels()
         accounts = pmp_client.get_accounts(project_id=project_id)
     except Exception as e:
-        logging.error(f"Failed to load PostMyPost channels/accounts: {e}")
-        raise HTTPException(status_code=502, detail=f"Failed to load channels from PostMyPost: {e}")
+        logging.exception(f"CRITICAL: Failed to load PostMyPost channels/accounts for user {telegram_id}: {e}")
+        # Provide better detail to UI
+        error_detail = str(e)
+        if hasattr(e, 'response') and hasattr(e.response, 'text'):
+            error_detail += f" | API Response: {e.response.text[:200]}"
+            
+        raise HTTPException(
+            status_code=502, 
+            detail=f"PostMyPost Error: {error_detail}"
+        )
     return build_postmypost_channels_response(db=db, user=user, accounts=accounts, channels=channels)
+
 
 @app.post("/postmypost/channels/{telegram_id}", response_model=list[schemas.PostMyPostAccountOut])
 def update_postmypost_channels(

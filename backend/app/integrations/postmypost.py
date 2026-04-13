@@ -70,7 +70,7 @@ class PostMyPostClient:
                         )
                         response.raise_for_status()
                     if response.status_code >= 400:
-                        body = response.text[:500]
+                        body = response.text[:1000]
                         logger.error(
                             "PostMyPost API error %s for %s %s: %s",
                             response.status_code,
