@@ -8,7 +8,7 @@ class ScrapeCreatorsClient:
     BASE_URL = "https://api.scrapecreators.com/v1"
 
     def __init__(self, api_key: str):
-        self.api_key = api_key
+        self.api_key = (api_key or "").strip()
         self.headers = {
             "x-api-key": self.api_key,
             "Content-Type": "application/json"

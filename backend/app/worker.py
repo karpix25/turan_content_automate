@@ -21,11 +21,11 @@ from dotenv import load_dotenv
 load_dotenv()
 init_database()
 
-celery_app = Celery('tasks', broker=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+celery_app = Celery('tasks', broker=(os.getenv("REDIS_URL") or "redis://localhost:6379/0").strip())
 
 # Initialize clients
-vizard = VizardClient(api_key=os.getenv("VIZARD_API_KEY", ""))
-scraper = ScrapeCreatorsClient(api_key=os.getenv("SCRAPE_CREATORS_API_KEY", ""))
+vizard = VizardClient(api_key=(os.getenv("VIZARD_API_KEY") or "").strip())
+scraper = ScrapeCreatorsClient(api_key=(os.getenv("SCRAPE_CREATORS_API_KEY") or "").strip())
 rapidapi_yt = RapidAPIYoutubeClient(
     api_key=os.getenv("RAPIDAPI_KEY", ""),
     host=os.getenv("YOUTUBE_DOWNLOAD_RAPIDAPI_HOST", "youtube-mp4-mp3-downloader.p.rapidapi.com"),
@@ -34,8 +34,8 @@ rapidapi_yt = RapidAPIYoutubeClient(
     poll_interval_seconds=float(os.getenv("YOUTUBE_DOWNLOAD_POLL_INTERVAL_SECONDS", "2")),
     timeout_seconds=float(os.getenv("YOUTUBE_DOWNLOAD_TIMEOUT_SECONDS", "90")),
 )
-downloader = Downloader(output_dir=os.getenv("OUTPUT_DIR", "./output"))
-pmp_client = PostMyPostClient(api_key=os.getenv("POSTMYPOST_API_KEY", ""))
+downloader = Downloader(output_dir=(os.getenv("OUTPUT_DIR") or "./output").strip())
+pmp_client = PostMyPostClient(api_key=(os.getenv("POSTMYPOST_API_KEY") or "").strip())
 processor = VideoProcessor()
 
 def _parse_env_account_ids(raw: str) -> List[int]:
