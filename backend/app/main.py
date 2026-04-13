@@ -177,12 +177,19 @@ def resolve_output_file_path(output_path: str) -> str | None:
 
 def extract_vizard_project_id(url: str) -> str | None:
     raw = (url or "").strip()
+    # Remove accidental http(s) prefix if it's attached to a pure numeric ID
+    if raw.startswith("https://") and raw[8:].isdigit():
+        raw = raw[8:]
+    elif raw.startswith("http://") and raw[7:].isdigit():
+        raw = raw[7:]
+
     match = re.search(r"vizard\.ai/(?:project|dashboard/editor)/(\d+)", raw, re.IGNORECASE)
     if match:
         return match.group(1)
     if raw.isdigit():
         return raw
     return None
+
 
 
 def normalize_source_url(value: str, task_type: str | None = None) -> str:

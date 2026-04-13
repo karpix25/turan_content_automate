@@ -342,12 +342,19 @@ def _build_youtube_watch_url(video_id: str) -> str:
 
 def _extract_vizard_project_id(url_or_id: str) -> str | None:
     raw = str(url_or_id).strip()
+    # Remove accidental http(s) prefix if it was added to a pure numeric ID
+    if raw.startswith("https://") and raw[8:].isdigit():
+        raw = raw[8:]
+    elif raw.startswith("http://") and raw[7:].isdigit():
+        raw = raw[7:]
+
     match = re.search(r"vizard\.ai/(?:project|dashboard/editor)/(\d+)", raw, re.IGNORECASE)
     if match:
         return match.group(1)
     if raw.isdigit():
         return raw
     return None
+
 
 
 def _download_vizard_project_clips(db, task: models.VideoTask, source_url: str, **create_kwargs) -> List[str]:

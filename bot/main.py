@@ -24,6 +24,12 @@ SUPPORTED_URL_RE = re.compile(r"(https?://[^\s]+|(?:www\.)?(?:youtube\.com|youtu
 
 def extract_vizard_project_id(url: str) -> str | None:
     raw = (url or "").strip()
+    # Remove https:// if it was accidentally prepended to a pure digit ID
+    if raw.startswith("https://") and raw[8:].isdigit():
+        raw = raw[8:]
+    elif raw.startswith("http://") and raw[7:].isdigit():
+        raw = raw[7:]
+    
     # Handle forms like vizard.ai/project/12345 or vizard.ai/dashboard/editor/12345
     match = re.search(r"vizard\.ai/(?:project|dashboard/editor)/(\d+)", raw, re.IGNORECASE)
     if match:
@@ -31,6 +37,7 @@ def extract_vizard_project_id(url: str) -> str | None:
     if raw.isdigit():
         return raw
     return None
+
 
 
 def extract_youtube_video_id(url: str) -> str | None:
@@ -83,15 +90,19 @@ def normalize_source_url(text: str) -> str | None:
     if not match:
         return None
     url = match.group(0).strip().strip("<>()[]{}\"'.,;")
-    if not url.startswith(("http://", "https://")):
+    
+    # Check for Vizard ID first to prevent adding https://
+    v_id = extract_vizard_project_id(url)
+    if v_id:
+        return v_id
+
+    if not url.startswith(("http://", "https://")) and not url.isdigit():
         url = f"https://{url}"
+        
     if "youtube.com" in url or "youtu.be" in url:
         url = normalize_youtube_url(url)
-    elif "vizard.ai" in url:
-        v_id = extract_vizard_project_id(url)
-        if v_id:
-            url = v_id
     return url
+
 
 
 
