@@ -2,6 +2,7 @@ import os
 import logging
 import re
 import httpx
+import json
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
@@ -91,6 +92,57 @@ def detect_task_type(url: str) -> str:
     return task_type
 
 
+def is_youtube_shorts_url(url: str) -> bool:
+    raw = (url or "").strip()
+    if not raw or re.fullmatch(r"[A-Za-z0-9_-]{11}", raw):
+        return False
+
+    parsed = urlparse(raw)
+    host = parsed.netloc.lower()
+    path_parts = [part for part in parsed.path.split("/") if part]
+    return "youtube.com" in host and len(path_parts) >= 2 and path_parts[0] == "shorts"
+
+
+async def create_task_in_backend(user_id: str, url: str, task_type: str, status_message: types.Message):
+    """
+    Helper to trigger task creation in backend and update status message.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.post(
+                f"{BACKEND_API_URL}/tasks/{user_id}",
+                json={
+                    "source_url": url,
+                    "type": task_type,
+                    "telegram_chat_id": str(status_message.chat.id),
+                    "telegram_status_message_id": str(status_message.message_id),
+                },
+            )
+        response.raise_for_status()
+        payload = response.json()
+        task_id = payload.get("task_id")
+
+        await status_message.edit_text(
+            "\n".join(
+                [
+                    f"⏳ Видео #{task_id}" if task_id else "⏳ Видео",
+                    "Этап: задача создана",
+                    "Видео добавлено в очередь обработки.",
+                ]
+            ),
+            disable_web_page_preview=True,
+        )
+    except Exception as e:
+        logging.error(f"Error creating task: {e}")
+        try:
+            await status_message.edit_text(
+                "❌ Ошибка\nЭтап: создание задачи\nНе удалось поставить видео в обработку.",
+                disable_web_page_preview=True,
+            )
+        except Exception:
+            await status_message.answer("❌ Sorry, something went wrong while creating the task.")
+
+
 def build_webapp_url_for_user(base_url: str, telegram_user_id: int) -> str:
     raw = (base_url or "").strip()
     if not raw:
@@ -100,6 +152,7 @@ def build_webapp_url_for_user(base_url: str, telegram_user_id: int) -> str:
     query["tg_id"] = [str(telegram_user_id)]
     encoded_query = urlencode(query, doseq=True)
     return urlunparse(parsed._replace(query=encoded_query))
+
 
 @dp.message_handler(commands=['start', 'help'])
 async def send_welcome(message: types.Message):
@@ -140,43 +193,73 @@ async def handle_link(message: types.Message):
         return
 
     user_id = str(message.from_user.id)
-    status_message = await message.reply("⏳ Получил ссылку\nЭтап: создаю задачу.")
+    is_youtube = "youtube.com" in url or "youtu.be" in url
+    is_shorts = is_youtube and is_youtube_shorts_url(url)
 
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.post(
-                f"{BACKEND_API_URL}/tasks/{user_id}",
-                json={
-                    "source_url": url,
-                    "type": task_type,
-                    "telegram_chat_id": str(status_message.chat.id),
-                    "telegram_status_message_id": str(status_message.message_id),
-                },
-            )
-        response.raise_for_status()
-        payload = response.json()
-        task_id = payload.get("task_id")
-
-        await status_message.edit_text(
-            "\n".join(
+    # For long YouTube videos, ask the user for choice.
+    if is_youtube and not is_shorts:
+        video_id = extract_youtube_video_id(url)
+        # Using dict for keyboard to support 'style' field for colored buttons (Bot API 9.4+)
+        kb = {
+            "inline_keyboard": [
                 [
-                    f"⏳ Видео #{task_id}" if task_id else "⏳ Видео",
-                    "Этап: задача создана",
-                    "Видео добавлено в очередь обработки.",
+                    {
+                        "text": "🎬 Отправить в VIZARD",
+                        "callback_data": f"vizard:yt:{video_id}",
+                        "style": "primary"  # Blue button
+                    }
+                ],
+                [
+                    {
+                        "text": "👤 Создать ролик с аватаром",
+                        "callback_data": f"avatar:yt:{video_id}",
+                        "style": "success"  # Green button
+                    }
                 ]
-            ),
-            disable_web_page_preview=True,
+            ]
+        }
+        await message.reply(
+            "📹 Это длинное видео. Что вы хотите сделать?",
+            reply_markup=json.dumps(kb)
         )
+        return
 
-    except Exception as e:
-        logging.error(f"Error handling link: {e}")
-        try:
-            await status_message.edit_text(
-                "❌ Ошибка\nЭтап: создание задачи\nНе удалось поставить видео в обработку.",
-                disable_web_page_preview=True,
-            )
-        except Exception:
-            await message.reply("❌ Sorry, something went wrong while creating the task.")
+    # Automatically process Instagram and YouTube Shorts as before.
+    status_message = await message.reply("⏳ Получил ссылку\nЭтап: создаю задачу.")
+    await create_task_in_backend(user_id, url, task_type, status_message)
+
+
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith(('vizard:', 'avatar:')))
+async def process_choice(callback_query: types.CallbackQuery):
+    data = callback_query.data
+    parts = data.split(":")
+    if len(parts) < 3:
+        return
+    
+    service, platform, identifier = parts[0], parts[1], parts[2]
+    
+    if service == "avatar":
+        await callback_query.answer("👤 Эта функция находится в разработке и будет доступна позже.", show_alert=True)
+        return
+    
+    # Process Vizard choice
+    url = f"https://www.youtube.com/watch?v={identifier}" if platform == "yt" else identifier
+    
+    await callback_query.answer("Запускаю Vizard...")
+    
+    # We create a new status message to show progress
+    status_message = await bot.send_message(
+        callback_query.message.chat.id,
+        "⏳ Выбран Vizard\nЭтап: создаю задачу."
+    )
+    
+    await create_task_in_backend(str(callback_query.from_user.id), url, "youtube", status_message)
+    
+    # Optionally remove the selection keyboard
+    try:
+        await callback_query.message.delete()
+    except Exception:
+        pass
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
