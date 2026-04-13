@@ -21,7 +21,7 @@ class VizardClient:
         template_id: Optional[str] = None,
         *,
         video_type: Optional[int] = None,
-        prefer_length: Optional[int] = None,
+        prefer_length: Optional[List[int]] = None,
         lang: Optional[str] = None,
         ratio_of_clip: Optional[int] = None,
         get_clips: Optional[int] = None,
@@ -43,7 +43,8 @@ class VizardClient:
         if video_type is not None:
             payload["videoType"] = video_type
         if prefer_length is not None:
-            payload["preferLength"] = prefer_length
+            # Vizard API requires an array of integers for preferLength
+            payload["preferLength"] = prefer_length if isinstance(prefer_length, list) else [prefer_length]
         if lang:
             payload["lang"] = lang
         if ratio_of_clip is not None:

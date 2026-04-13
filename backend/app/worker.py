@@ -607,7 +607,7 @@ def process_content_task(task_id: int):
                         task,
                         source_url,
                         video_type=2,
-                        prefer_length=1,
+                        prefer_length=[1],
                         lang="auto",
                         ratio_of_clip=1,
                         get_clips=1,
