@@ -340,10 +340,27 @@ def _build_youtube_watch_url(video_id: str) -> str:
     return f"https://www.youtube.com/watch?v={video_id}"
 
 
+def _extract_vizard_project_id(url_or_id: str) -> str | None:
+    raw = str(url_or_id).strip()
+    match = re.search(r"vizard\.ai/(?:project|dashboard/editor)/(\d+)", raw, re.IGNORECASE)
+    if match:
+        return match.group(1)
+    if raw.isdigit():
+        return raw
+    return None
+
+
 def _download_vizard_project_clips(db, task: models.VideoTask, source_url: str, **create_kwargs) -> List[str]:
-    p_id = asyncio.run(vizard.create_project(source_url, **create_kwargs))
-    if not p_id:
-        raise Exception("Failed to create Vizard project")
+    # Check if we already have a project ID or if source_url is a Vizard link
+    existing_v_id = _extract_vizard_project_id(source_url)
+    if existing_v_id:
+        p_id = int(existing_v_id)
+        logging.info(f"Task {task.id}: Using existing Vizard project ID {p_id}")
+    else:
+        p_id = asyncio.run(vizard.create_project(source_url, **create_kwargs))
+        if not p_id:
+            raise Exception("Failed to create Vizard project")
+
 
     task.vizard_project_id = p_id
     db.commit()

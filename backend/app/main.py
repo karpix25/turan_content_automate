@@ -146,15 +146,33 @@ def resolve_output_file_path(output_path: str) -> str | None:
     return None
 
 
+def extract_vizard_project_id(url: str) -> str | None:
+    raw = (url or "").strip()
+    match = re.search(r"vizard\.ai/(?:project|dashboard/editor)/(\d+)", raw, re.IGNORECASE)
+    if match:
+        return match.group(1)
+    if raw.isdigit():
+        return raw
+    return None
+
+
 def normalize_source_url(value: str, task_type: str | None = None) -> str:
     url = (value or "").strip().strip("<>()[]{}\"'.,;")
     if not url:
         raise HTTPException(status_code=400, detail="source_url is empty")
-    if (task_type or "").strip().lower() == "youtube":
+    
+    t_type = (task_type or "").strip().lower()
+    if t_type == "youtube":
         return normalize_youtube_url(url)
-    if not url.startswith(("http://", "https://")):
+    if t_type == "vizard":
+        v_id = extract_vizard_project_id(url)
+        if v_id:
+            return v_id
+            
+    if not url.startswith(("http://", "https://")) and not url.isdigit():
         url = f"https://{url}"
     return url
+
 
 
 def extract_youtube_video_id(url: str) -> str | None:

@@ -20,7 +20,18 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
-SUPPORTED_URL_RE = re.compile(r"(https?://[^\s]+|(?:www\.)?(?:youtube\.com|youtu\.be|instagram\.com)/[^\s]+)", re.IGNORECASE)
+SUPPORTED_URL_RE = re.compile(r"(https?://[^\s]+|(?:www\.)?(?:youtube\.com|youtu\.be|instagram\.com|vizard\.ai)/[^\s]+)", re.IGNORECASE)
+
+def extract_vizard_project_id(url: str) -> str | None:
+    raw = (url or "").strip()
+    # Handle forms like vizard.ai/project/12345 or vizard.ai/dashboard/editor/12345
+    match = re.search(r"vizard\.ai/(?:project|dashboard/editor)/(\d+)", raw, re.IGNORECASE)
+    if match:
+        return match.group(1)
+    if raw.isdigit():
+        return raw
+    return None
+
 
 def extract_youtube_video_id(url: str) -> str | None:
     raw = (url or "").strip()
@@ -76,7 +87,12 @@ def normalize_source_url(text: str) -> str | None:
         url = f"https://{url}"
     if "youtube.com" in url or "youtu.be" in url:
         url = normalize_youtube_url(url)
+    elif "vizard.ai" in url:
+        v_id = extract_vizard_project_id(url)
+        if v_id:
+            url = v_id
     return url
+
 
 
 def is_valid_youtube_url(url: str) -> bool:
@@ -89,7 +105,10 @@ def detect_task_type(url: str) -> str:
         return "instagram"
     if "youtube.com" in url or "youtu.be" in url:
         return "youtube"
+    if "vizard.ai" in url or (url.isdigit() and len(url) > 5):
+        return "vizard"
     return task_type
+
 
 
 def is_youtube_shorts_url(url: str) -> bool:
@@ -198,22 +217,22 @@ async def handle_link(message: types.Message):
 
     # For long YouTube videos, ask the user for choice.
     if is_youtube and not is_shorts:
+        # ... (unchanged long video logic)
         video_id = extract_youtube_video_id(url)
-        # Using dict for keyboard to support 'style' field for colored buttons (Bot API 9.4+)
         kb = {
             "inline_keyboard": [
                 [
                     {
                         "text": "🎬 Отправить в VIZARD",
                         "callback_data": f"vizard:yt:{video_id}",
-                        "style": "primary"  # Blue button
+                        "style": "primary"
                     }
                 ],
                 [
                     {
                         "text": "👤 Создать ролик с аватаром",
                         "callback_data": f"avatar:yt:{video_id}",
-                        "style": "success"  # Green button
+                        "style": "success"
                     }
                 ]
             ]
@@ -224,9 +243,10 @@ async def handle_link(message: types.Message):
         )
         return
 
-    # Automatically process Instagram and YouTube Shorts as before.
+    # Automatically process Instagram, YouTube Shorts, and Vizard project links.
     status_message = await message.reply("⏳ Получил ссылку\nЭтап: создаю задачу.")
     await create_task_in_backend(user_id, url, task_type, status_message)
+
 
 
 @dp.callback_query_handler(lambda c: c.data and c.data.startswith(('vizard:', 'avatar:')))
