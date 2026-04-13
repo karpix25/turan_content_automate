@@ -72,7 +72,31 @@ async def startup_event():
     
     pmp_project = os.getenv("POSTMYPOST_PROJECT_ID", "").strip()
     logging.info(f"POSTMYPOST_PROJECT_ID: {pmp_project or 'Not set (will use default from API)'}")
+    
+    # Shared Admin Migration
+    try:
+        from .database import SessionLocal
+        db = SessionLocal()
+        try:
+            shared_user = db.query(models.User).filter(models.User.telegram_id == "shared_admin").first()
+            if not shared_user:
+                legacy_admin_id = "38061745"
+                legacy_user = db.query(models.User).filter(models.User.telegram_id == legacy_admin_id).first()
+                if legacy_user:
+                    logging.info(f"Migrating legacy admin {legacy_admin_id} to shared_admin profile.")
+                    legacy_user.telegram_id = "shared_admin"
+                    db.commit()
+                else:
+                    logging.info("No legacy admin profile found to migrate. Shared profile will be fresh.")
+            else:
+                logging.info("Shared admin profile already exists.")
+        finally:
+            db.close()
+    except Exception as e:
+        logging.error(f"Failed to run shared admin migration: {e}")
+        
     logging.info("-------------------------------------")
+
 
 
 
@@ -92,10 +116,15 @@ def get_db():
         db.close()
 
 def get_or_create_user(db: Session, telegram_id: str) -> models.User:
-    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+    effective_id = str(telegram_id).strip()
+    if effective_id in telegram_admin_ids:
+        effective_id = "shared_admin"
+        
+    user = db.query(models.User).filter(models.User.telegram_id == effective_id).first()
     if user:
         return user
-    user = models.User(telegram_id=telegram_id)
+    user = models.User(telegram_id=effective_id)
+
     db.add(user)
     db.commit()
     db.refresh(user)
