@@ -71,7 +71,7 @@ async def startup_event():
         logging.info(f"POSTMYPOST_API_KEY is configured: {masked_key}")
     
     pmp_project = os.getenv("POSTMYPOST_PROJECT_ID", "").strip()
-    logging.info(f"POSTMYPOST_PROJECT_ID: {pmp_project or 'Not set (will use default from API)')}")
+    logging.info(f"POSTMYPOST_PROJECT_ID: {pmp_project or 'Not set (will use default from API)'}")
     logging.info("-------------------------------------")
 
 
