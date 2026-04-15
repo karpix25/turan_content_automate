@@ -1,7 +1,10 @@
 import datetime
+import email.utils
 import httpx
 import logging
 import os
+import random
+import threading
 import time
 from typing import Any, Dict, List, Optional
 
@@ -11,7 +14,10 @@ logger = logging.getLogger(__name__)
 class PostMyPostClient:
     BASE_URL = "https://api.postmypost.io/v4.1"
     DEFAULT_PER_PAGE = 20
+    RATE_WINDOW_SECONDS = 60.0
     _cache: Dict[str, tuple[float, Any]] = {}
+    _rate_limit_lock = threading.Lock()
+    _rate_limit_hits: Dict[str, List[float]] = {}
 
     def __init__(self, api_key: str):
         self.api_key = self._normalize_api_key(api_key)
@@ -36,6 +42,14 @@ class PostMyPostClient:
             self.cache_ttl_seconds,
             int(os.getenv("POSTMYPOST_STALE_CACHE_TTL_SECONDS", "900")),
         )
+        self.upload_poll_interval_seconds = max(
+            6.0,
+            float(os.getenv("POSTMYPOST_UPLOAD_POLL_INTERVAL_SECONDS", "8")),
+        )
+        self.upload_poll_timeout_seconds = max(
+            self.upload_poll_interval_seconds,
+            float(os.getenv("POSTMYPOST_UPLOAD_POLL_TIMEOUT_SECONDS", "300")),
+        )
 
     @staticmethod
     def _normalize_api_key(api_key: str) -> str:
@@ -43,6 +57,50 @@ class PostMyPostClient:
         if normalized.lower().startswith("bearer "):
             normalized = normalized.split(" ", 1)[1].strip()
         return normalized
+
+    @staticmethod
+    def _parse_retry_after_seconds(raw: str | None) -> float | None:
+        value = (raw or "").strip()
+        if not value:
+            return None
+        try:
+            return max(0.0, float(value))
+        except ValueError:
+            try:
+                parsed = email.utils.parsedate_to_datetime(value)
+            except (TypeError, ValueError):
+                return None
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+            delay = (parsed - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
+            return max(0.0, delay)
+
+    @staticmethod
+    def _resolve_rate_limit_bucket(method: str, path: str) -> tuple[str, int]:
+        normalized_path = (path or "").split("?", 1)[0]
+        normalized_method = (method or "").upper()
+        if normalized_path.startswith("/upload/"):
+            return "upload", 10
+        if normalized_method == "POST" and normalized_path == "/publications":
+            return "create-publication", 10
+        return "default", 30
+
+    @classmethod
+    def _acquire_rate_limit_slot(cls, bucket_key: str, limit_per_minute: int) -> None:
+        while True:
+            now = time.monotonic()
+            wait_seconds = 0.0
+            with cls._rate_limit_lock:
+                hits = cls._rate_limit_hits.setdefault(bucket_key, [])
+                threshold = now - cls.RATE_WINDOW_SECONDS
+                while hits and hits[0] <= threshold:
+                    hits.pop(0)
+
+                if len(hits) < max(1, limit_per_minute):
+                    hits.append(now)
+                    return
+                wait_seconds = max(0.05, (hits[0] + cls.RATE_WINDOW_SECONDS) - now)
+            time.sleep(wait_seconds)
 
     def _request(self, method: str, path: str, **kwargs) -> Dict[str, Any]:
         if not self.api_key:
@@ -52,9 +110,11 @@ class PostMyPostClient:
         headers = kwargs.pop("headers", {})
         merged_headers = {**self.headers, **headers}
         last_error: Exception | None = None
+        bucket_key, bucket_limit = self._resolve_rate_limit_bucket(method, path)
 
         for attempt in range(self.max_retries + 1):
             try:
+                self._acquire_rate_limit_slot(bucket_key, bucket_limit)
                 with httpx.Client(timeout=self.timeout) as client:
                     response = client.request(method, url, headers=merged_headers, **kwargs)
                     if response.status_code >= 500 or response.status_code == 429:
@@ -84,7 +144,22 @@ class PostMyPostClient:
                 last_error = exc
                 if attempt >= self.max_retries:
                     break
-                time.sleep(0.5 * (attempt + 1))
+                
+                # Determine wait time with exponential backoff and jitter
+                delay = 1.0 * (attempt + 1)
+                if isinstance(exc, httpx.HTTPStatusError):
+                    if exc.response.status_code == 429:
+                        retry_after = self._parse_retry_after_seconds(exc.response.headers.get("Retry-After"))
+                        # 3^1=3s, 3^2=9s, 3^3=27s... plus jitter
+                        delay = retry_after if retry_after is not None else (3.0 ** (attempt + 1)) + random.uniform(0, 1)
+                    elif exc.response.status_code >= 500:
+                        # 2^1=2s, 2^2=4s, 2^3=8s... plus jitter
+                        delay = (2.0 ** (attempt + 1)) + random.uniform(0, 1)
+                
+                delay = max(0.5, min(60.0, delay))
+                logger.info("Retrying PostMyPost API %s %s after %.2fs due to transient error (attempt %s/%s)", 
+                            method, path, delay, attempt + 1, self.max_retries + 1)
+                time.sleep(delay)
 
         assert last_error is not None
         raise last_error
@@ -246,8 +321,8 @@ class PostMyPostClient:
                 upload_response.raise_for_status()
 
         self.complete_upload(upload_id)
-
-        for _ in range(30):
+        poll_deadline = time.monotonic() + self.upload_poll_timeout_seconds
+        while True:
             status_payload = self.status_upload(upload_id)
             status_code = status_payload.get("status")
             file_id = status_payload.get("file_id")
@@ -255,9 +330,14 @@ class PostMyPostClient:
                 return int(file_id)
             if status_code == 2:
                 raise RuntimeError(f"Upload failed for id={upload_id}")
-            time.sleep(2)
+            if time.monotonic() >= poll_deadline:
+                break
+            time.sleep(self.upload_poll_interval_seconds)
 
-        raise TimeoutError(f"Upload polling timeout for id={upload_id}")
+        raise TimeoutError(
+            f"Upload polling timeout for id={upload_id} "
+            f"after {int(self.upload_poll_timeout_seconds)}s"
+        )
 
     def create_publication(
         self,
