@@ -101,6 +101,11 @@ def init_database() -> None:
         )
         conn.execute(
             text(
+                "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS source_title TEXT"
+            )
+        )
+        conn.execute(
+            text(
                 "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS preview_url TEXT"
             )
         )

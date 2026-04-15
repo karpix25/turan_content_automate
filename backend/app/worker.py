@@ -357,7 +357,38 @@ def _extract_vizard_project_id(url_or_id: str) -> str | None:
 
 
 
-def _download_vizard_project_clips(db, task: models.VideoTask, source_url: str, **create_kwargs) -> List[str]:
+def _extract_vizard_clip_title(clip: dict) -> str | None:
+    if not isinstance(clip, dict):
+        return None
+
+    direct_keys = (
+        "title",
+        "headline",
+        "headLine",
+        "clipTitle",
+        "videoTitle",
+        "name",
+    )
+    for key in direct_keys:
+        value = clip.get(key)
+        if isinstance(value, str):
+            normalized = value.strip()
+            if normalized:
+                return normalized
+
+    # Fallback: search nested dictionaries for title-like keys.
+    for key, value in clip.items():
+        key_text = str(key).lower()
+        if not isinstance(value, str):
+            continue
+        if "title" in key_text or "headline" in key_text:
+            normalized = value.strip()
+            if normalized:
+                return normalized
+    return None
+
+
+def _download_vizard_project_clips(db, task: models.VideoTask, source_url: str, **create_kwargs) -> List[tuple[str, str | None]]:
     logging.info(f"Task {task.id}: Processing vizard/youtube source: '{source_url}'")
     
     # Check if we already have a project ID or if source_url is a Vizard link
@@ -403,15 +434,16 @@ def _download_vizard_project_clips(db, task: models.VideoTask, source_url: str, 
     if not clips:
         raise Exception("Vizard conversion timed out or failed")
 
-    input_videos: List[str] = []
+    input_videos: List[tuple[str, str | None]] = []
     for i, clip in enumerate(clips):
         url = clip.get("videoUrl")
         if not url:
             raise Exception(f"Vizard clip #{i} has no download URL")
+        clip_title = _extract_vizard_clip_title(clip)
         local_file = downloader.download_video(url, f"vizard_{p_id}_{i}")
         if not local_file:
             raise Exception(f"Failed to download Vizard clip #{i}")
-        input_videos.append(local_file)
+        input_videos.append((local_file, clip_title))
     return input_videos
 
 
@@ -535,6 +567,7 @@ def _upsert_processed_task(
     base_task: models.VideoTask,
     output_path: str,
     source_label: str,
+    source_title: str | None,
     publish_at,
     target_account_id: int | None,
     target_platform: str | None,
@@ -553,6 +586,7 @@ def _upsert_processed_task(
         existing.status = "completed"
         existing.vizard_project_id = base_task.vizard_project_id
         existing.source_url = source_label
+        existing.source_title = source_title
         existing.publish_at = publish_at
         existing.target_account_id = target_account_id
         existing.target_platform = target_platform
@@ -571,6 +605,7 @@ def _upsert_processed_task(
         status="completed",
         vizard_project_id=base_task.vizard_project_id,
         output_path=output_path,
+        source_title=source_title,
         publish_at=publish_at,
         target_account_id=target_account_id,
         target_platform=target_platform,
@@ -593,6 +628,7 @@ def process_content_task(task_id: int):
     db.commit()
     update_task_status_message(db, task, stage="Обработка началась", detail="Подготавливаю видео к обработке.")
     input_videos: List[str] = []
+    input_video_titles: List[str | None] = []
 
     try:
         source_url = _normalize_external_url(task.source_url)
@@ -601,7 +637,9 @@ def process_content_task(task_id: int):
 
         if task.type == "vizard":
             update_task_status_message(db, task, stage="Vizard", detail="Отправляю видео в Vizard и жду клипы.")
-            input_videos.extend(_download_vizard_project_clips(db, task, source_url))
+            clips = _download_vizard_project_clips(db, task, source_url)
+            input_videos.extend(path for path, _title in clips)
+            input_video_titles.extend(title for _path, title in clips)
 
         elif task.type == "instagram":
             update_task_status_message(db, task, stage="Скачивание", detail="Скачиваю видео из Instagram.")
@@ -615,6 +653,7 @@ def process_content_task(task_id: int):
             if not local_file:
                 raise Exception("Failed to download Instagram video from ScrapeCreators URL")
             input_videos.append(local_file)
+            input_video_titles.append(None)
 
         elif task.type == "youtube":
             _validate_youtube_url_or_raise(source_url)
@@ -649,32 +688,39 @@ def process_content_task(task_id: int):
                 if not local_file:
                     raise Exception("Failed to download YouTube Shorts from provider URL")
                 input_videos.append(local_file)
+                input_video_titles.append(None)
             else:
                 logging.info("Task %s: routed full YouTube video to Vizard", task_id)
                 update_task_status_message(db, task, stage="Vizard", detail="Полное YouTube-видео отправлено в Vizard.")
-                input_videos.extend(
-                    _download_vizard_project_clips(
-                        db,
-                        task,
-                        source_url,
-                        video_type=2,
-                        prefer_length=[1],
-                        lang="auto",
-                        ratio_of_clip=1,
-                        get_clips=1,
-                        highlight_switch=0,
-                        subtitle_switch=1,
-                        auto_broll_switch=0,
-                        headline_switch=0,
-                        remove_silence_switch=1,
-                    )
+                clips = _download_vizard_project_clips(
+                    db,
+                    task,
+                    source_url,
+                    video_type=2,
+                    prefer_length=[1],
+                    lang="auto",
+                    ratio_of_clip=1,
+                    get_clips=1,
+                    highlight_switch=0,
+                    subtitle_switch=1,
+                    auto_broll_switch=0,
+                    headline_switch=0,
+                    remove_silence_switch=1,
                 )
+                input_videos.extend(path for path, _title in clips)
+                input_video_titles.extend(title for _path, title in clips)
 
         if not input_videos:
             raise Exception("No input videos were downloaded")
         update_task_status_message(db, task, stage="Монтаж", detail="Собираю финальные ролики.")
         process_all_clips = bool(task.vizard_project_id)
-        source_items = list(enumerate(input_videos, start=1)) if process_all_clips else [(1, input_videos[0])]
+        if process_all_clips:
+            source_items = [
+                (index, input_videos[index - 1], input_video_titles[index - 1] if len(input_video_titles) >= index else None)
+                for index in range(1, len(input_videos) + 1)
+            ]
+        else:
+            source_items = [(1, input_videos[0], input_video_titles[0] if input_video_titles else None)]
         if not process_all_clips and len(input_videos) > 1:
             logging.info(f"Task {task_id}: got {len(input_videos)} source clips, processing first clip only")
 
@@ -712,11 +758,11 @@ def process_content_task(task_id: int):
         )
         output_platforms: list[str] = []
         if target_account_ids:
-            for _clip_index, _video_path in source_items:
+            for _clip_index, _video_path, _clip_title in source_items:
                 for account_id in target_account_ids:
                     output_platforms.append(_normalize_platform_code(account_platform_map.get(account_id, "universal")))
         else:
-            for _clip_index, _video_path in source_items:
+            for _clip_index, _video_path, _clip_title in source_items:
                 output_platforms.append(_normalize_platform_code(task.type))
         publish_times = _plan_publish_times_for_outputs(
             db=db,
@@ -730,7 +776,7 @@ def process_content_task(task_id: int):
         rendered_outputs: List[dict] = []
         publish_index = 0
 
-        for clip_index, video_path in source_items:
+        for clip_index, video_path, clip_title in source_items:
             if not video_path:
                 raise Exception("Downloaded video path is empty")
 
@@ -788,6 +834,7 @@ def process_content_task(task_id: int):
                             "publish_at": publish_at,
                             "target_account_id": account_id,
                             "target_platform": platform_code,
+                            "source_title": clip_title,
                             "source_label": _build_source_label(
                                 base_source,
                                 clip_index=clip_index if process_all_clips else None,
@@ -817,6 +864,7 @@ def process_content_task(task_id: int):
                         "publish_at": publish_at,
                         "target_account_id": None,
                         "target_platform": _normalize_platform_code(task.type),
+                        "source_title": clip_title,
                         "source_label": _build_source_label(
                             base_source,
                             clip_index=clip_index if process_all_clips else None,
@@ -832,6 +880,7 @@ def process_content_task(task_id: int):
         task.target_account_id = primary_output["target_account_id"]
         task.target_platform = primary_output["target_platform"]
         task.source_url = primary_output["source_label"]
+        task.source_title = primary_output["source_title"]
         task.publish_at = primary_output["publish_at"]
         task.status = "completed"
         task.postmypost_id = None
@@ -872,6 +921,7 @@ def process_content_task(task_id: int):
                 base_task=task,
                 output_path=derived_output["output_path"],
                 source_label=derived_output["source_label"],
+                source_title=derived_output["source_title"],
                 publish_at=derived_output["publish_at"],
                 target_account_id=derived_output["target_account_id"],
                 target_platform=derived_output["target_platform"],
