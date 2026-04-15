@@ -196,11 +196,11 @@ def sync_publication_task(task_id: int, force_now: bool = False):
         post_at = _normalize_post_at(task.publish_at, force_now)
 
         content = f"Auto content from Content Studio\nSource: {task.source_url}"
+        title_by_account: dict[int, str] = {}
         vizard_title = (getattr(task, "source_title", None) or "").strip()
         if (getattr(task, "target_platform", None) or "").strip().lower() == "youtube" and vizard_title:
-            content = vizard_title
             for account_id in account_ids:
-                content_by_account.setdefault(account_id, vizard_title)
+                title_by_account[account_id] = vizard_title
 
         file_id = task.postmypost_file_id
         if not file_id:
@@ -230,6 +230,7 @@ def sync_publication_task(task_id: int, force_now: bool = False):
                 file_id=int(file_id),
                 content=content,
                 content_by_account=content_by_account,
+                title_by_account=title_by_account,
             )
         else:
             response = pmp_client.create_publication(
@@ -239,6 +240,7 @@ def sync_publication_task(task_id: int, force_now: bool = False):
                 file_id=int(file_id),
                 content=content,
                 content_by_account=content_by_account,
+                title_by_account=title_by_account,
             )
 
         publication_id = response.get("id") if isinstance(response, dict) else None

@@ -347,10 +347,12 @@ class PostMyPostClient:
         file_id: int,
         content: str = "",
         content_by_account: Optional[Dict[int, str]] = None,
+        title_by_account: Optional[Dict[int, str]] = None,
         publication_type: int = 1,
     ) -> Dict[str, Any]:
         post_at_iso = post_at.astimezone(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
         content_by_account = content_by_account or {}
+        title_by_account = title_by_account or {}
         details: List[Dict[str, Any]] = []
         for account_id in account_ids:
             item: Dict[str, Any] = {
@@ -361,6 +363,9 @@ class PostMyPostClient:
             account_content = content_by_account.get(account_id, content)
             if account_content:
                 item["content"] = account_content
+            account_title = (title_by_account.get(account_id) or "").strip()
+            if account_title:
+                item["title"] = account_title
             details.append(item)
 
         payload = {
@@ -381,10 +386,12 @@ class PostMyPostClient:
         file_id: int,
         content: str = "",
         content_by_account: Optional[Dict[int, str]] = None,
+        title_by_account: Optional[Dict[int, str]] = None,
         publication_type: int = 1,
     ) -> Dict[str, Any]:
         post_at_iso = post_at.astimezone(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
         content_by_account = content_by_account or {}
+        title_by_account = title_by_account or {}
         details: List[Dict[str, Any]] = []
         for account_id in account_ids:
             item: Dict[str, Any] = {
@@ -395,6 +402,9 @@ class PostMyPostClient:
             account_content = content_by_account.get(account_id, content)
             if account_content:
                 item["content"] = account_content
+            account_title = (title_by_account.get(account_id) or "").strip()
+            if account_title:
+                item["title"] = account_title
             details.append(item)
 
         payload = {
