@@ -26,6 +26,13 @@ class StyleTrainingRequest(BaseModel):
     channel_url: str
     video_count: int = 5
 
+class VideoTaskCreate(BaseModel):
+    source_url: str
+    type: str
+    publish_at: Optional[datetime.datetime] = None
+    telegram_chat_id: Optional[str] = None
+    telegram_status_message_id: Optional[str] = None
+
 class VideoTaskScheduleUpdate(BaseModel):
     publish_at: Optional[datetime.datetime] = None
 
