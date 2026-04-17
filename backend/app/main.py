@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 from .database import SessionLocal, init_database
 from . import models, schemas
 from .integrations.postmypost import PostMyPostClient
+from .integrations.scrape_creators import ScrapeCreatorsClient
+from .integrations.llm import LLMClient
 from .publish_planner import validate_schedule_settings
 from .telegram_progress import update_task_status_message
 import os
@@ -22,6 +24,8 @@ init_database()
 
 celery_client = Celery("api_client", broker=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
 pmp_client = PostMyPostClient(api_key=os.getenv("POSTMYPOST_API_KEY", ""))
+scraper = ScrapeCreatorsClient(api_key=os.getenv("SCRAPE_CREATORS_API_KEY", ""))
+llm = LLMClient(api_key=os.getenv("OPENROUTER_API_KEY", ""))
 
 app = FastAPI(title="Content Processing API")
 
@@ -582,6 +586,54 @@ def update_postmypost_channels(
 
     db.commit()
     return build_postmypost_channels_response(db=db, user=user, accounts=accounts, channels=channels)
+
+@app.get("/settings/style/{telegram_id}", response_model=dict)
+async def get_style_settings(telegram_id: str, db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    return {
+        "author_style_profile": user.author_style_profile,
+        "training_source": user.training_source
+    }
+
+@app.post("/settings/train-style/{telegram_id}")
+async def train_style(telegram_id: str, req: schemas.StyleTrainingRequest, db: Session = Depends(get_db)):
+    """
+    Analyzes a YouTube channel to create an author style profile for a specific user.
+    """
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    
+    # 1. Get channel videos
+    logging.info(f"Training style from channel: {req.channel_url} (count: {req.video_count})")
+    channel_data = scraper.get_channel_videos(req.channel_url)
+    if not channel_data or not channel_data.get("videos"):
+        raise HTTPException(status_code=400, detail="Failed to fetch channel videos")
+    
+    videos = channel_data["videos"][:req.video_count]
+    transcripts = []
+    
+    # 2. Extract transcripts
+    for video in videos:
+        v_url = f"https://www.youtube.com/watch?v={video['videoId']}"
+        t_data = scraper.get_youtube_transcript(v_url)
+        if t_data and t_data.get("transcript_only_text"):
+            transcripts.append(t_data["transcript_only_text"])
+            
+    if not transcripts:
+        raise HTTPException(status_code=400, detail="No transcripts found for training")
+        
+    # 3. Analyze style with LLM
+    style_profile = llm.analyze_style(transcripts)
+    if not style_profile:
+        raise HTTPException(status_code=500, detail="Style analysis failed")
+        
+    # 4. Save to DB
+    user.author_style_profile = style_profile
+    user.training_source = req.channel_url
+    db.commit()
+    
+    return {"status": "success", "style_profile": style_profile}
 
 @app.get("/tasks/{telegram_id}", response_model=list[schemas.VideoTaskOut])
 def list_user_tasks(telegram_id: str, db: Session = Depends(get_db)):

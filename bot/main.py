@@ -270,7 +270,20 @@ async def process_choice(callback_query: types.CallbackQuery):
     service, platform, identifier = parts[0], parts[1], parts[2]
     
     if service == "avatar":
-        await callback_query.answer("👤 Эта функция находится в разработке и будет доступна позже.", show_alert=True)
+        url = f"https://www.youtube.com/watch?v={identifier}" if platform == "yt" else identifier
+        await callback_query.answer("👤 Запускаю создание сценария с аватаром...")
+        
+        status_message = await bot.send_message(
+            callback_query.message.chat.id,
+            "⏳ Выбран Аватар\nЭтап: создаю задачу."
+        )
+        
+        await create_task_in_backend(str(callback_query.from_user.id), url, "avatar_youtube", status_message)
+        
+        try:
+            await callback_query.message.delete()
+        except Exception:
+            pass
         return
     
     # Process Vizard choice

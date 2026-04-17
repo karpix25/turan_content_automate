@@ -30,6 +30,8 @@ type UserSettings = {
   publish_window_end_msk: string;
   selected_plate_id?: number | null;
   plate_start_percent?: number;
+  author_style_profile?: string | null;
+  training_source?: string | null;
 };
 
 type VideoTaskItem = {
@@ -158,6 +160,15 @@ const App = () => {
   const [publishLimitPerDay, setPublishLimitPerDay] = useState(3);
   const [publishWindowStartMsk, setPublishWindowStartMsk] = useState('10:00:00');
   const [publishWindowEndMsk, setPublishWindowEndMsk] = useState('22:00:00');
+  
+  // Style training state
+  const [authorStyleProfile, setAuthorStyleProfile] = useState<string | null>(null);
+  const [trainingSource, setTrainingSource] = useState<string | null>(null);
+  const [newChannelUrl, setNewChannelUrl] = useState('');
+  const [newVideoCount, setNewVideoCount] = useState(5);
+  const [isTraining, setIsTraining] = useState(false);
+  const [trainingError, setTrainingError] = useState<string | null>(null);
+
   const [telegramId, setTelegramId] = useState('');
   const [telegramIdInput, setTelegramIdInput] = useState('');
   const [tasks, setTasks] = useState<VideoTaskItem[]>([]);
@@ -182,6 +193,7 @@ const App = () => {
   const [endingUploadTarget, setEndingUploadTarget] = useState<PublishAccount | null>(null);
   const [deletingPlateId, setDeletingPlateId] = useState<number | null>(null);
   const [deletingEndingId, setDeletingEndingId] = useState<number | null>(null);
+  const [publishingTaskId, setPublishingTaskId] = useState<number | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const endingInputRef = useRef<HTMLInputElement | null>(null);
@@ -221,14 +233,19 @@ const App = () => {
   };
 
   useEffect(() => {
-    if (!telegramId) return;
     const loadSettings = async () => {
+      if (!telegramId) return;
       try {
-        const response = await axios.get<UserSettings>(`${API_BASE}/settings/${telegramId}`);
-        setAutoScheduleEnabled(response.data.auto_schedule_enabled === true);
+        const response = await axios.get(`${API_BASE}/settings/${telegramId}`);
+        setAutoScheduleEnabled(response.data.auto_schedule_enabled);
         setPublishLimitPerDay(response.data.publish_limit_per_day || 3);
         setPublishWindowStartMsk(response.data.publish_window_start_msk || '10:00:00');
         setPublishWindowEndMsk(response.data.publish_window_end_msk || '22:00:00');
+        
+        // Fetch style settings separately
+        const styleRes = await axios.get(`${API_BASE}/settings/style/${telegramId}`);
+        setAuthorStyleProfile(styleRes.data.author_style_profile || null);
+        setTrainingSource(styleRes.data.training_source || null);
       } catch (error) {}
     };
     loadSettings();
@@ -568,6 +585,38 @@ const App = () => {
     }
   };
 
+  const publishTaskNow = async (taskId: number) => {
+    if (!telegramId) return;
+    setPublishingTaskId(taskId);
+    try {
+      await axios.post(`${API_BASE}/tasks/${telegramId}/${taskId}/publish-now`);
+      await loadTasks(telegramId);
+    } catch (error) {
+      console.error('Failed to publish task now:', error);
+    } finally {
+      setPublishingTaskId(null);
+    }
+  };
+
+  const handleTrainStyle = async () => {
+    if (!newChannelUrl || !telegramId) return;
+    setIsTraining(true);
+    setTrainingError(null);
+    try {
+      const res = await axios.post(`${API_BASE}/settings/train-style/${telegramId}`, {
+        channel_url: newChannelUrl,
+        video_count: newVideoCount
+      });
+      setAuthorStyleProfile(res.data.style_profile);
+      setTrainingSource(newChannelUrl);
+      setNewChannelUrl('');
+    } catch (err: any) {
+      setTrainingError(err.response?.data?.detail || 'Ошибка при обучении стилю');
+    } finally {
+      setIsTraining(false);
+    }
+  };
+
   const removeTaskFromQueue = async (taskId: number) => {
     if (!telegramId) return;
     setDeletingTaskId(taskId);
@@ -697,6 +746,7 @@ const App = () => {
   const sectionMeta: Record<string, { title: string; actionLabel: string | null }> = {
     channels: { title: 'Каналы', actionLabel: 'Сохранить' },
     planning: { title: 'Планирование', actionLabel: 'Сохранить' },
+    style: { title: 'Стиль', actionLabel: null },
     queue: { title: 'Очередь', actionLabel: null },
   };
 
@@ -1006,6 +1056,82 @@ const App = () => {
             </motion.div>
           )}
 
+          {activeTab === 'style' && (
+            <motion.div key="style" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6 pb-20">
+              <div className="tg-card p-4 bg-gradient-to-br from-[#f0f9ff] to-[#e0f2fe] border border-[#bae6fd]">
+                <p className="text-[12px] uppercase tracking-[0.18em] text-[#0369a1]">Обучение аватара</p>
+                <h2 className="text-[22px] font-bold mt-2 text-slate-900">Ваш авторский стиль</h2>
+                <p className="text-sm text-slate-600 mt-2">
+                  Используйте Gemini 2.5 Pro для анализа вашего канала. Модель изучит ваши транскрипты и создаст профиль вашего голоса для генерации новых сценариев.
+                </p>
+              </div>
+
+              <div className="tg-card">
+                <div className="p-4 border-b">
+                  <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Начать обучение</h3>
+                </div>
+                <div className="p-4 space-y-4">
+                  <div className="space-y-3">
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs text-[#707579]">Ссылка на ваш канал или хэндл (@...)</span>
+                      <input
+                        type="text"
+                        placeholder="https://youtube.com/@paddygalloway"
+                        className="input-field h-11"
+                        value={newChannelUrl}
+                        onChange={(e) => setNewChannelUrl(e.target.value)}
+                        disabled={isTraining}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs text-[#707579]">Количество видео для анализа (3-10)</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={10}
+                        className="input-field h-11"
+                        value={newVideoCount}
+                        onChange={(e) => setNewVideoCount(Number(e.target.value))}
+                        disabled={isTraining}
+                      />
+                    </label>
+                  </div>
+                  {trainingError && (
+                    <div className="p-3 rounded-lg bg-rose-50 border border-rose-100 text-rose-600 text-xs">
+                      {trainingError}
+                    </div>
+                  )}
+                  <button
+                    onClick={handleTrainStyle}
+                    disabled={isTraining || !newChannelUrl}
+                    className="w-full h-12 bg-[#24a1de] text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 disabled:opacity-50 active:scale-95 transition-all"
+                  >
+                    {isTraining ? (
+                      <>
+                        <Loader2 className="animate-spin" size={18} />
+                        Анализирую канал...
+                      </>
+                    ) : (
+                      'Запустить обучение стилю'
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {authorStyleProfile && (
+                <div className="tg-card">
+                  <div className="p-4 border-b flex items-center justify-between">
+                    <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Текущий профиль стиля</h3>
+                    <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded-full font-bold">Обучено на: {trainingSource}</span>
+                  </div>
+                  <div className="p-4 bg-slate-50 min-h-[100px] whitespace-pre-wrap text-sm text-slate-800 leading-relaxed font-serif">
+                    {authorStyleProfile}
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          )}
+
           {activeTab === 'planning' && (
             <motion.div key="planning" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
               <div className="tg-card p-4 bg-gradient-to-br from-[#eef5ff] to-[#f8fbff] border border-[#cfe0ff]">
@@ -1253,6 +1379,15 @@ const App = () => {
                               >
                                 {activeTaskId === task.id ? '...' : 'Обновить дату'}
                               </button>
+                              {task.status === 'completed' && task.publishing_status !== 'published' && (
+                                <button
+                                  onClick={() => publishTaskNow(task.id)}
+                                  disabled={publishingTaskId === task.id || task.publishing_status === 'in_progress'}
+                                  className="h-10 px-4 bg-sky-50 text-sky-700 text-xs font-bold rounded-xl disabled:opacity-50"
+                                >
+                                  {publishingTaskId === task.id ? '...' : 'Опубликовать'}
+                                </button>
+                              )}
                               {task.output_path && task.status === 'completed' ? (
                                 <a
                                   href={previewUrl}

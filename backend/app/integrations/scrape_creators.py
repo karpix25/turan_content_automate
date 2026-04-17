@@ -68,6 +68,24 @@ class ScrapeCreatorsClient:
             "error": None,
         }
 
+    def get_youtube_transcript(self, video_url: str) -> Optional[Dict]:
+        """
+        Extracts YouTube transcript directly using the specific transcript endpoint.
+        """
+        return self._get_json("youtube/video/transcript", {"url": video_url})
+
+    def get_channel_videos(self, channel_url_or_handle: str, sort: str = "latest") -> Optional[Dict]:
+        """
+        Retrieves a list of videos from a YouTube channel.
+        """
+        params = {"sort": sort}
+        if "youtube.com" in channel_url_or_handle or "youtu.be" in channel_url_or_handle:
+            params["url"] = channel_url_or_handle
+        else:
+            params["handle"] = channel_url_or_handle.lstrip("@")
+            
+        return self._get_json("youtube/channel-videos", params)
+
     def get_youtube_details(self, video_url: str) -> Optional[Dict]:
         """
         Extracts YouTube metadata and best available downloadable URL from ScrapeCreators.

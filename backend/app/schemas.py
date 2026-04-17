@@ -14,12 +14,17 @@ class UserSettingsUpdate(BaseModel):
     selected_plate_id: Optional[int] = None
     plate_start_percent: Optional[int] = None
 
-class VideoTaskCreate(BaseModel):
-    source_url: str
-    type: str  # 'vizard', 'instagram', 'youtube'
-    publish_at: Optional[datetime.datetime] = None
     telegram_chat_id: Optional[str] = None
     telegram_status_message_id: Optional[str] = None
+
+class VideoTaskAvatarScriptOut(BaseModel):
+    factual_outline: Optional[str] = None
+    script_text: Optional[str] = None
+    script_meta: Optional[dict] = None
+
+class StyleTrainingRequest(BaseModel):
+    channel_url: str
+    video_count: int = 5
 
 class VideoTaskScheduleUpdate(BaseModel):
     publish_at: Optional[datetime.datetime] = None
@@ -37,8 +42,13 @@ class VideoTaskOut(BaseModel):
     preview_url: Optional[str]
     publish_at: Optional[datetime.datetime]
     publishing_status: str
-    postmypost_id: Optional[str]
     postmypost_file_id: Optional[int]
+    
+    # New fields for Avatar/Script flow
+    factual_outline: Optional[str] = None
+    script_text: Optional[str] = None
+    script_meta: Optional[dict] = None
+
     created_at: datetime.datetime
     updated_at: datetime.datetime
 
@@ -98,6 +108,8 @@ class UserSettings(BaseModel):
     publish_window_end_msk: str
     selected_plate_id: Optional[int]
     plate_start_percent: int
+    author_style_profile: Optional[str] = None
+    training_source: Optional[str] = None
 
     class Config:
         from_attributes = True

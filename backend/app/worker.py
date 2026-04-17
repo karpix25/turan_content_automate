@@ -8,6 +8,7 @@ from urllib.parse import urlparse, parse_qs
 from celery import Celery
 from .integrations.vizard import VizardClient
 from .integrations.scrape_creators import ScrapeCreatorsClient
+from .integrations.llm import LLMClient
 from .integrations.rapidapi_youtube import RapidAPIYoutubeClient
 from .integrations.downloader import Downloader
 from .integrations.postmypost import PostMyPostClient
@@ -25,7 +26,9 @@ celery_app = Celery('tasks', broker=(os.getenv("REDIS_URL") or "redis://localhos
 
 # Initialize clients
 vizard = VizardClient(api_key=(os.getenv("VIZARD_API_KEY") or "").strip())
+pmp_client = PostMyPostClient(api_key=(os.getenv("POSTMYPOST_API_KEY") or "").strip())
 scraper = ScrapeCreatorsClient(api_key=(os.getenv("SCRAPE_CREATORS_API_KEY") or "").strip())
+llm = LLMClient(api_key=(os.getenv("OPENROUTER_API_KEY") or "").strip())
 rapidapi_yt = RapidAPIYoutubeClient(
     api_key=os.getenv("RAPIDAPI_KEY", ""),
     host=os.getenv("YOUTUBE_DOWNLOAD_RAPIDAPI_HOST", "youtube-mp4-mp3-downloader.p.rapidapi.com"),
@@ -35,7 +38,6 @@ rapidapi_yt = RapidAPIYoutubeClient(
     timeout_seconds=float(os.getenv("YOUTUBE_DOWNLOAD_TIMEOUT_SECONDS", "90")),
 )
 downloader = Downloader(output_dir=(os.getenv("OUTPUT_DIR") or "./output").strip())
-pmp_client = PostMyPostClient(api_key=(os.getenv("POSTMYPOST_API_KEY") or "").strip())
 processor = VideoProcessor()
 
 def _parse_env_account_ids(raw: str) -> List[int]:
@@ -640,6 +642,38 @@ def process_content_task(task_id: int):
             clips = _download_vizard_project_clips(db, task, source_url)
             input_videos.extend(path for path, _title in clips)
             input_video_titles.extend(title for _path, title in clips)
+
+        elif task.type == "avatar_youtube":
+            update_task_status_message(db, task, stage="Сценарий", detail="Получаю транскрипт видео.")
+            t_data = scraper.get_youtube_transcript(source_url)
+            transcript = t_data.get("transcript_only_text") if t_data else None
+            
+            if not transcript:
+                raise Exception("Failed to retrieve transcript for Avatar task")
+            
+            # factual outline
+            update_task_status_message(db, task, stage="Сценарий", detail="Выделяю ключевые факты (Gemini 2.5 Pro).")
+            outline = llm.generate_factual_outline(transcript)
+            task.factual_outline = outline
+            db.commit()
+            
+            # rewrite with style
+            update_task_status_message(db, task, stage="Сценарий", detail="Пишу сценарий в вашем стиле и по правилам сторителлинга.")
+            style_profile = user.author_style_profile
+            script = llm.rewrite_to_script(outline, style_profile)
+            task.script_text = script
+            db.commit()
+            
+            # faithfulness check
+            update_task_status_message(db, task, stage="Сценарий", detail="Проверяю сценарий на соответствие фактам.")
+            validation = llm.verify_faithfulness(outline, script)
+            task.script_meta = validation
+            db.commit()
+            
+            update_task_status_message(db, task, stage="Готово", detail="Сценарий успешно создан и проверен!")
+            task.status = "completed"
+            db.commit()
+            return # Avatar flow stops at script generation for now
 
         elif task.type == "instagram":
             update_task_status_message(db, task, stage="Скачивание", detail="Скачиваю видео из Instagram.")

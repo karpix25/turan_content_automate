@@ -22,6 +22,10 @@ class User(Base):
     publish_window_end_msk = Column(String, default="22:00:00", nullable=False)
     selected_plate_id = Column(Integer, nullable=True)
     plate_start_percent = Column(Integer, default=0, nullable=False)
+    
+    # Writing style training
+    author_style_profile = Column(String, nullable=True)  # Detailed tone/style analyzed by LLM
+    training_source = Column(String, nullable=True)       # YouTube channel link/handle
 
 class Plate(Base):
     __tablename__ = "plates"
@@ -65,6 +69,11 @@ class VideoTask(Base):
     publishing_status = Column(String, default="not_published")  # 'not_published', 'scheduled', 'in_progress', 'published', 'failed'
     postmypost_id = Column(String, nullable=True)
     postmypost_file_id = Column(Integer, nullable=True)
+
+    # Generated content for Avatar flow
+    factual_outline = Column(String, nullable=True)
+    script_text = Column(String, nullable=True)
+    script_meta = Column(JSON, nullable=True)
 
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
