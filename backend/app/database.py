@@ -121,6 +121,21 @@ def init_database() -> None:
         )
         conn.execute(
             text(
+                "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS factual_outline TEXT"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS script_text TEXT"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS script_meta JSONB"
+            )
+        )
+        conn.execute(
+            text(
                 "ALTER TABLE cta_clips ADD COLUMN IF NOT EXISTS platform VARCHAR(32) DEFAULT 'universal'"
             )
         )
