@@ -151,7 +151,7 @@ const isImagePreview = (value?: string | null) => /\.(jpg|jpeg|png|webp|gif)(\?.
 const App = () => {
   const [activeTab, setActiveTab] = useState(() => {
     const stored = window.localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
-    return stored === 'channels' || stored === 'planning' || stored === 'queue' ? stored : 'queue';
+    return stored === 'channels' || stored === 'planning' || stored === 'style' || stored === 'queue' ? stored : 'queue';
   });
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -1419,6 +1419,7 @@ const App = () => {
         {[
           { id: 'channels', icon: LayoutGrid, label: 'Каналы' },
           { id: 'planning', icon: CalendarClock, label: 'План' },
+          { id: 'style', icon: Search, label: 'Стиль' },
           { id: 'queue', icon: RefreshCcw, label: 'Очередь' }
         ].map(tab => (
           <button 
