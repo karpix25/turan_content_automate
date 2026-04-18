@@ -3,6 +3,7 @@ import logging
 import re
 import httpx
 import json
+import time
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
@@ -14,6 +15,7 @@ load_dotenv()
 API_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 WEBAPP_URL = os.getenv("WEBAPP_URL")
 BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://api:8000")
+WEBAPP_CACHE_BUST = (os.getenv("WEBAPP_CACHE_BUST") or str(int(time.time()))).strip()
 
 logging.basicConfig(level=logging.INFO)
 
@@ -180,6 +182,8 @@ def build_webapp_url_for_user(base_url: str, telegram_user_id: int) -> str:
     parsed = urlparse(raw)
     query = parse_qs(parsed.query, keep_blank_values=True)
     query["tg_id"] = [str(telegram_user_id)]
+    if WEBAPP_CACHE_BUST:
+        query["v"] = [WEBAPP_CACHE_BUST]
     encoded_query = urlencode(query, doseq=True)
     return urlunparse(parsed._replace(query=encoded_query))
 
