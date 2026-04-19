@@ -1420,7 +1420,7 @@ const App = () => {
           { id: 'channels', icon: LayoutGrid, label: 'Каналы' },
           { id: 'planning', icon: CalendarClock, label: 'План' },
           { id: 'style', icon: Search, label: 'Стиль' },
-          { id: 'queue', icon: RefreshCcw, label: 'Очередь' }
+          { id: 'queue', icon: RefreshCcw, label: 'Очередь [DEBUG]' }
         ].map(tab => (
           <button 
             key={tab.id}
