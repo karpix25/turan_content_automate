@@ -39,9 +39,15 @@ rapidapi_yt = RapidAPIYoutubeClient(
 )
 downloader = Downloader(output_dir=(os.getenv("OUTPUT_DIR") or "./output").strip())
 processor = VideoProcessor()
-AVATAR_SCRIPT_MIN_MINUTES = 10
-AVATAR_SCRIPT_MAX_MINUTES = 15
-AVATAR_SCRIPT_WPM = 130
+AVATAR_SCRIPT_MIN_MINUTES = int(os.getenv("AVATAR_SCRIPT_MIN_MINUTES", "10"))
+AVATAR_SCRIPT_MAX_MINUTES = int(os.getenv("AVATAR_SCRIPT_MAX_MINUTES", "15"))
+AVATAR_SCRIPT_WPM = int(os.getenv("AVATAR_SCRIPT_WORDS_PER_MINUTE", "110"))
+if AVATAR_SCRIPT_MIN_MINUTES < 1:
+    AVATAR_SCRIPT_MIN_MINUTES = 1
+if AVATAR_SCRIPT_MAX_MINUTES < AVATAR_SCRIPT_MIN_MINUTES:
+    AVATAR_SCRIPT_MAX_MINUTES = AVATAR_SCRIPT_MIN_MINUTES
+if AVATAR_SCRIPT_WPM < 80:
+    AVATAR_SCRIPT_WPM = 80
 
 def _parse_env_account_ids(raw: str) -> List[int]:
     result: List[int] = []
@@ -697,6 +703,41 @@ def process_content_task(task_id: int):
                     task,
                     stage="Сценарий",
                     detail="Подгоняю длину сценария под 10-15 минут.",
+                )
+                adjusted_script = llm.adjust_script_length(
+                    script=script,
+                    style_profile=style_profile,
+                    min_words=min_words,
+                    max_words=max_words,
+                )
+                if adjusted_script:
+                    script = adjusted_script
+                    word_count = llm.estimate_word_count(script)
+
+            # humanize pass (remove AI-like patterns and strengthen opening)
+            update_task_status_message(
+                db,
+                task,
+                stage="Сценарий",
+                detail="Очеловечиваю текст и усиливаю начало.",
+            )
+            humanized_script = llm.humanize_russian_text(
+                script=script,
+                style_profile=style_profile,
+                min_words=min_words,
+                max_words=max_words,
+            )
+            if humanized_script:
+                script = humanized_script
+                word_count = llm.estimate_word_count(script)
+
+            # final length guard after humanization
+            if word_count < min_words or word_count > max_words:
+                update_task_status_message(
+                    db,
+                    task,
+                    stage="Сценарий",
+                    detail="Финально подгоняю объем после очеловечивания.",
                 )
                 adjusted_script = llm.adjust_script_length(
                     script=script,

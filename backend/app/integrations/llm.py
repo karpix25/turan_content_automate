@@ -125,6 +125,16 @@ class LLMClient:
             f"{narrative_rules}\n\n"
             f"STYLE REQUIREMENTS:\n"
             f"{style_profile if style_profile else 'Use a natural, engaging, and professional YouTube tone.'}\n\n"
+            "OPENING QUALITY REQUIREMENTS:\n"
+            "- First 2-3 sentences must start from concrete tension/problem and promise a specific payoff.\n"
+            "- No generic intros, no polite prefaces, no 'в этом видео' filler.\n"
+            "- Use specific nouns and verbs immediately.\n\n"
+            "NATURAL VOICE REQUIREMENTS:\n"
+            "- Write in natural spoken Russian.\n"
+            "- Vary sentence length and rhythm.\n"
+            "- Avoid template transitions and AI clichés.\n"
+            "- Avoid bureaucratic language and over-formal wording.\n"
+            "- Avoid meta-commentary about the script itself.\n\n"
             f"LENGTH REQUIREMENTS:\n"
             f"- Target spoken duration: {min_minutes}-{max_minutes} minutes.\n"
             f"- Keep output between {min_words} and {max_words} words.\n"
@@ -140,6 +150,45 @@ class LLMClient:
         ]
         
         return self._complete(messages, temperature=0.8)
+
+    def humanize_russian_text(
+        self,
+        script: str,
+        style_profile: Optional[str],
+        min_words: int,
+        max_words: int,
+    ) -> Optional[str]:
+        """
+        Humanizes Russian text and removes common AI patterns.
+        Uses principles from humanizer-ru (Vladimir-Human/humanizer-ru).
+        """
+        if not script:
+            return None
+
+        system_prompt = (
+            "Ты редактор русскоязычных сценариев. "
+            "Убери следы ИИ-генерации и сделай текст живым.\n"
+            "Сохраняй смысл и факты, не выдумывай новое.\n"
+            "Ориентируйся на практики humanizer-ru:\n"
+            "- убирай канцелярит и общие пафосные формулировки;\n"
+            "- заменяй шаблонные связки на естественную речь;\n"
+            "- убирай фразы-пустышки и мета-объяснения;\n"
+            "- избегай синтетических троек и одинакового ритма.\n\n"
+            "Дополнительные требования:\n"
+            "- Усиль первые 2-3 предложения: крючок должен быть конкретным и цеплять сразу.\n"
+            "- Запрети клише типа: 'в этом видео', 'давайте разберемся', 'важно отметить', "
+            "'не только..., но и...', 'в современном мире'.\n"
+            "- Пиши естественно, будто это живой автор, а не ассистент.\n"
+            f"- Сохрани длину в диапазоне {min_words}-{max_words} слов.\n"
+            f"- Учитывай стиль: {style_profile if style_profile else 'живой, уверенный, разговорный без воды'}\n"
+            "- Верни только финальный текст."
+        )
+        user_prompt = f"Очеловечь и отредактируй этот сценарий:\n\n{script}"
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        return self._complete(messages, temperature=0.75)
 
     def adjust_script_length(
         self,
