@@ -749,6 +749,23 @@ def process_content_task(task_id: int):
                     script = adjusted_script
                     word_count = llm.estimate_word_count(script)
 
+            # ElevenLabs v3 audio tags enrichment
+            update_task_status_message(
+                db,
+                task,
+                stage="Сценарий",
+                detail="Добавляю ElevenLabs-теги для выразительного озвучивания.",
+            )
+            tagged_script = llm.add_elevenlabs_audio_tags(
+                script=script,
+                style_profile=style_profile,
+            )
+            if tagged_script:
+                script = tagged_script
+                logging.info("Task %s: ElevenLabs audio tags applied successfully.", task_id)
+            else:
+                logging.warning("Task %s: ElevenLabs tagging returned None, using untagged script.", task_id)
+
             # faithfulness check
             update_task_status_message(db, task, stage="Сценарий", detail="Проверяю сценарий на соответствие фактам.")
             validation = llm.verify_faithfulness(outline, script)
