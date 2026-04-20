@@ -1073,7 +1073,7 @@ const App = () => {
                 <div className="p-4 space-y-4">
                   <div className="space-y-3">
                     <label className="flex flex-col gap-1">
-                      <span className="text-xs text-[#707579]">Ссылка на ваш канал или хэндл (@...)</span>
+                      <span className="text-xs text-[#707579]">Ссылка на канал, хэндл (@...) или публичное YouTube-видео</span>
                       <input
                         type="text"
                         placeholder="https://youtube.com/@paddygalloway"

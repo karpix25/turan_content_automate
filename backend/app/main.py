@@ -608,7 +608,10 @@ async def train_style(telegram_id: str, req: schemas.StyleTrainingRequest, db: S
     logging.info(f"Training style from channel: {req.channel_url} (count: {req.video_count})")
     channel_data = scraper.get_channel_videos(req.channel_url)
     if not channel_data or not channel_data.get("videos"):
-        raise HTTPException(status_code=400, detail="Failed to fetch channel videos")
+        raise HTTPException(
+            status_code=400,
+            detail="Failed to fetch channel videos (use YouTube channel URL, @handle, channelId, or a public video URL)",
+        )
     
     videos = channel_data["videos"][:req.video_count]
     transcripts = []

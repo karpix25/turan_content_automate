@@ -1,6 +1,8 @@
 import httpx
 import logging
+import re
 from typing import Optional, Dict, Any
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -74,16 +76,158 @@ class ScrapeCreatorsClient:
         """
         return self._get_json("youtube/video/transcript", {"url": video_url})
 
+    def _extract_channel_lookup_from_input(self, channel_url_or_handle: str) -> Optional[Dict[str, str]]:
+        raw = (channel_url_or_handle or "").strip()
+        if not raw:
+            return None
+
+        if raw.startswith("@"):
+            handle = raw[1:].strip()
+            return {"handle": handle} if handle else None
+
+        if re.fullmatch(r"UC[A-Za-z0-9_-]{20,}", raw):
+            return {"channelId": raw}
+
+        parse_target = raw
+        lowered = raw.lower()
+        if "://" not in parse_target and ("youtube.com" in lowered or "youtu.be" in lowered):
+            parse_target = f"https://{parse_target}"
+
+        parsed = urlparse(parse_target)
+        host = parsed.netloc.lower()
+        parts = [part for part in parsed.path.split("/") if part]
+
+        if "youtube.com" in host:
+            if not parts:
+                return None
+            first = parts[0]
+            if first.startswith("@"):
+                handle = first[1:].strip()
+                return {"handle": handle} if handle else None
+            if first == "channel" and len(parts) >= 2:
+                channel_id = parts[1].strip()
+                return {"channelId": channel_id} if channel_id else None
+            if first in {"c", "user"} and len(parts) >= 2:
+                handle = parts[1].lstrip("@").strip()
+                return {"handle": handle} if handle else None
+            return None
+
+        # Plain text fallback (no slashes/spaces) -> treat as handle.
+        if "/" not in raw and " " not in raw and not re.fullmatch(r"[A-Za-z0-9_-]{11}", raw):
+            handle = raw.lstrip("@").strip()
+            return {"handle": handle} if handle else None
+        return None
+
+    def _looks_like_youtube_video(self, value: str) -> bool:
+        raw = (value or "").strip()
+        if not raw:
+            return False
+        if re.fullmatch(r"[A-Za-z0-9_-]{11}", raw):
+            return True
+
+        parse_target = raw
+        lowered = raw.lower()
+        if "://" not in parse_target and ("youtube.com" in lowered or "youtu.be" in lowered):
+            parse_target = f"https://{parse_target}"
+
+        parsed = urlparse(parse_target)
+        host = parsed.netloc.lower()
+        parts = [part for part in parsed.path.split("/") if part]
+
+        if "youtu.be" in host and len(parts) >= 1 and len(parts[0]) == 11:
+            return True
+        if "youtube.com" in host:
+            if parsed.path == "/watch":
+                return True
+            if len(parts) >= 2 and parts[0] == "shorts":
+                return True
+        return False
+
+    def _extract_channel_lookup_from_video_payload(self, payload: Dict[str, Any]) -> Optional[Dict[str, str]]:
+        if not isinstance(payload, dict):
+            return None
+
+        def _pick_channel_id(container: Dict[str, Any]) -> Optional[str]:
+            for key in (
+                "channelId",
+                "channel_id",
+                "ownerChannelId",
+                "owner_channel_id",
+                "authorChannelId",
+                "author_channel_id",
+            ):
+                value = container.get(key)
+                if isinstance(value, str):
+                    candidate = value.strip()
+                    if candidate.startswith("UC") and len(candidate) >= 22:
+                        return candidate
+            return None
+
+        def _pick_handle(container: Dict[str, Any]) -> Optional[str]:
+            for key in ("channelHandle", "channel_handle", "handle", "username", "author"):
+                value = container.get(key)
+                if isinstance(value, str):
+                    candidate = value.strip().lstrip("@")
+                    if candidate and " " not in candidate and "/" not in candidate:
+                        return candidate
+            return None
+
+        for key in ("channelUrl", "channel_url", "authorUrl", "author_url", "url"):
+            value = payload.get(key)
+            if isinstance(value, str):
+                parsed = self._extract_channel_lookup_from_input(value)
+                if parsed:
+                    return parsed
+
+        containers: list[Dict[str, Any]] = [payload]
+        for key in ("data", "channel", "owner", "author"):
+            value = payload.get(key)
+            if isinstance(value, dict):
+                containers.append(value)
+
+        for container in containers:
+            channel_id = _pick_channel_id(container)
+            if channel_id:
+                return {"channelId": channel_id}
+
+        for container in containers:
+            handle = _pick_handle(container)
+            if handle:
+                return {"handle": handle}
+
+        return None
+
+    def _resolve_channel_lookup_from_video_url(self, video_url: str) -> Optional[Dict[str, str]]:
+        candidate_url = (video_url or "").strip()
+        if re.fullmatch(r"[A-Za-z0-9_-]{11}", candidate_url):
+            candidate_url = f"https://www.youtube.com/watch?v={candidate_url}"
+        elif "://" not in candidate_url and ("youtube.com" in candidate_url.lower() or "youtu.be" in candidate_url.lower()):
+            candidate_url = f"https://{candidate_url}"
+
+        payload = self._get_json("youtube/video", {"url": candidate_url})
+        if not payload:
+            return None
+        return self._extract_channel_lookup_from_video_payload(payload)
+
     def get_channel_videos(self, channel_url_or_handle: str, sort: str = "latest") -> Optional[Dict]:
         """
         Retrieves a list of videos from a YouTube channel.
+        Accepts handle/channelId/channel URL and also a YouTube video URL
+        (resolved to channelId/handle via the video endpoint).
         """
         params = {"sort": sort}
-        if "youtube.com" in channel_url_or_handle or "youtu.be" in channel_url_or_handle:
-            params["url"] = channel_url_or_handle
-        else:
-            params["handle"] = channel_url_or_handle.lstrip("@")
-            
+        lookup = self._extract_channel_lookup_from_input(channel_url_or_handle)
+        if not lookup and self._looks_like_youtube_video(channel_url_or_handle):
+            lookup = self._resolve_channel_lookup_from_video_url(channel_url_or_handle)
+
+        if not lookup:
+            logger.error(
+                "Could not resolve YouTube channel identifier from input: %s",
+                (channel_url_or_handle or "").strip(),
+            )
+            return None
+
+        params.update(lookup)
         return self._get_json("youtube/channel-videos", params)
 
     def get_youtube_details(self, video_url: str) -> Optional[Dict]:
