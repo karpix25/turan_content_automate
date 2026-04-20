@@ -262,6 +262,67 @@ def validate_youtube_url(url: str) -> None:
     if extract_youtube_video_id(url) is None:
         raise HTTPException(status_code=400, detail="Invalid YouTube URL")
 
+
+def _get_channel_videos_list(channel_data: dict) -> list[dict]:
+    if not isinstance(channel_data, dict):
+        return []
+
+    candidates: list = []
+    for key in ("videos", "items", "results", "data"):
+        value = channel_data.get(key)
+        if isinstance(value, list):
+            candidates.append(value)
+        elif isinstance(value, dict):
+            for nested_key in ("videos", "items", "results"):
+                nested_value = value.get(nested_key)
+                if isinstance(nested_value, list):
+                    candidates.append(nested_value)
+
+    for candidate in candidates:
+        if candidate and isinstance(candidate[0], dict):
+            return candidate
+    return []
+
+
+def _extract_video_url_for_transcript(video: dict) -> str | None:
+    if not isinstance(video, dict):
+        return None
+
+    def _from_id(value: object) -> str | None:
+        if isinstance(value, str):
+            candidate = value.strip()
+            if re.fullmatch(r"[A-Za-z0-9_-]{11}", candidate):
+                return f"https://www.youtube.com/watch?v={candidate}"
+        return None
+
+    id_keys = ("videoId", "video_id", "id", "yt_video_id", "youtube_video_id")
+    for key in id_keys:
+        url = _from_id(video.get(key))
+        if url:
+            return url
+
+    nested_video = video.get("video")
+    if isinstance(nested_video, dict):
+        for key in id_keys:
+            url = _from_id(nested_video.get(key))
+            if url:
+                return url
+
+    url_keys = ("url", "video_url", "videoUrl", "link", "watch_url")
+    for key in url_keys:
+        value = video.get(key)
+        if isinstance(value, str) and value.strip():
+            return normalize_youtube_url(value.strip())
+
+    if isinstance(nested_video, dict):
+        for key in url_keys:
+            value = nested_video.get(key)
+            if isinstance(value, str) and value.strip():
+                return normalize_youtube_url(value.strip())
+
+    return None
+
+
 def get_postmypost_project_id() -> int:
     project_id_raw = os.getenv("POSTMYPOST_PROJECT_ID", "").strip()
     project_id = int(project_id_raw) if project_id_raw else None
@@ -607,18 +668,26 @@ async def train_style(telegram_id: str, req: schemas.StyleTrainingRequest, db: S
     # 1. Get channel videos
     logging.info(f"Training style from channel: {req.channel_url} (count: {req.video_count})")
     channel_data = scraper.get_channel_videos(req.channel_url)
-    if not channel_data or not channel_data.get("videos"):
+    videos = _get_channel_videos_list(channel_data or {})
+    if not videos:
+        channel_keys = list((channel_data or {}).keys()) if isinstance(channel_data, dict) else []
+        logging.error(
+            "Train style: channel-videos returned no parseable videos. input=%s keys=%s",
+            req.channel_url,
+            channel_keys,
+        )
         raise HTTPException(
             status_code=400,
             detail="Failed to fetch channel videos (use YouTube channel URL, @handle, channelId, or a public video URL)",
         )
     
-    videos = channel_data["videos"][:req.video_count]
     transcripts = []
     
     # 2. Extract transcripts
-    for video in videos:
-        v_url = f"https://www.youtube.com/watch?v={video['videoId']}"
+    for video in videos[:req.video_count]:
+        v_url = _extract_video_url_for_transcript(video)
+        if not v_url:
+            continue
         t_data = scraper.get_youtube_transcript(v_url)
         if t_data and t_data.get("transcript_only_text"):
             transcripts.append(t_data["transcript_only_text"])
