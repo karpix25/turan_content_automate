@@ -2,6 +2,7 @@ import httpx
 import logging
 import os
 import json
+import re
 from typing import Any, List, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -32,9 +33,10 @@ class LLMClient:
             "messages": messages,
             "temperature": temperature
         }
+        timeout_seconds = float(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "180"))
         
         try:
-            with httpx.Client(timeout=60.0) as client:
+            with httpx.Client(timeout=timeout_seconds) as client:
                 response = client.post(f"{self.BASE_URL}/chat/completions", headers=self.headers, json=payload)
                 response.raise_for_status()
                 data = response.json()
@@ -85,10 +87,29 @@ class LLMClient:
         
         return self._complete(messages, temperature=0.2)
 
-    def rewrite_to_script(self, factual_outline: str, style_profile: Optional[str]) -> Optional[str]:
+    @staticmethod
+    def estimate_word_count(text: str | None) -> int:
+        content = (text or "").strip()
+        if not content:
+            return 0
+        return len(re.findall(r"\b[\w'-]+\b", content, flags=re.UNICODE))
+
+    def rewrite_to_script(
+        self,
+        source_text: str,
+        style_profile: Optional[str],
+        min_minutes: int = 10,
+        max_minutes: int = 15,
+        words_per_minute: int = 130,
+    ) -> Optional[str]:
         """
-        Rewrites facts into a high-retention YouTube script using professional storytelling rules.
+        Rewrites source transcript/facts into a high-retention YouTube script.
+        Target duration is controlled by min/max minutes.
         """
+        min_words = max(200, int(min_minutes * words_per_minute))
+        max_words = max(min_words + 150, int(max_minutes * words_per_minute))
+        target_words = int((min_words + max_words) / 2)
+
         narrative_rules = (
             "Follow these YouTube Master Storytelling Rules:\n"
             "1. THE HOOK: Start with a 3-5 second hook that immediately addresses the audience's core curiosity or problem. "
@@ -99,13 +120,19 @@ class LLMClient:
         )
         
         system_prompt = (
-            f"You are a World-Class YouTube Scriptwriter. Your task is to turn raw facts into a 1-2 minute engaging script.\n"
+            f"You are a World-Class YouTube Scriptwriter. "
+            f"Your task is to rewrite the provided source material into a {min_minutes}-{max_minutes} minute engaging script.\n"
             f"{narrative_rules}\n\n"
             f"STYLE REQUIREMENTS:\n"
-            f"{style_profile if style_profile else 'Use a natural, engaging, and professional YouTube tone.'}"
+            f"{style_profile if style_profile else 'Use a natural, engaging, and professional YouTube tone.'}\n\n"
+            f"LENGTH REQUIREMENTS:\n"
+            f"- Target spoken duration: {min_minutes}-{max_minutes} minutes.\n"
+            f"- Keep output between {min_words} and {max_words} words.\n"
+            f"- Aim close to {target_words} words.\n"
+            f"- Return only final script text with natural paragraphs."
         )
         
-        user_prompt = f"Turn these facts into a high-retention script:\n\n{factual_outline}"
+        user_prompt = f"Rewrite this source material into a complete script:\n\n{source_text}"
         
         messages = [
             {"role": "system", "content": system_prompt},
@@ -113,6 +140,35 @@ class LLMClient:
         ]
         
         return self._complete(messages, temperature=0.8)
+
+    def adjust_script_length(
+        self,
+        script: str,
+        style_profile: Optional[str],
+        min_words: int,
+        max_words: int,
+    ) -> Optional[str]:
+        """
+        Expands or compresses script while preserving facts and style constraints.
+        """
+        if not script:
+            return None
+
+        system_prompt = (
+            "You are an expert script editor. "
+            "Adjust script length to fit exact constraints while preserving facts, structure, and voice.\n"
+            f"- Keep between {min_words} and {max_words} words.\n"
+            "- Do not invent new facts.\n"
+            "- Keep it natural and ready for voiceover.\n"
+            f"- Preserve style: {style_profile if style_profile else 'natural professional YouTube delivery'}\n"
+            "- Return only the edited final script."
+        )
+        user_prompt = f"Edit this script to fit length:\n\n{script}"
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        return self._complete(messages, temperature=0.6)
 
     def verify_faithfulness(self, factual_outline: str, script: str) -> Dict[str, Any]:
         """

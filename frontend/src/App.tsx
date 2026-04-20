@@ -232,6 +232,21 @@ const App = () => {
     window.localStorage.setItem(TELEGRAM_ID_STORAGE_KEY, nextId);
   };
 
+  const fetchStyleSettings = async (targetTelegramId: string) => {
+    const styleRes = await axios.get(`${API_BASE}/settings/style/${targetTelegramId}`);
+    const authorStyle =
+      typeof styleRes.data?.author_style_profile === 'string'
+        ? styleRes.data.author_style_profile
+        : null;
+    const source =
+      typeof styleRes.data?.training_source === 'string'
+        ? styleRes.data.training_source
+        : null;
+    setAuthorStyleProfile(authorStyle);
+    setTrainingSource(source);
+    return { authorStyleProfile: authorStyle, trainingSource: source };
+  };
+
   useEffect(() => {
     const loadSettings = async () => {
       if (!telegramId) return;
@@ -243,9 +258,7 @@ const App = () => {
         setPublishWindowEndMsk(response.data.publish_window_end_msk || '22:00:00');
         
         // Fetch style settings separately
-        const styleRes = await axios.get(`${API_BASE}/settings/style/${telegramId}`);
-        setAuthorStyleProfile(styleRes.data.author_style_profile || null);
-        setTrainingSource(styleRes.data.training_source || null);
+        await fetchStyleSettings(telegramId);
       } catch (error) {}
     };
     loadSettings();
@@ -600,18 +613,52 @@ const App = () => {
 
   const handleTrainStyle = async () => {
     if (!newChannelUrl || !telegramId) return;
+    const requestedSource = newChannelUrl.trim();
     setIsTraining(true);
     setTrainingError(null);
     try {
       const res = await axios.post(`${API_BASE}/settings/train-style/${telegramId}`, {
-        channel_url: newChannelUrl,
+        channel_url: requestedSource,
         video_count: newVideoCount
       });
-      setAuthorStyleProfile(res.data.style_profile);
-      setTrainingSource(newChannelUrl);
-      setNewChannelUrl('');
+      const styleProfile =
+        typeof res.data?.style_profile === 'string'
+          ? res.data.style_profile
+          : null;
+
+      if (styleProfile) {
+        setAuthorStyleProfile(styleProfile);
+        setTrainingSource(requestedSource);
+        setNewChannelUrl('');
+        return;
+      }
+
+      const syncedStyle = await fetchStyleSettings(telegramId);
+      if (syncedStyle.authorStyleProfile) {
+        setNewChannelUrl('');
+        return;
+      }
+
+      setTrainingError('Обучение завершилось, но профиль не вернулся в ответе API.');
     } catch (err: any) {
-      setTrainingError(err.response?.data?.detail || 'Ошибка при обучении стилю');
+      try {
+        const syncedStyle = await fetchStyleSettings(telegramId);
+        if (syncedStyle.authorStyleProfile) {
+          setTrainingError(null);
+          setNewChannelUrl('');
+          return;
+        }
+      } catch (_) {}
+
+      if (axios.isAxiosError(err)) {
+        const detail =
+          err.response?.data?.detail ||
+          err.message ||
+          'Ошибка при обучении стилю';
+        setTrainingError(detail);
+      } else {
+        setTrainingError('Ошибка при обучении стилю');
+      }
     } finally {
       setIsTraining(false);
     }

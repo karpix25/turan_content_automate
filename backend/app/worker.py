@@ -15,7 +15,7 @@ from .integrations.postmypost import PostMyPostClient
 from .processor import VideoProcessor
 from .database import SessionLocal, init_database
 from .publish_planner import plan_next_publish_times
-from .telegram_progress import update_task_status_message
+from .telegram_progress import update_task_status_message, send_avatar_script_to_telegram
 from . import models
 from dotenv import load_dotenv
 
@@ -39,6 +39,9 @@ rapidapi_yt = RapidAPIYoutubeClient(
 )
 downloader = Downloader(output_dir=(os.getenv("OUTPUT_DIR") or "./output").strip())
 processor = VideoProcessor()
+AVATAR_SCRIPT_MIN_MINUTES = 10
+AVATAR_SCRIPT_MAX_MINUTES = 15
+AVATAR_SCRIPT_WPM = 130
 
 def _parse_env_account_ids(raw: str) -> List[int]:
     result: List[int] = []
@@ -83,6 +86,13 @@ def _normalize_platform_code(value: str | None) -> str:
         return "tiktok"
 
     return "universal"
+
+
+def _estimate_script_minutes(text: str, words_per_minute: int = AVATAR_SCRIPT_WPM) -> float:
+    words = llm.estimate_word_count(text)
+    if words_per_minute <= 0:
+        return 0.0
+    return round(words / words_per_minute, 1)
 
 
 def _get_target_account_ids(db, user_id: int) -> List[int]:
@@ -654,23 +664,74 @@ def process_content_task(task_id: int):
             # factual outline
             update_task_status_message(db, task, stage="Сценарий", detail="Выделяю ключевые факты (Gemini 2.5 Pro).")
             outline = llm.generate_factual_outline(transcript)
+            if not outline:
+                raise Exception("Failed to generate factual outline for Avatar task")
             task.factual_outline = outline
             db.commit()
             
             # rewrite with style
-            update_task_status_message(db, task, stage="Сценарий", detail="Пишу сценарий в вашем стиле и по правилам сторителлинга.")
+            update_task_status_message(
+                db,
+                task,
+                stage="Сценарий",
+                detail="Пишу сценарий в вашем стиле на 10-15 минут.",
+            )
             style_profile = user.author_style_profile
-            script = llm.rewrite_to_script(outline, style_profile)
-            task.script_text = script
-            db.commit()
-            
+            min_words = AVATAR_SCRIPT_MIN_MINUTES * AVATAR_SCRIPT_WPM
+            max_words = AVATAR_SCRIPT_MAX_MINUTES * AVATAR_SCRIPT_WPM
+
+            script = llm.rewrite_to_script(
+                transcript,
+                style_profile,
+                min_minutes=AVATAR_SCRIPT_MIN_MINUTES,
+                max_minutes=AVATAR_SCRIPT_MAX_MINUTES,
+                words_per_minute=AVATAR_SCRIPT_WPM,
+            )
+            if not script:
+                raise Exception("Failed to generate styled script for Avatar task")
+
+            word_count = llm.estimate_word_count(script)
+            if word_count < min_words or word_count > max_words:
+                update_task_status_message(
+                    db,
+                    task,
+                    stage="Сценарий",
+                    detail="Подгоняю длину сценария под 10-15 минут.",
+                )
+                adjusted_script = llm.adjust_script_length(
+                    script=script,
+                    style_profile=style_profile,
+                    min_words=min_words,
+                    max_words=max_words,
+                )
+                if adjusted_script:
+                    script = adjusted_script
+                    word_count = llm.estimate_word_count(script)
+
             # faithfulness check
             update_task_status_message(db, task, stage="Сценарий", detail="Проверяю сценарий на соответствие фактам.")
             validation = llm.verify_faithfulness(outline, script)
-            task.script_meta = validation
+            estimated_minutes = _estimate_script_minutes(script, AVATAR_SCRIPT_WPM)
+            task.script_text = script
+            task.script_meta = {
+                **(validation or {}),
+                "target_minutes": [AVATAR_SCRIPT_MIN_MINUTES, AVATAR_SCRIPT_MAX_MINUTES],
+                "words_per_minute_assumption": AVATAR_SCRIPT_WPM,
+                "word_count": word_count,
+                "estimated_minutes": estimated_minutes,
+            }
             db.commit()
+
+            update_task_status_message(db, task, stage="Telegram", detail="Отправляю готовый текст в Telegram.")
+            send_avatar_script_to_telegram(task, script, estimated_minutes=estimated_minutes)
             
-            update_task_status_message(db, task, stage="Готово", detail="Сценарий успешно создан и проверен!")
+            update_task_status_message(
+                db,
+                task,
+                stage="Готово",
+                detail=f"Сценарий готов и отправлен в Telegram (~{estimated_minutes} мин).",
+                ok=True,
+            )
             task.status = "completed"
             db.commit()
             return # Avatar flow stops at script generation for now
