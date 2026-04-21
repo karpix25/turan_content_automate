@@ -15,7 +15,8 @@ from .integrations.postmypost import PostMyPostClient
 from .processor import VideoProcessor
 from .database import SessionLocal, init_database
 from .publish_planner import plan_next_publish_times
-from .telegram_progress import update_task_status_message, send_avatar_script_to_telegram
+from .telegram_progress import update_task_status_message, send_avatar_audio_to_telegram
+from .integrations.elevenlabs_client import ElevenLabsClient
 from . import models
 from dotenv import load_dotenv
 
@@ -29,6 +30,7 @@ vizard = VizardClient(api_key=(os.getenv("VIZARD_API_KEY") or "").strip())
 pmp_client = PostMyPostClient(api_key=(os.getenv("POSTMYPOST_API_KEY") or "").strip())
 scraper = ScrapeCreatorsClient(api_key=(os.getenv("SCRAPE_CREATORS_API_KEY") or "").strip())
 llm = LLMClient(api_key=(os.getenv("OPENROUTER_API_KEY") or "").strip())
+elevenlabs_client = ElevenLabsClient(api_key=(os.getenv("ELEVENLABS_API_KEY") or "").strip())
 rapidapi_yt = RapidAPIYoutubeClient(
     api_key=os.getenv("RAPIDAPI_KEY", ""),
     host=os.getenv("YOUTUBE_DOWNLOAD_RAPIDAPI_HOST", "youtube-mp4-mp3-downloader.p.rapidapi.com"),
@@ -749,23 +751,6 @@ def process_content_task(task_id: int):
                     script = adjusted_script
                     word_count = llm.estimate_word_count(script)
 
-            # ElevenLabs v3 audio tags enrichment
-            update_task_status_message(
-                db,
-                task,
-                stage="Сценарий",
-                detail="Добавляю ElevenLabs-теги для выразительного озвучивания.",
-            )
-            tagged_script = llm.add_elevenlabs_audio_tags(
-                script=script,
-                style_profile=style_profile,
-            )
-            if tagged_script:
-                script = tagged_script
-                logging.info("Task %s: ElevenLabs audio tags applied successfully.", task_id)
-            else:
-                logging.warning("Task %s: ElevenLabs tagging returned None, using untagged script.", task_id)
-
             # faithfulness check
             update_task_status_message(db, task, stage="Сценарий", detail="Проверяю сценарий на соответствие фактам.")
             validation = llm.verify_faithfulness(outline, script)
@@ -780,14 +765,38 @@ def process_content_task(task_id: int):
             }
             db.commit()
 
-            update_task_status_message(db, task, stage="Telegram", detail="Отправляю готовый текст в Telegram.")
-            send_avatar_script_to_telegram(task, script, estimated_minutes=estimated_minutes)
+            # ElevenLabs audio generation
+            update_task_status_message(
+                db,
+                task,
+                stage="Озвучка",
+                detail="Генерирую аудио через ElevenLabs (v2).",
+            )
+            
+            audio_output_path = os.path.join(
+                os.getenv("OUTPUT_DIR", "./output").strip(),
+                f"avatar_audio_{task_id}.mp3"
+            )
+            
+            os.makedirs(os.path.dirname(audio_output_path), exist_ok=True)
+            
+            generated_audio = elevenlabs_client.generate_audio(
+                text=script,
+                voice_id="MkpLCbCi07zFaS4HYwlU",
+                output_path=audio_output_path
+            )
+
+            if not generated_audio:
+                raise Exception("Failed to generate audio with ElevenLabs")
+
+            update_task_status_message(db, task, stage="Telegram", detail="Отправляю готовое аудио в Telegram.")
+            send_avatar_audio_to_telegram(task, audio_output_path, estimated_minutes=estimated_minutes)
             
             update_task_status_message(
                 db,
                 task,
                 stage="Готово",
-                detail=f"Сценарий готов и отправлен в Telegram (~{estimated_minutes} мин).",
+                detail=f"Аудио для аватара готово и отправлено в Telegram (~{estimated_minutes} мин).",
                 ok=True,
             )
             task.status = "completed"

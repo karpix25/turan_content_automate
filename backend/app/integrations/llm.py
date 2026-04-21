@@ -190,59 +190,6 @@ class LLMClient:
         ]
         return self._complete(messages, temperature=0.75)
 
-    def add_elevenlabs_audio_tags(
-        self,
-        script: str,
-        style_profile: Optional[str],
-    ) -> Optional[str]:
-        """
-        Enriches the final Russian script with ElevenLabs v3 audio tags
-        to add expressive delivery, pauses, emphasis, and non-verbal sounds.
-
-        Supported tag vocabulary:
-        - Emotion: [excited], [sad], [angry], [happily], [sarcastic], [surprised],
-                   [worried], [confident], [nervous], [curious], [cheerful]
-        - Non-verbal: [laughs], [sighs], [clears throat], [whispers], [gasps],
-                      [pauses], [exhales]
-        - Typography: CAPS for emphasis, ... for hesitation/pause, ! and ? for intonation
-        """
-        if not script:
-            return None
-
-        system_prompt = (
-            "Ты звуковой режиссёр для записи нарратора (ElevenLabs v3). "
-            "Твоя задача — расставить аудиотеги прямо в тексте русского сценария, "
-            "не меняя ни одного слова (только добавляй теги и пунктуацию).\n\n"
-            "ПРАВИЛА РАССТАНОВКИ ТЕГОВ:\n"
-            "1. Начало (крючок): используй [excited] или [confident] перед первой фразой.\n"
-            "2. Эмоциональные пики: вставляй [excited], [surprised], [angry], [happily] "
-            "   перед фразами с сильным эмоциональным зарядом.\n"
-            "3. Напряжённые или тревожные моменты: [worried], [nervous].\n"
-            "4. Риторические вопросы и размышления: [curious] или многоточие (...).\n"
-            "5. Ирония/сарказм: [sarcastic].\n"
-            "6. Важные факты и ключевые слова: ЗАГЛАВНЫЕ БУКВЫ (только 1-2 слова, не целые фразы!).\n"
-            "7. Паузы для акцента: ... между смысловыми блоками (не злоупотребляй).\n"
-            "8. Невербальные звуки: [laughs], [sighs], [clears throat] — только в 1-2 органичных местах.\n"
-            "9. Тихие/доверительные моменты: [whispers] перед фразой-откровением.\n"
-            "10. CTA (призыв к действию): [cheerful] или [confident] перед финальным призывом.\n\n"
-            "ОГРАНИЧЕНИЯ:\n"
-            "- Не добавляй теги чаще чем раз в 2-3 предложения — иначе пропадёт естественность.\n"
-            "- Не меняй ни одного слова в тексте, только добавляй теги и пунктуацию.\n"
-            "- Не объясняй что ты сделал — верни только готовый текст с тегами.\n"
-            "- Не добавляй теги [whispers] и [sighs] к одному месту.\n\n"
-            f"Стиль автора для контекста: {style_profile if style_profile else 'уверенный, энергичный, разговорный'}"
-        )
-        user_prompt = (
-            "Расставь ElevenLabs v3 аудиотеги в этом сценарии. "
-            "Верни только итоговый текст с тегами, без пояснений:\n\n"
-            f"{script}"
-        )
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
-        return self._complete(messages, temperature=0.6)
-
     def adjust_script_length(
         self,
         script: str,

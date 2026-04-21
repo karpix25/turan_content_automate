@@ -123,30 +123,41 @@ def _send_telegram_message(token: str, chat_id: str, text: str) -> bool:
         return False
 
 
-def send_avatar_script_to_telegram(task, script_text: str, estimated_minutes: float | None = None) -> None:
+def send_avatar_audio_to_telegram(task, audio_path: str, estimated_minutes: float | None = None) -> None:
     token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
     chat_id = (getattr(task, "telegram_chat_id", None) or "").strip()
     if not token or not chat_id:
         return
 
-    script = re.sub(r"\r\n?", "\n", (script_text or "").strip())
-    if not script:
+    if not audio_path or not os.path.exists(audio_path):
+        logger.error(f"Audio path {audio_path} does not exist.")
         return
 
     duration_line = ""
     if isinstance(estimated_minutes, (int, float)) and estimated_minutes > 0:
         duration_line = f"\nОценка длительности: ~{estimated_minutes:.1f} мин."
 
-    intro = (
-        f"✅ Сценарий для ИИ-аватара готов."
+    caption = (
+        f"✅ Аудио для ИИ-аватара готово."
         f"{duration_line}\n"
-        f"Видео #{getattr(task, 'id', '-')}\n\n"
-        f"Ниже готовый текст:"
+        f"Видео #{getattr(task, 'id', '-')}"
     )
-    _send_telegram_message(token, chat_id, intro)
-
-    chunks = _split_message_chunks(script)
-    total = len(chunks)
-    for idx, chunk in enumerate(chunks, start=1):
-        prefix = f"Часть {idx}/{total}\n\n" if total > 1 else ""
-        _send_telegram_message(token, chat_id, f"{prefix}{chunk}")
+    
+    try:
+        with httpx.Client(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
+            with open(audio_path, "rb") as f:
+                response = client.post(
+                    f"https://api.telegram.org/bot{token}/sendAudio",
+                    data={"chat_id": chat_id, "caption": caption},
+                    files={"audio": f}
+                )
+            payload = response.json()
+            if response.status_code >= 400 or not payload.get("ok", False):
+                description = payload.get("description") if isinstance(payload, dict) else response.text[:300]
+                logger.warning(
+                    "Failed to send Telegram audio: status=%s description=%s",
+                    response.status_code,
+                    description,
+                )
+    except Exception as exc:
+        logger.warning(f"Failed to send Telegram audio: {exc}")
