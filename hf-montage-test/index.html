@@ -1,0 +1,1668 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/Flip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/DrawSVGPlugin.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;700&display=swap" rel="stylesheet">
+    <script src="./theme-config.js"></script>
+    <style>
+      :root {
+        --font-main: "Oswald", "Arial Narrow", "Segoe UI", sans-serif;
+        --bg-0: #c4cad5;
+        --bg-1: #ccd2dc;
+        --bg-2: #b8beca;
+        --ink-0: #1b2438;
+        --ink-1: #2e394f;
+        --ink-2: #687287;
+        --bg-gradient:
+          radial-gradient(circle at 16% 22%, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0) 42%),
+          radial-gradient(circle at 84% 78%, rgba(139, 150, 170, 0.16) 0%, rgba(139, 150, 170, 0) 44%),
+          linear-gradient(180deg, var(--bg-1) 0%, var(--bg-0) 60%, var(--bg-2) 100%);
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #111;
+        font-family: "Oswald", sans-serif;
+      }
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+      }
+      #bg {
+        position: absolute;
+        inset: 0;
+        background: var(--bg-gradient);
+      }
+      #top-strip {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 1920px;
+        height: 66px;
+        background: linear-gradient(180deg, rgba(27, 32, 42, 0.84), rgba(27, 32, 42, 0.58));
+        z-index: 20;
+      }
+      #stage-layout {
+        position: absolute;
+        inset: 0;
+      }
+      #safe-margins {
+        position: absolute;
+        inset: 18px;
+        border-radius: 20px;
+        border: 1px dashed rgba(255, 255, 255, 0.1);
+        pointer-events: none;
+        opacity: 0;
+      }
+      #a-roll-wrapper {
+        position: absolute;
+        overflow: hidden;
+        background: #1b1f28;
+        z-index: 3;
+      }
+      #a-roll {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      #frame-outline {
+        position: absolute;
+        width: 1008px;
+        height: 816px;
+        left: 68px;
+        top: 132px;
+        border-radius: 24px;
+        border: 2px solid rgba(245, 249, 255, 0.46);
+        box-shadow: 0 12px 36px rgba(11, 17, 30, 0.14);
+        pointer-events: none;
+        z-index: 4;
+        opacity: 0;
+      }
+
+      #panel-shell {
+        position: absolute;
+        left: 1122px;
+        top: 132px;
+        width: 730px;
+        height: 816px;
+        border-radius: 0;
+        border: none;
+        background: transparent;
+        box-shadow: none;
+        overflow: hidden;
+        z-index: 5;
+      }
+      #scene-deck {
+        position: relative;
+        width: 100%;
+        height: 100%;
+      }
+      .scene-card {
+        position: absolute;
+        inset: 0;
+        padding: 0;
+        opacity: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+      }
+      .scene-main {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        padding: 18px 8px 6px;
+      }
+      .scene-line {
+        color: var(--ink-0);
+        text-transform: uppercase;
+        font-family: "Oswald", sans-serif;
+        font-weight: 700;
+        letter-spacing: -0.8px;
+        line-height: 0.88;
+      }
+      .scene-subline {
+        color: rgba(34, 43, 61, 0.84);
+        text-transform: uppercase;
+        font-family: "Oswald", sans-serif;
+        font-weight: 600;
+        letter-spacing: -0.3px;
+        line-height: 0.9;
+      }
+      .scene-title {
+        margin: 0;
+      }
+      .word-span {
+        display: inline-block;
+        white-space: pre;
+        opacity: 0.18;
+      }
+      #avatar-cues {
+        position: absolute;
+        left: 50%;
+        bottom: 46px;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+      }
+      .avatar-cue-pill {
+        display: none;
+        align-items: center;
+        height: 46px;
+        padding: 0 18px;
+        border-radius: 999px;
+        background: var(--avatar-cue-bg);
+        border: var(--avatar-cue-border);
+        color: var(--avatar-cue-color);
+        font-size: 30px;
+        font-weight: 760;
+        letter-spacing: -0.2px;
+        opacity: 0;
+      }
+      .cue-pill {
+        display: none;
+      }
+
+      .layout-avatar_frame .scene-main {
+        padding: 18px 0 0 8px;
+      }
+      .layout-avatar_frame .scene-line {
+        font-size: 84px;
+        max-width: 680px;
+      }
+      .layout-avatar_frame .scene-subline {
+        margin-top: 16px;
+        font-size: 44px;
+        max-width: 660px;
+      }
+
+      .layout-presentation_full .scene-main {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        text-align: center;
+        padding: 156px 80px 0;
+      }
+      .layout-presentation_full .scene-line {
+        font-size: 172px;
+        line-height: 0.88;
+        letter-spacing: -1.6px;
+      }
+      .layout-presentation_full .scene-subline {
+        margin-top: 18px;
+        font-size: 84px;
+        opacity: 0.8;
+      }
+      .scene-ghost {
+        position: absolute;
+        left: 50%;
+        bottom: 18px;
+        transform: translateX(-50%);
+        color: rgba(111, 121, 141, 0.2);
+        font-family: "Oswald", sans-serif;
+        font-weight: 700;
+        text-transform: uppercase;
+        font-size: 270px;
+        letter-spacing: -2px;
+        line-height: 0.8;
+        white-space: nowrap;
+        pointer-events: none;
+      }
+      .scene-ghost::after {
+        content: attr(data-ghost);
+        position: absolute;
+        left: 0;
+        top: 100%;
+        transform: scaleY(-1);
+        transform-origin: top;
+        color: rgba(111, 121, 141, 0.13);
+        filter: blur(0.3px);
+      }
+
+      .layout-avatar_full .scene-main {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        width: 292px;
+        height: 168px;
+        padding: 14px 14px 10px;
+        border-radius: 13px 0 0 0;
+        background: linear-gradient(180deg, rgba(236, 241, 248, 0.95), rgba(224, 230, 240, 0.92));
+        border: 1px solid rgba(255, 255, 255, 0.58);
+        box-shadow: 0 10px 24px rgba(12, 20, 32, 0.24);
+      }
+      .layout-avatar_full .scene-line {
+        font-size: 56px;
+        line-height: 0.84;
+      }
+      .layout-avatar_full .scene-subline {
+        margin-top: 6px;
+        font-size: 30px;
+      }
+      .layout-avatar_full .scene-ghost {
+        display: none;
+      }
+
+      #stage-layout.mode-full #a-roll-wrapper {
+        left: 0;
+        top: 0;
+        width: 1920px;
+        height: 1080px;
+        border-radius: 0;
+        box-shadow: none;
+      }
+      #stage-layout.mode-mini #a-roll-wrapper {
+        left: 68px;
+        top: 132px;
+        width: 1008px;
+        height: 816px;
+        border-radius: 24px;
+        box-shadow: 0 14px 34px rgba(11, 17, 30, 0.16);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation: none !important;
+          transition: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="60"
+      data-width="1920"
+      data-height="1080"
+    >
+      <div id="bg"></div>
+      <div id="top-strip"></div>
+      <div id="stage-layout" class="mode-full">
+        <div id="safe-margins"></div>
+        <div id="a-roll-wrapper">
+          <video
+            id="a-roll"
+            src="Untitled Video_1080p.mp4"
+            muted
+            playsinline
+            data-start="0"
+            data-duration="60"
+            data-track-index="2"
+          ></video>
+        </div>
+        <div id="frame-outline"></div>
+        <div id="panel-shell">
+          <div id="scene-deck"></div>
+        </div>
+      </div>
+      <audio
+        id="a-roll-audio"
+        src="Untitled Video_1080p.mp4"
+        data-start="0"
+        data-duration="60"
+        data-track-index="3"
+        data-volume="1"
+      ></audio>
+      <div id="avatar-cues"></div>
+    </div>
+
+    <script id="scene-plan" type="application/json">
+      [
+        {
+          "start": 0.0,
+          "end": 18.0,
+          "mode": "full",
+          "titleLines": [
+            "Государство закручивает гайки",
+            "Малый бизнес в тени",
+            "Искусственный интеллект и налоги",
+            "Ошибки девяностых"
+          ],
+          "steps": [
+            "Прятаться в тени - ошибка",
+            "ИИ видит все транзакции",
+            "Налоговая служба - технологичная машина"
+          ],
+          "insight": "Прятаться от налогов бессмысленно",
+          "cta": "Работайте в белую",
+          "keyword": "налоги",
+          "bars": [
+            {
+              "label": "Технологии",
+              "value": 0.85
+            },
+            {
+              "label": "Налоги",
+              "value": 0.93
+            },
+            {
+              "label": "Бизнес",
+              "value": 0.78
+            },
+            {
+              "label": "ИИ",
+              "value": 0.62
+            }
+          ]
+        },
+        {
+          "start": 18.0,
+          "end": 36.0,
+          "mode": "mini",
+          "titleLines": [
+            "Технониколь и налоги",
+            "Социальные налоги и НДС",
+            "Маркетплейсы и самозанятые",
+            "Кривизна системы"
+          ],
+          "steps": [
+            "Платим все налоги",
+            "Маркетплейсы не платят социалку",
+            "Инженеры идут в курьеры"
+          ],
+          "insight": "Системная кривизна мешает бизнесу",
+          "cta": "Ищите честные пути",
+          "keyword": "социальные налоги",
+          "bars": [
+            {
+              "label": "Социалка",
+              "value": 0.78
+            },
+            {
+              "label": "Маркетплейсы",
+              "value": 0.85
+            },
+            {
+              "label": "Инженеры",
+              "value": 0.62
+            },
+            {
+              "label": "Кривизна",
+              "value": 0.93
+            }
+          ]
+        },
+        {
+          "start": 36.0,
+          "end": 54.0,
+          "mode": "full",
+          "titleLines": [
+            "Цифровой рубль и коррупция",
+            "Госконтракты и контроль",
+            "Искусственный интеллект и бюджет",
+            "Цифровизация и её проблемы"
+          ],
+          "steps": [
+            "Цифровой рубль - благо для бизнеса",
+            "Контроль за госконтрактами",
+            "ИИ блокирует нецелевые транзакции"
+          ],
+          "insight": "Цифровой рубль может закрыть дыры в бюджете",
+          "cta": "Поддержите цифровизацию",
+          "keyword": "цифровой рубль",
+          "bars": [
+            {
+              "label": "Коррупция",
+              "value": 0.93
+            },
+            {
+              "label": "Госконтракты",
+              "value": 0.85
+            },
+            {
+              "label": "ИИ",
+              "value": 0.78
+            },
+            {
+              "label": "Цифровизация",
+              "value": 0.62
+            }
+          ]
+        },
+        {
+          "start": 54.0,
+          "end": 60.0,
+          "mode": "full",
+          "titleLines": [
+            "Налоговая реформа и бизнес",
+            "Дыра в бюджете",
+            "Малый бизнес и налоговые платежи",
+            "Зубочистки против пробоин"
+          ],
+          "steps": [
+            "Повышенные платежи с бизнеса",
+            "Дыра в бюджете из-за коррупции",
+            "Малый бизнес затыкает микротрещины"
+          ],
+          "insight": "Коррупция съедает бюджет",
+          "cta": "Боритесь с коррупцией",
+          "keyword": "налоговая реформа",
+          "bars": [
+            {
+              "label": "Реформа",
+              "value": 0.78
+            },
+            {
+              "label": "Бюджет",
+              "value": 0.85
+            },
+            {
+              "label": "Бизнес",
+              "value": 0.93
+            },
+            {
+              "label": "Коррупция",
+              "value": 0.62
+            }
+          ]
+        }
+      ]
+    </script>
+    <script id="scene-word-cues" type="application/json">
+      [
+        [
+          {
+            "time": 0.0,
+            "text": "Государство"
+          },
+          {
+            "time": 0.48,
+            "text": "закручивает"
+          },
+          {
+            "time": 0.96,
+            "text": "гайки."
+          },
+          {
+            "time": 1.44,
+            "text": "И"
+          },
+          {
+            "time": 1.52,
+            "text": "у"
+          },
+          {
+            "time": 1.6,
+            "text": "малого"
+          },
+          {
+            "time": 1.92,
+            "text": "бизнеса"
+          },
+          {
+            "time": 2.24,
+            "text": "первая"
+          },
+          {
+            "time": 2.56,
+            "text": "реакция"
+          },
+          {
+            "time": 2.96,
+            "text": "уйдём"
+          },
+          {
+            "time": 3.44,
+            "text": "в"
+          },
+          {
+            "time": 3.52,
+            "text": "тень,"
+          },
+          {
+            "time": 3.84,
+            "text": "платить"
+          },
+          {
+            "time": 4.08,
+            "text": "не"
+          },
+          {
+            "time": 4.32,
+            "text": "будем."
+          },
+          {
+            "time": 4.8,
+            "text": "Ребята,"
+          },
+          {
+            "time": 5.2,
+            "text": "это"
+          },
+          {
+            "time": 5.44,
+            "text": "смертельная"
+          },
+          {
+            "time": 5.84,
+            "text": "ошибка."
+          },
+          {
+            "time": 6.24,
+            "text": "Прятаться"
+          },
+          {
+            "time": 6.72,
+            "text": "в"
+          },
+          {
+            "time": 6.88,
+            "text": "2020"
+          },
+          {
+            "time": 7.36,
+            "text": "четвёртом"
+          },
+          {
+            "time": 7.76,
+            "text": "это"
+          },
+          {
+            "time": 8.0,
+            "text": "как"
+          },
+          {
+            "time": 8.16,
+            "text": "в"
+          },
+          {
+            "time": 8.32,
+            "text": "девяностые."
+          },
+          {
+            "time": 8.8,
+            "text": "Только"
+          },
+          {
+            "time": 9.04,
+            "text": "вместо"
+          },
+          {
+            "time": 9.28,
+            "text": "братков"
+          },
+          {
+            "time": 9.68,
+            "text": "к"
+          },
+          {
+            "time": 9.84,
+            "text": "вам"
+          },
+          {
+            "time": 9.92,
+            "text": "придёт"
+          },
+          {
+            "time": 10.16,
+            "text": "бездушный"
+          },
+          {
+            "time": 10.72,
+            "text": "искусственный"
+          },
+          {
+            "time": 11.2,
+            "text": "интеллект."
+          },
+          {
+            "time": 11.92,
+            "text": "И"
+          },
+          {
+            "time": 12.08,
+            "text": "он"
+          },
+          {
+            "time": 12.24,
+            "text": "не"
+          },
+          {
+            "time": 12.32,
+            "text": "будет"
+          },
+          {
+            "time": 12.48,
+            "text": "с"
+          },
+          {
+            "time": 12.56,
+            "text": "вами"
+          },
+          {
+            "time": 12.72,
+            "text": "договариваться."
+          },
+          {
+            "time": 13.28,
+            "text": "Многие"
+          },
+          {
+            "time": 13.52,
+            "text": "думают,"
+          },
+          {
+            "time": 13.84,
+            "text": "что"
+          },
+          {
+            "time": 13.92,
+            "text": "можно"
+          },
+          {
+            "time": 14.16,
+            "text": "как"
+          },
+          {
+            "time": 14.4,
+            "text": "раньше"
+          },
+          {
+            "time": 14.56,
+            "text": "уйти"
+          },
+          {
+            "time": 14.88,
+            "text": "в"
+          },
+          {
+            "time": 15.04,
+            "text": "обнал."
+          },
+          {
+            "time": 15.575,
+            "text": "И"
+          },
+          {
+            "time": 15.655,
+            "text": "всё"
+          },
+          {
+            "time": 15.815,
+            "text": "будет"
+          },
+          {
+            "time": 15.975,
+            "text": "тип-топ."
+          },
+          {
+            "time": 16.695,
+            "text": "Забудьте."
+          },
+          {
+            "time": 17.095,
+            "text": "Я"
+          },
+          {
+            "time": 17.255,
+            "text": "вам"
+          },
+          {
+            "time": 17.335,
+            "text": "честно"
+          },
+          {
+            "time": 17.575,
+            "text": "скажу,"
+          },
+          {
+            "time": 17.895,
+            "text": "в"
+          },
+          {
+            "time": 17.975,
+            "text": "начале"
+          }
+        ],
+        [
+          {
+            "time": 18.215,
+            "text": "девяностых"
+          },
+          {
+            "time": 18.615,
+            "text": "мы"
+          },
+          {
+            "time": 18.775,
+            "text": "сами"
+          },
+          {
+            "time": 18.935,
+            "text": "обналивали"
+          },
+          {
+            "time": 19.415,
+            "text": "деньги"
+          },
+          {
+            "time": 19.575,
+            "text": "под"
+          },
+          {
+            "time": 19.735,
+            "text": "2%."
+          },
+          {
+            "time": 20.535,
+            "text": "Это"
+          },
+          {
+            "time": 20.695,
+            "text": "было"
+          },
+          {
+            "time": 20.855,
+            "text": "в"
+          },
+          {
+            "time": 20.935,
+            "text": "порядке"
+          },
+          {
+            "time": 21.255,
+            "text": "вещей."
+          },
+          {
+            "time": 21.735,
+            "text": "Но"
+          },
+          {
+            "time": 21.895,
+            "text": "сегодня"
+          },
+          {
+            "time": 22.135,
+            "text": "обнал"
+          },
+          {
+            "time": 22.535,
+            "text": "безумно"
+          },
+          {
+            "time": 22.855,
+            "text": "дорогое"
+          },
+          {
+            "time": 23.175,
+            "text": "и"
+          },
+          {
+            "time": 23.255,
+            "text": "тупое"
+          },
+          {
+            "time": 23.575,
+            "text": "удовольствие."
+          },
+          {
+            "time": 24.135,
+            "text": "Почему?"
+          },
+          {
+            "time": 24.455,
+            "text": "Да"
+          },
+          {
+            "time": 24.695,
+            "text": "потому"
+          },
+          {
+            "time": 24.855,
+            "text": "что"
+          },
+          {
+            "time": 25.015,
+            "text": "наша"
+          },
+          {
+            "time": 25.255,
+            "text": "налоговая"
+          },
+          {
+            "time": 25.655,
+            "text": "служба"
+          },
+          {
+            "time": 25.975,
+            "text": "вышла"
+          },
+          {
+            "time": 26.215,
+            "text": "на"
+          },
+          {
+            "time": 26.375,
+            "text": "такой"
+          },
+          {
+            "time": 26.615,
+            "text": "технологический"
+          },
+          {
+            "time": 27.175,
+            "text": "уровень,"
+          },
+          {
+            "time": 27.735,
+            "text": "который"
+          },
+          {
+            "time": 28.055,
+            "text": "миру"
+          },
+          {
+            "time": 28.375,
+            "text": "и"
+          },
+          {
+            "time": 28.455,
+            "text": "не"
+          },
+          {
+            "time": 28.615,
+            "text": "снился."
+          },
+          {
+            "time": 29.095,
+            "text": "Это"
+          },
+          {
+            "time": 29.335,
+            "text": "уже"
+          },
+          {
+            "time": 29.495,
+            "text": "не"
+          },
+          {
+            "time": 29.575,
+            "text": "тётёньки"
+          },
+          {
+            "time": 29.975,
+            "text": "со"
+          },
+          {
+            "time": 30.055,
+            "text": "счетами"
+          },
+          {
+            "time": 30.375,
+            "text": "и"
+          },
+          {
+            "time": 30.535,
+            "text": "бумажками."
+          },
+          {
+            "time": 31.07,
+            "text": "Это"
+          },
+          {
+            "time": 31.31,
+            "text": "ИИ,"
+          },
+          {
+            "time": 31.87,
+            "text": "который"
+          },
+          {
+            "time": 32.11,
+            "text": "видит"
+          },
+          {
+            "time": 32.43,
+            "text": "вообще"
+          },
+          {
+            "time": 32.59,
+            "text": "все"
+          },
+          {
+            "time": 32.83,
+            "text": "ваши"
+          },
+          {
+            "time": 32.99,
+            "text": "транзакции"
+          },
+          {
+            "time": 33.39,
+            "text": "в"
+          },
+          {
+            "time": 33.47,
+            "text": "реальном"
+          },
+          {
+            "time": 33.79,
+            "text": "времени,"
+          },
+          {
+            "time": 34.03,
+            "text": "он"
+          },
+          {
+            "time": 34.27,
+            "text": "просматривает"
+          },
+          {
+            "time": 34.75,
+            "text": "всю"
+          },
+          {
+            "time": 34.99,
+            "text": "цепочку"
+          },
+          {
+            "time": 35.47,
+            "text": "НДС"
+          },
+          {
+            "time": 35.87,
+            "text": "от"
+          }
+        ],
+        [
+          {
+            "time": 36.27,
+            "text": "завода"
+          },
+          {
+            "time": 36.51,
+            "text": "до"
+          },
+          {
+            "time": 36.75,
+            "text": "конечного"
+          },
+          {
+            "time": 37.15,
+            "text": "покупателя."
+          },
+          {
+            "time": 37.87,
+            "text": "Любой"
+          },
+          {
+            "time": 38.19,
+            "text": "разрыв"
+          },
+          {
+            "time": 38.43,
+            "text": "в"
+          },
+          {
+            "time": 38.59,
+            "text": "этой"
+          },
+          {
+            "time": 38.75,
+            "text": "цепочке,"
+          },
+          {
+            "time": 39.31,
+            "text": "любая"
+          },
+          {
+            "time": 39.55,
+            "text": "мутная"
+          },
+          {
+            "time": 39.95,
+            "text": "операция"
+          },
+          {
+            "time": 40.27,
+            "text": "мгновенный"
+          },
+          {
+            "time": 41.07,
+            "text": "красный"
+          },
+          {
+            "time": 41.39,
+            "text": "флаг."
+          },
+          {
+            "time": 41.87,
+            "text": "Вам"
+          },
+          {
+            "time": 42.11,
+            "text": "больше"
+          },
+          {
+            "time": 42.27,
+            "text": "не"
+          },
+          {
+            "time": 42.43,
+            "text": "надо"
+          },
+          {
+            "time": 42.59,
+            "text": "считать"
+          },
+          {
+            "time": 42.83,
+            "text": "налог"
+          },
+          {
+            "time": 43.07,
+            "text": "на"
+          },
+          {
+            "time": 43.23,
+            "text": "имущество,"
+          },
+          {
+            "time": 43.87,
+            "text": "его"
+          },
+          {
+            "time": 43.95,
+            "text": "просто"
+          },
+          {
+            "time": 44.19,
+            "text": "присылают"
+          },
+          {
+            "time": 44.59,
+            "text": "в"
+          },
+          {
+            "time": 44.67,
+            "text": "личный"
+          },
+          {
+            "time": 44.99,
+            "text": "кабинет,"
+          },
+          {
+            "time": 45.55,
+            "text": "забыли"
+          },
+          {
+            "time": 45.71,
+            "text": "заплатить"
+          },
+          {
+            "time": 46.11,
+            "text": "вежливо"
+          },
+          {
+            "time": 46.51,
+            "text": "напомнят,"
+          },
+          {
+            "time": 47.045,
+            "text": "А"
+          },
+          {
+            "time": 47.205,
+            "text": "потом"
+          },
+          {
+            "time": 47.365,
+            "text": "пришлют"
+          },
+          {
+            "time": 47.765,
+            "text": "такие"
+          },
+          {
+            "time": 47.925,
+            "text": "штрафы,"
+          },
+          {
+            "time": 48.405,
+            "text": "что"
+          },
+          {
+            "time": 48.645,
+            "text": "любой,"
+          },
+          {
+            "time": 48.965,
+            "text": "кто"
+          },
+          {
+            "time": 49.125,
+            "text": "раз"
+          },
+          {
+            "time": 49.285,
+            "text": "на"
+          },
+          {
+            "time": 49.445,
+            "text": "них"
+          },
+          {
+            "time": 49.525,
+            "text": "налетел,"
+          },
+          {
+            "time": 50.085,
+            "text": "предпочитает"
+          },
+          {
+            "time": 50.565,
+            "text": "дальше"
+          },
+          {
+            "time": 50.805,
+            "text": "платить"
+          },
+          {
+            "time": 51.125,
+            "text": "всё"
+          },
+          {
+            "time": 51.365,
+            "text": "до"
+          },
+          {
+            "time": 51.525,
+            "text": "копейки"
+          },
+          {
+            "time": 51.925,
+            "text": "и"
+          },
+          {
+            "time": 52.085,
+            "text": "вовремя."
+          },
+          {
+            "time": 52.565,
+            "text": "Прятаться"
+          },
+          {
+            "time": 52.965,
+            "text": "бессмысленно."
+          },
+          {
+            "time": 53.685,
+            "text": "Налоговая"
+          }
+        ],
+        [
+          {
+            "time": 54.165,
+            "text": "сегодня"
+          },
+          {
+            "time": 54.405,
+            "text": "это"
+          },
+          {
+            "time": 54.645,
+            "text": "не"
+          },
+          {
+            "time": 54.805,
+            "text": "злая"
+          },
+          {
+            "time": 55.045,
+            "text": "служба,"
+          },
+          {
+            "time": 55.445,
+            "text": "которая"
+          },
+          {
+            "time": 55.605,
+            "text": "хочет"
+          },
+          {
+            "time": 55.845,
+            "text": "вас"
+          },
+          {
+            "time": 56.005,
+            "text": "сожрать."
+          },
+          {
+            "time": 56.725,
+            "text": "Нет,"
+          },
+          {
+            "time": 56.885,
+            "text": "это"
+          },
+          {
+            "time": 57.285,
+            "text": "просто"
+          },
+          {
+            "time": 57.445,
+            "text": "очень"
+          },
+          {
+            "time": 57.685,
+            "text": "технологичная,"
+          },
+          {
+            "time": 58.405,
+            "text": "бездушная"
+          },
+          {
+            "time": 58.805,
+            "text": "машина,"
+          },
+          {
+            "time": 59.285,
+            "text": "которая"
+          },
+          {
+            "time": 59.605,
+            "text": "работает"
+          },
+          {
+            "time": 59.925,
+            "text": "по"
+          }
+        ]
+      ]
+    </script>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      if (window.Flip) gsap.registerPlugin(Flip);
+      if (window.DrawSVGPlugin) gsap.registerPlugin(DrawSVGPlugin);
+
+      const TOTAL_DURATION = 60;
+      const stageLayout = document.getElementById("stage-layout");
+      const sceneDeck = document.getElementById("scene-deck");
+      const avatarCueLayer = document.getElementById("avatar-cues");
+      const scenePlan = JSON.parse(document.getElementById("scene-plan").textContent || "[]");
+      const sceneWordCues = JSON.parse(document.getElementById("scene-word-cues").textContent || "[]");
+      const THEME = window.__HF_THEME || {};
+      const VALID_LAYOUTS = ["avatar_full", "avatar_frame", "presentation_full"];
+      const VALID_CARD_STYLES = ["hero", "steps", "metrics", "quote"];
+      const LAYOUT_CYCLE = (Array.isArray(THEME.layoutCycle) ? THEME.layoutCycle : []).filter((v) => VALID_LAYOUTS.includes(v));
+      const CARD_STYLE_CYCLE = (Array.isArray(THEME.cardStyleCycle) ? THEME.cardStyleCycle : []).filter((v) =>
+        VALID_CARD_STYLES.includes(v)
+      );
+      const VISIBLE_CARD_STYLE_CYCLE = (Array.isArray(THEME.visibleCardStyleCycle) ? THEME.visibleCardStyleCycle : []).filter((v) =>
+        VALID_CARD_STYLES.includes(v)
+      );
+      const FALLBACK_LAYOUT_CYCLE = ["avatar_full", "avatar_frame", "presentation_full"];
+      const FALLBACK_CARD_STYLE_CYCLE = ["hero", "metrics", "steps", "quote"];
+      const FALLBACK_VISIBLE_CARD_STYLE_CYCLE = ["metrics", "steps", "quote", "hero"];
+      const CARD_STYLE_TAG = {
+        hero: "ТЕЗИС",
+        metrics: "ЦИФРЫ",
+        steps: "ШАГИ",
+        quote: "ВЫВОД",
+        ...(THEME.cardStyleTag || {})
+      };
+      const TEXT_LIMITS = {
+        titleMain: 120,
+        titleAccent: 80,
+        lead: 150,
+        insight: 250,
+        step: 120,
+        barLabel: 50,
+        ...(THEME.textLimits || {})
+      };
+
+      function wrapInWords(text, sceneIdx, blockType, lineIdx = 0) {
+        if (!text) return "";
+        return text.split(" ").map((word, i) => {
+          return `<span class="word-span word-vocal w-${sceneIdx}-${blockType}-${lineIdx}-${i}">${word} </span>`;
+        }).join("");
+      }
+
+      function applyThemeCssVars() {
+        const vars = THEME.cssVars || {};
+        Object.entries(vars).forEach(([key, value]) => {
+          if (!key.startsWith("--")) return;
+          if (value === null || value === undefined || value === "") return;
+          document.documentElement.style.setProperty(key, String(value));
+        });
+      }
+      applyThemeCssVars();
+
+      const ICONS = {
+        alert: [
+          "M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z",
+          "M12 9v4",
+          "M12 17h.01"
+        ],
+        shield: ["M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V6l8-3 8 3z", "M9 12l2 2 4-4"],
+        cpu: [
+          "M4 4h16v16H4z",
+          "M9 9h6v6H9z",
+          "M9 1v3",
+          "M15 1v3",
+          "M9 20v3",
+          "M15 20v3",
+          "M20 9h3",
+          "M20 14h3",
+          "M1 9h3",
+          "M1 14h3"
+        ],
+        wallet: ["M19 7H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h14", "M16 7V5a2 2 0 0 0-2-2H5", "M18 12h.01"],
+        chart: ["M3 3v18h18", "M7 14l4-4 3 3 4-5"],
+        check: ["M20 6 9 17l-5-5", "M22 12A10 10 0 1 1 12 2"]
+      };
+
+      function escapeHtml(text) {
+        return String(text || "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;");
+      }
+
+      function iconForScene(scene) {
+        const sample = `${scene.keyword || ""} ${(scene.titleLines || []).join(" ")} ${(scene.insight || "")}`.toLowerCase();
+        if (/ошиб|риск|угроз|флаг/.test(sample)) return "alert";
+        if (/ии|интеллект|алгоритм|технолог/.test(sample)) return "cpu";
+        if (/налог|фнс|ндс|контрол/.test(sample)) return "shield";
+        if (/обнал|деньг|стоим|выгод/.test(sample)) return "wallet";
+        if (/уров|данн|транзак|цепоч/.test(sample)) return "chart";
+        return "check";
+      }
+
+      function normalizeCueList(cues, sceneStart, sceneEnd) {
+        const raw = Array.isArray(cues) ? cues : [];
+        return raw
+          .map((c) => ({
+            time: Number(c.time),
+            text: String(c.text || "").trim()
+          }))
+          .filter((c) => Number.isFinite(c.time) && c.time >= sceneStart && c.time <= sceneEnd && c.text)
+          .slice(0, 4);
+      }
+
+      function resolveLayoutMode(scene, idx) {
+        const explicit = String(scene.layoutMode || "").toLowerCase();
+        if (VALID_LAYOUTS.includes(explicit)) return explicit;
+        const cycle = LAYOUT_CYCLE.length ? LAYOUT_CYCLE : FALLBACK_LAYOUT_CYCLE;
+        return cycle[idx % cycle.length];
+      }
+
+      function resolveCardStyle(scene, idx) {
+        const explicit = String(scene.cardStyle || "").toLowerCase();
+        if (VALID_CARD_STYLES.includes(explicit)) return explicit;
+        const styleCycle = CARD_STYLE_CYCLE.length ? CARD_STYLE_CYCLE : FALLBACK_CARD_STYLE_CYCLE;
+        const layoutMode = resolveLayoutMode(scene, idx);
+        if (layoutMode === "avatar_full") return styleCycle[idx % styleCycle.length];
+        let visibleIndex = -1;
+        for (let i = 0; i <= idx; i += 1) {
+          if (resolveLayoutMode(scenePlan[i], i) !== "avatar_full") visibleIndex += 1;
+        }
+        const visibleCycle = VISIBLE_CARD_STYLE_CYCLE.length ? VISIBLE_CARD_STYLE_CYCLE : FALLBACK_VISIBLE_CARD_STYLE_CYCLE;
+        return visibleCycle[visibleIndex % visibleCycle.length];
+      }
+
+      function truncateText(text, maxLen) {
+        const s = String(text || "").trim();
+        if (!s) return "";
+        if (s.length <= maxLen) return s;
+        return `${s.slice(0, maxLen - 1).trim()}…`;
+      }
+
+      function splitIntoLines(text, maxLen = 24) {
+        const source = String(text || "").replace(/\s+/g, " ").trim();
+        if (!source) return [];
+        const words = source.split(" ");
+        const lines = [];
+        let current = "";
+        words.forEach((word) => {
+          if (!current) {
+            current = word;
+            return;
+          }
+          const candidate = `${current} ${word}`;
+          if (candidate.length <= maxLen) {
+            current = candidate;
+          } else {
+            lines.push(current);
+            current = word;
+          }
+        });
+        if (current) lines.push(current);
+        return lines;
+      }
+
+      function normalizeBars(bars) {
+        const raw = Array.isArray(bars) ? bars : [];
+        return raw
+          .map((b) => ({
+            label: String(b.label || "").trim(),
+            value: Math.max(0, Math.min(1, Number(b.value)))
+          }))
+          .filter((b) => b.label && Number.isFinite(b.value));
+      }
+
+      function createSceneCards() {
+        const cards = [];
+
+        scenePlan.forEach((scene, idx) => {
+          const card = document.createElement("section");
+          const linesRaw = Array.isArray(scene.titleLines)
+            ? scene.titleLines.map((v) => truncateText(v, TEXT_LIMITS.titleMain)).filter(Boolean)
+            : [];
+          const stepsRaw = Array.isArray(scene.steps)
+            ? scene.steps.map((v) => truncateText(v, TEXT_LIMITS.step)).filter(Boolean)
+            : [];
+          const layoutMode = resolveLayoutMode(scene, idx);
+          const cardStyle = resolveCardStyle(scene, idx);
+          const keyword = truncateText(scene.keyword || "", 22).toUpperCase();
+
+          let displayLines = [];
+          let subLine = "";
+          if (layoutMode === "presentation_full") {
+            const mainLine = truncateText(linesRaw[0] || scene.keyword || "КАК УСТРОЕН CODEX", 28).toUpperCase();
+            displayLines = [mainLine];
+            subLine = truncateText(linesRaw[1] || scene.insight || stepsRaw[0] || "СИСТЕМА ИЗ ТРЕХ ЧАСТЕЙ", 42).toUpperCase();
+          } else if (layoutMode === "avatar_full") {
+            displayLines = [truncateText(scene.keyword || linesRaw[0] || "CODEX", 16).toUpperCase()];
+            subLine = truncateText(linesRaw[0] || stepsRaw[0] || scene.cta || "", 30).toUpperCase();
+          } else {
+            const frameHeadlines = [...linesRaw, ...stepsRaw]
+              .flatMap((v) => splitIntoLines(v, 22))
+              .map((v) => truncateText(v, 24).toUpperCase())
+              .filter(Boolean);
+            displayLines = frameHeadlines.slice(0, 4);
+            if (displayLines.length === 0) displayLines = [truncateText(scene.keyword || "ТЕМА", 22).toUpperCase()];
+            subLine = truncateText(stepsRaw[0] || scene.insight || scene.cta || "", 34).toUpperCase();
+          }
+
+          card.className = `scene-card layout-${layoutMode} style-${cardStyle}`;
+          card.dataset.sceneIndex = String(idx);
+          card.dataset.cardStyle = cardStyle;
+          const titleHtml = displayLines
+            .map((line, lineIdx) => `<div class="scene-line">${wrapInWords(line, idx, "title", lineIdx)}</div>`)
+            .join("");
+          const subHtml = subLine ? `<div class="scene-subline">${wrapInWords(subLine, idx, "sub", 0)}</div>` : "";
+          const ghostWord = truncateText(
+            String(scene.keyword || displayLines[0] || "CODEX")
+              .replace(/[^A-Za-zА-Яа-яЁё0-9\s-]/g, "")
+              .trim()
+              .toUpperCase(),
+            18
+          ) || "CODEX";
+          const ghostHtml =
+            layoutMode === "presentation_full"
+              ? `<div class="scene-ghost" data-ghost="${escapeHtml(ghostWord)}">${escapeHtml(ghostWord)}</div>`
+              : "";
+
+          card.innerHTML = `
+            <div class="scene-main">
+              <h1 class="scene-title">${titleHtml}</h1>
+              ${subHtml}
+              ${ghostHtml}
+            </div>
+          `;
+
+          sceneDeck.appendChild(card);
+          cards.push(card);
+        });
+
+        return cards;
+      }
+
+      function buildTimeline(cards) {
+        const tl = gsap.timeline({ paused: true, defaults: { ease: "power2.out" } });
+        tl.to({}, { duration: TOTAL_DURATION }, 0);
+
+        tl.set(cards, { autoAlpha: 0 }, 0);
+        tl.set("#panel-shell, #frame-outline, #safe-margins, #avatar-cues", { autoAlpha: 0 }, 0);
+        tl.set("#a-roll-wrapper", { left: 0, top: 0, width: 1920, height: 1080, borderRadius: 0, autoAlpha: 1 }, 0);
+
+        function scheduleLayout(layoutMode, at) {
+          if (layoutMode === "avatar_full") {
+            tl.to(
+              "#a-roll-wrapper",
+              {
+                left: 0,
+                top: 0,
+                width: 1920,
+                height: 1080,
+                borderRadius: 0,
+                boxShadow: "none",
+                autoAlpha: 1,
+                duration: 0.74,
+                ease: "power3.inOut",
+                overwrite: "auto"
+              },
+              at
+            );
+            tl.to(
+              "#panel-shell",
+              { left: 1628, top: 902, width: 292, height: 168, autoAlpha: 1, duration: 0.58, overwrite: "auto" },
+              at + 0.04
+            );
+            tl.to("#frame-outline, #safe-margins, #avatar-cues", { autoAlpha: 0, duration: 0.2, overwrite: "auto" }, at);
+            return;
+          }
+
+          if (layoutMode === "avatar_frame") {
+            tl.to(
+              "#a-roll-wrapper",
+              {
+                left: 68,
+                top: 132,
+                width: 1008,
+                height: 816,
+                borderRadius: 24,
+                boxShadow: "0 16px 34px rgba(11, 17, 30, 0.16)",
+                autoAlpha: 1,
+                duration: 0.74,
+                ease: "power3.inOut",
+                overwrite: "auto"
+              },
+              at
+            );
+            tl.to(
+              "#panel-shell",
+              { left: 1122, top: 132, width: 730, height: 816, autoAlpha: 1, duration: 0.62, overwrite: "auto" },
+              at + 0.05
+            );
+            tl.to(
+              "#frame-outline",
+              { left: 68, top: 132, width: 1008, height: 816, autoAlpha: 1, duration: 0.24, overwrite: "auto" },
+              at + 0.08
+            );
+            tl.to("#avatar-cues", { autoAlpha: 0, duration: 0.18, overwrite: "auto" }, at);
+            return;
+          }
+
+          tl.to(
+            "#a-roll-wrapper",
+            {
+              left: 1664,
+              top: 878,
+              width: 238,
+              height: 134,
+              borderRadius: 10,
+              boxShadow: "0 10px 24px rgba(12, 20, 32, 0.28)",
+              autoAlpha: 1,
+              duration: 0.72,
+              ease: "power3.inOut",
+              overwrite: "auto"
+            },
+            at
+          );
+          tl.to(
+            "#panel-shell",
+            { left: 60, top: 108, width: 1800, height: 864, autoAlpha: 1, duration: 0.68, overwrite: "auto" },
+            at + 0.04
+          );
+          tl.to("#frame-outline, #safe-margins, #avatar-cues", { autoAlpha: 0, duration: 0.22, overwrite: "auto" }, at + 0.04);
+        }
+
+        scenePlan.forEach((scene, idx) => {
+          const mode = resolveLayoutMode(scene, idx);
+          const at = Number(scene.start || 0);
+          const card = cards[idx];
+          const blocks = card.querySelectorAll(".scene-line, .scene-subline");
+          const words = card.querySelectorAll(".word-vocal");
+          const ghost = card.querySelector(".scene-ghost");
+
+          scheduleLayout(mode, at);
+          tl.set(cards, { autoAlpha: 0 }, at);
+          tl.set(card, { autoAlpha: 1 }, at + 0.01);
+
+          tl.fromTo(
+            blocks,
+            { y: 12, autoAlpha: 0 },
+            { y: 0, autoAlpha: 1, duration: 0.4, stagger: 0.08, ease: "power2.out" },
+            at + 0.14
+          );
+
+          tl.fromTo(
+            words,
+            { opacity: 0.16, y: 2 },
+            { opacity: 1, y: 0, duration: 0.3, stagger: 0.015, ease: "power1.out" },
+            at + 0.2
+          );
+
+          if (ghost) {
+            tl.fromTo(
+              ghost,
+              { autoAlpha: 0, y: 16 },
+              { autoAlpha: 1, y: 0, duration: 0.56, ease: "power2.out" },
+              at + 0.28
+            );
+          }
+        });
+
+        window.__timelines.main = tl;
+      }
+
+      const cards = createSceneCards();
+      buildTimeline(cards);
+    </script>
+  </body>
+</html>
