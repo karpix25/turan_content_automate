@@ -327,6 +327,27 @@ def _resolve_media_file_path(path: str | None, media_kind: str) -> str | None:
     return None
 
 
+def _resolve_local_input_video_path(path: str | None) -> str | None:
+    value = (path or "").strip()
+    if not value:
+        return None
+    if os.path.isfile(value):
+        return value
+
+    normalized = value.lstrip("./")
+    base_name = os.path.basename(normalized)
+    test_inputs_dir = (os.getenv("TEST_VIDEO_INPUT_DIR") or "/app/database/media/test-input").strip()
+    candidates = [
+        os.path.join("/app", normalized),
+        os.path.join(test_inputs_dir, base_name),
+        os.path.join("/app/database/media/test-input", base_name),
+    ]
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
 def _extract_youtube_video_id(url: str) -> str | None:
     raw = (url or "").strip()
     if re.fullmatch(r"[A-Za-z0-9_-]{11}", raw):
@@ -651,9 +672,27 @@ def process_content_task(task_id: int):
     input_video_titles: List[str | None] = []
 
     try:
-        source_url = _normalize_external_url(task.source_url)
-        if not source_url:
+        source_url_raw = (task.source_url or "").strip()
+        if not source_url_raw:
             raise Exception("Source URL is empty")
+
+        if task.type == "local_upload":
+            local_input = _resolve_local_input_video_path(source_url_raw)
+            if not local_input:
+                raise Exception("Uploaded local video file was not found on disk")
+            update_task_status_message(
+                db,
+                task,
+                stage="Локальный файл",
+                detail="Использую загруженное видео без внешних сервисов.",
+            )
+            input_videos.append(local_input)
+            input_video_titles.append(task.source_title or os.path.basename(local_input))
+            source_url = source_url_raw
+        else:
+            source_url = _normalize_external_url(source_url_raw)
+            if not source_url:
+                raise Exception("Source URL is empty")
 
         if task.type == "vizard":
             update_task_status_message(db, task, stage="Vizard", detail="Отправляю видео в Vizard и жду клипы.")
@@ -888,7 +927,7 @@ def process_content_task(task_id: int):
 
         subtitles_enabled = False
         ass_path = None
-        target_account_ids = _get_target_account_ids(db, user.id)
+        target_account_ids = [] if task.type == "local_upload" else _get_target_account_ids(db, user.id)
         if task.type in {"instagram", "youtube"} and not target_account_ids and not process_all_clips:
             raise Exception(
                 "No PostMyPost accounts configured/enabled for this user. "

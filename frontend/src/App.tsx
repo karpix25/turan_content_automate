@@ -37,6 +37,7 @@ type UserSettings = {
 type VideoTaskItem = {
   id: number;
   source_url: string;
+  source_title?: string | null;
   type: string;
   status: string;
   output_path?: string | null;
@@ -194,9 +195,14 @@ const App = () => {
   const [deletingPlateId, setDeletingPlateId] = useState<number | null>(null);
   const [deletingEndingId, setDeletingEndingId] = useState<number | null>(null);
   const [publishingTaskId, setPublishingTaskId] = useState<number | null>(null);
+  const [testVideoFile, setTestVideoFile] = useState<File | null>(null);
+  const [submittingTestVideo, setSubmittingTestVideo] = useState(false);
+  const [testVideoError, setTestVideoError] = useState('');
+  const [testVideoMessage, setTestVideoMessage] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const endingInputRef = useRef<HTMLInputElement | null>(null);
+  const testVideoInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     window.localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
@@ -346,6 +352,7 @@ const App = () => {
     if (normalized.includes('instagram') || normalized === 'ig' || normalized === 'insta') return 'instagram';
     if (normalized.includes('youtube') || normalized === 'yt') return 'youtube';
     if (normalized.includes('tiktok') || normalized === 'tt') return 'tiktok';
+    if (normalized === 'universal') return 'other';
     if (normalized === 'instagram' || normalized === 'youtube' || normalized === 'tiktok') return normalized;
     return normalized || 'other';
   };
@@ -682,6 +689,45 @@ const App = () => {
     }
   };
 
+  const handleSelectTestVideo = () => {
+    testVideoInputRef.current?.click();
+  };
+
+  const handleTestVideoPicked = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] || null;
+    setTestVideoError('');
+    setTestVideoMessage('');
+    setTestVideoFile(file);
+  };
+
+  const submitTestVideoTask = async () => {
+    if (!telegramId || !testVideoFile) return;
+    setSubmittingTestVideo(true);
+    setTestVideoError('');
+    setTestVideoMessage('');
+    try {
+      const formData = new FormData();
+      formData.append('file', testVideoFile);
+      const response = await axios.post(`${API_BASE}/upload/test-video/${telegramId}`, formData);
+      const taskId = response.data?.task_id;
+      setTestVideoMessage(
+        taskId
+          ? `Тестовая задача #${taskId} добавлена в очередь.`
+          : 'Тестовая задача добавлена в очередь.',
+      );
+      setTestVideoFile(null);
+      if (testVideoInputRef.current) {
+        testVideoInputRef.current.value = '';
+      }
+      await loadTasks(telegramId);
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail;
+      setTestVideoError(detail ? String(detail) : 'Не удалось запустить тестовую обработку.');
+    } finally {
+      setSubmittingTestVideo(false);
+    }
+  };
+
   const getStatusLabel = (status: string) => {
     const labels: Record<string, string> = {
       'published': 'Опубликовано',
@@ -754,6 +800,9 @@ const App = () => {
   };
 
   const getTaskDisplayTitle = (task: VideoTaskItem) => {
+    if (task.source_title && task.source_title.trim()) {
+      return task.source_title.trim();
+    }
     const source = cleanTaskSource(task.source_url);
     if (task.type === 'youtube' && /^[A-Za-z0-9_-]{11}$/.test(source)) {
       return `YouTube video ${source}`;
@@ -773,6 +822,7 @@ const App = () => {
       youtube: 'Источник: YouTube',
       instagram: 'Источник: Instagram',
       vizard: 'Источник: Vizard',
+      local_upload: 'Источник: Локальный файл',
     };
     return labels[task.type] || `Источник: ${task.type}`;
   };
@@ -919,6 +969,13 @@ const App = () => {
           multiple
           accept="video/mp4,video/quicktime,video/webm,video/x-matroska"
           onChange={(e) => void handleEndingSelected(e)}
+          className="hidden"
+        />
+        <input
+          ref={testVideoInputRef}
+          type="file"
+          accept="video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-m4v"
+          onChange={handleTestVideoPicked}
           className="hidden"
         />
 
@@ -1254,6 +1311,44 @@ const App = () => {
                 <p className="text-sm text-slate-600 mt-2">
                   Здесь видны превью, площадка публикации, статус обработки, время выхода и быстрые действия по каждому ролику.
                 </p>
+              </div>
+              <div className="tg-card p-4 space-y-3 border border-emerald-100 bg-gradient-to-br from-emerald-50/50 to-white">
+                <div>
+                  <p className="text-[12px] uppercase tracking-[0.18em] text-emerald-700">Debug Render</p>
+                  <h3 className="text-[18px] font-bold mt-1 text-slate-900">Тестовый прогон из локального видео</h3>
+                  <p className="text-xs text-slate-600 mt-1">
+                    Загружает файл и запускает только обработку финального ролика без production-публикации.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2">
+                  <div className="h-11 rounded-xl border border-slate-200 bg-white px-3 flex items-center text-[13px] text-slate-700 truncate">
+                    {testVideoFile ? `${testVideoFile.name} (${Math.round(testVideoFile.size / 1024 / 1024)} MB)` : 'Файл не выбран'}
+                  </div>
+                  <button
+                    onClick={handleSelectTestVideo}
+                    className="h-11 px-4 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold inline-flex items-center justify-center gap-2"
+                  >
+                    <Upload size={14} />
+                    Выбрать
+                  </button>
+                  <button
+                    onClick={() => void submitTestVideoTask()}
+                    disabled={!telegramId || !testVideoFile || submittingTestVideo}
+                    className="h-11 px-4 rounded-xl bg-emerald-600 text-white text-xs font-bold disabled:opacity-50"
+                  >
+                    {submittingTestVideo ? 'Запуск...' : 'Запустить тест'}
+                  </button>
+                </div>
+                {testVideoMessage && (
+                  <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+                    {testVideoMessage}
+                  </div>
+                )}
+                {testVideoError && (
+                  <div className="text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2">
+                    {testVideoError}
+                  </div>
+                )}
               </div>
               <div className="tg-card p-4 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_220px] gap-3">

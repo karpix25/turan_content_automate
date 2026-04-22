@@ -13,6 +13,7 @@ import os
 import logging
 import datetime
 import re
+import uuid
 from urllib.parse import urlparse, parse_qs
 from celery import Celery
 from dotenv import load_dotenv
@@ -436,6 +437,16 @@ def normalize_percent(value: int | None, *, field_name: str) -> int:
         raise HTTPException(status_code=400, detail=f"{field_name} must be between 0 and 100")
     return int(value)
 
+
+def _build_safe_upload_filename(original_name: str | None, fallback_extension: str = ".mp4") -> str:
+    base = os.path.basename((original_name or "").strip())
+    if not base:
+        base = f"upload{fallback_extension}"
+    base = re.sub(r"[^A-Za-z0-9._-]+", "_", base)
+    if "." not in base:
+        base = f"{base}{fallback_extension}"
+    return base
+
 @app.get("/")
 def read_root():
     return {"status": "ok", "message": "Content processing API is running"}
@@ -804,6 +815,66 @@ def delete_task(telegram_id: str, task_id: int, db: Session = Depends(get_db)):
     return {"ok": True}
 
 # File Uploads (Plates & CTA)
+@app.post("/upload/test-video/{telegram_id}")
+async def upload_test_video(
+    telegram_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+
+    safe_name = _build_safe_upload_filename(file.filename, fallback_extension=".mp4")
+    extension = os.path.splitext(safe_name)[1].lower()
+    allowed_extensions = {".mp4", ".mov", ".webm", ".mkv", ".m4v"}
+    if extension not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported file type. Allowed: mp4, mov, webm, mkv, m4v",
+        )
+
+    uploads_dir = os.getenv("TEST_VIDEO_INPUT_DIR", "/app/database/media/test-input")
+    os.makedirs(uploads_dir, exist_ok=True)
+    unique_name = f"{telegram_id}_{datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}_{safe_name}"
+    file_path = os.path.join(uploads_dir, unique_name)
+
+    with open(file_path, "wb") as target:
+        target.write(await file.read())
+
+    new_task = models.VideoTask(
+        user_id=user.id,
+        source_url=file_path,
+        source_title=safe_name,
+        type="local_upload",
+        status="pending",
+        publish_at=None,
+        publishing_status="not_published",
+    )
+    db.add(new_task)
+    db.commit()
+    db.refresh(new_task)
+
+    update_task_status_message(
+        db,
+        new_task,
+        stage="Тестовая задача создана",
+        detail="Локальное видео загружено. Запускаю обработку без production-пайплайна.",
+    )
+
+    try:
+        celery_client.send_task("process_content_task", args=[new_task.id])
+    except Exception as e:
+        logging.error(f"Failed to enqueue local upload task {new_task.id}: {e}")
+        raise HTTPException(status_code=500, detail="Task created but queue enqueue failed")
+
+    return {
+        "status": "queued",
+        "task_id": new_task.id,
+        "type": new_task.type,
+        "source_title": new_task.source_title,
+    }
+
+
 @app.post("/upload/plate/{telegram_id}", response_model=schemas.PlateAssetOut)
 async def upload_plate(telegram_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
     ensure_admin_access(telegram_id)
