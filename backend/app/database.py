@@ -59,6 +59,16 @@ def init_database() -> None:
             )
         )
         conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS heygen_avatar_id VARCHAR(128)"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS elevenlabs_voice_id VARCHAR(128)"
+            )
+        )
+        conn.execute(
             text("UPDATE users SET auto_schedule_enabled = FALSE WHERE auto_schedule_enabled IS NULL")
         )
         conn.execute(

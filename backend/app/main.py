@@ -4,9 +4,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import init_database, SessionLocal
 from . import models
+from dotenv import load_dotenv
 from .api.utils import get_allowed_cors_origins, get_telegram_admin_ids
 from .api.routers import settings, tasks, channels, uploads, external
-from .core.config import load_dotenv
 
 load_dotenv()
 
