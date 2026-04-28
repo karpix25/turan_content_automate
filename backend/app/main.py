@@ -33,6 +33,14 @@ app.include_router(channels.router)
 app.include_router(uploads.router)
 app.include_router(external.router)
 
+# Static Files for Previews
+media_dir = "/app/database/media"
+if os.path.exists(media_dir):
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/media", StaticFiles(directory=media_dir), name="media")
+    logging.info(f"Mounted static media directory: {media_dir}")
+
+
 @app.on_event("startup")
 async def startup_event():
     logging.info("--- Backend Startup Configuration ---")

@@ -35,6 +35,12 @@ export const apiClient = {
     });
     return res.data;
   },
+  getHeyGenAvatars: async (telegramId: string) => {
+    const res = await axios.get(`${API_BASE}/heygen/avatars`, {
+      params: { telegram_id: telegramId }
+    });
+    return res.data;
+  },
 
   // Tasks
   getTasks: async (telegramId: string) => {

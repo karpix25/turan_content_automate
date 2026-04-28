@@ -18,5 +18,6 @@ llm = LLMClient(api_key=os.getenv("OPENROUTER_API_KEY", ""))
 # Project config
 POSTMYPOST_PROJECT_ID = os.getenv("POSTMYPOST_PROJECT_ID", "")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
+HEYGEN_API_KEY = os.getenv("HEYGEN_API_KEY", "")
 TELEGRAM_ADMIN_IDS = os.getenv("TELEGRAM_ADMIN_IDS", "")
 CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "")

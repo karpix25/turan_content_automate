@@ -233,6 +233,14 @@ export const ChannelsTab: React.FC = () => {
             const isUploadingEnding = uploadingEndingAccountId === account.account_id;
             const accountEndings = endingClips.filter(e => e.account_id === account.account_id);
             const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+            
+            const getMediaUrl = (path: string) => {
+              if (!path) return '';
+              const parts = path.split('/media/');
+              if (parts.length > 1) return `${API_BASE}/media/${parts[1]}`;
+              return '';
+            };
+
 
             return (
               <div key={account.account_id} className={`tg-card overflow-hidden transition-opacity ${!account.enabled ? 'opacity-60' : ''}`}>
@@ -282,7 +290,7 @@ export const ChannelsTab: React.FC = () => {
                           <div className="space-y-2 mb-3">
                             {account.plate_assets?.map(plate => (
                               <div key={plate.id} className="flex items-center gap-2 bg-white p-1.5 rounded-lg border border-slate-100">
-                                <img src={`${API_BASE}/media/output/${plate.file_path.split('/').pop()}`} alt="Plate" className="w-8 h-8 object-cover rounded bg-slate-100" />
+                                <img src={getMediaUrl(plate.file_path)} alt="Plate" className="w-8 h-8 object-cover rounded bg-slate-100" />
                                 <span className="text-[10px] text-slate-500 flex-1 truncate">{plate.file_path.split('/').pop()}</span>
                                 <button
                                   onClick={() => deletePlate(plate.id)}
@@ -325,6 +333,13 @@ export const ChannelsTab: React.FC = () => {
                           <div className="space-y-2">
                             {accountEndings.map(ending => (
                               <div key={ending.id} className="flex items-center gap-2 bg-white p-1.5 rounded-lg border border-slate-100">
+                                <div className="w-8 h-8 rounded bg-slate-100 overflow-hidden flex-shrink-0">
+                                  {ending.file_path.toLowerCase().endsWith('.mp4') ? (
+                                    <video src={getMediaUrl(ending.file_path)} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <img src={getMediaUrl(ending.file_path)} className="w-full h-full object-cover" />
+                                  )}
+                                </div>
                                 <span className="text-[10px] font-bold bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 uppercase">
                                   {ending.platform}
                                 </span>

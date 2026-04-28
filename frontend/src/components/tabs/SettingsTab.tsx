@@ -14,6 +14,8 @@ export const SettingsTab: React.FC = () => {
   
   const [clonedVoices, setClonedVoices] = useState<{id: string, name: string}[]>([]);
   const [loadingVoices, setLoadingVoices] = useState(false);
+  const [heygenAvatars, setHeygenAvatars] = useState<{id: string, name: string, preview: string}[]>([]);
+  const [loadingAvatars, setLoadingAvatars] = useState(false);
   const [selectedAvatar, setSelectedAvatar] = useState<string>('');
   const [selectedVoice, setSelectedVoice] = useState<string>('');
   const [savingSettings, setSavingSettings] = useState(false);
@@ -59,8 +61,32 @@ export const SettingsTab: React.FC = () => {
       }
     };
 
+    const loadAvatars = async () => {
+      if (!telegramId) return;
+      setLoadingAvatars(true);
+      try {
+        const response = await apiClient.getHeyGenAvatars(telegramId);
+        if (response && response.data) {
+          const fetchedAvatars = response.data.map((a: any) => ({
+            id: a.id,
+            name: a.name,
+            preview: a.preview_image_url || a.preview_video_url || ''
+          }));
+          setHeygenAvatars(fetchedAvatars);
+          if (fetchedAvatars.length > 0) {
+            setSelectedAvatar(prev => prev || fetchedAvatars[0].id);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load avatars:", error);
+      } finally {
+        setLoadingAvatars(false);
+      }
+    };
+
     loadStyle();
     loadVoices();
+    loadAvatars();
   }, [telegramId]);
 
   const trainStyle = async () => {
@@ -133,28 +159,44 @@ export const SettingsTab: React.FC = () => {
           <User size={18} className="text-[#24a1de]" />
           <h3 className="text-[15px] font-bold text-slate-900">Выбор ИИ Аватара (HeyGen)</h3>
         </div>
-        <div className="grid grid-cols-3 gap-2">
-          {avatars.map(avatar => (
-            <div 
-              key={avatar.id} 
-              onClick={() => setSelectedAvatar(avatar.id)}
-              className={`relative cursor-pointer rounded-xl overflow-hidden border-2 transition-all ${
-                selectedAvatar === avatar.id ? 'border-[#24a1de] shadow-md' : 'border-transparent opacity-70 hover:opacity-100'
-              }`}
-            >
-              <img src={avatar.img} alt={avatar.name} className="w-full h-24 object-cover bg-slate-100" />
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
-                <p className="text-white text-[11px] font-bold leading-tight">{avatar.name}</p>
-                <p className="text-white/80 text-[9px] leading-tight truncate">{avatar.desc}</p>
-              </div>
-              {selectedAvatar === avatar.id && (
-                <div className="absolute top-1 right-1 w-4 h-4 bg-[#24a1de] rounded-full border-2 border-white flex items-center justify-center">
-                  <div className="w-1.5 h-1.5 bg-white rounded-full"></div>
+        
+        {loadingAvatars ? (
+          <div className="flex items-center justify-center py-6 text-slate-400">
+            <Loader2 className="animate-spin w-5 h-5 mr-2" />
+            <span className="text-sm">Загрузка аватаров...</span>
+          </div>
+        ) : heygenAvatars.length === 0 ? (
+          <div className="text-center py-6 text-slate-400 italic text-sm">
+            Аватары не найдены
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {heygenAvatars.map(avatar => (
+              <div 
+                key={avatar.id} 
+                onClick={() => setSelectedAvatar(avatar.id)}
+                className={`relative cursor-pointer rounded-xl overflow-hidden border-2 transition-all h-32 ${
+                  selectedAvatar === avatar.id ? 'border-[#24a1de] shadow-md' : 'border-transparent opacity-70 hover:opacity-100'
+                }`}
+              >
+                {avatar.preview && avatar.preview.endsWith('.mp4') ? (
+                  <video src={avatar.preview} className="w-full h-full object-cover bg-slate-100" muted onMouseOver={e => e.currentTarget.play()} onMouseOut={e => {e.currentTarget.pause(); e.currentTarget.currentTime = 0;}} />
+                ) : (
+                  <img src={avatar.preview || 'https://via.placeholder.com/150'} alt={avatar.name} className="w-full h-full object-cover bg-slate-100" />
+                )}
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2">
+                  <p className="text-white text-[11px] font-bold leading-tight truncate">{avatar.name}</p>
+                  <p className="text-white/60 text-[8px] leading-tight truncate mt-0.5">{avatar.id}</p>
                 </div>
-              )}
-            </div>
-          ))}
-        </div>
+                {selectedAvatar === avatar.id && (
+                  <div className="absolute top-2 right-2 w-5 h-5 bg-[#24a1de] rounded-full border-2 border-white flex items-center justify-center shadow-sm">
+                    <div className="w-2 h-2 bg-white rounded-full"></div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="tg-card p-4">
