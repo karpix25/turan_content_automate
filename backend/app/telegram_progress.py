@@ -161,3 +161,35 @@ def send_avatar_audio_to_telegram(task, audio_path: str, estimated_minutes: floa
                 )
     except Exception as exc:
         logger.warning(f"Failed to send Telegram audio: {exc}")
+
+def send_avatar_video_to_telegram(task, video_path: str, caption: str | None = None) -> None:
+    token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+    chat_id = (getattr(task, "telegram_chat_id", None) or "").strip()
+    if not token or not chat_id:
+        return
+
+    if not video_path or not os.path.exists(video_path):
+        logger.error(f"Video path {video_path} does not exist.")
+        return
+
+    if not caption:
+        caption = f"✅ Видео с ИИ-аватаром готово!\nВидео #{getattr(task, 'id', '-')}"
+    
+    try:
+        with httpx.Client(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
+            with open(video_path, "rb") as f:
+                response = client.post(
+                    f"https://api.telegram.org/bot{token}/sendVideo",
+                    data={"chat_id": chat_id, "caption": caption},
+                    files={"video": f}
+                )
+            payload = response.json()
+            if response.status_code >= 400 or not payload.get("ok", False):
+                description = payload.get("description") if isinstance(payload, dict) else response.text[:300]
+                logger.warning(
+                    "Failed to send Telegram video: status=%s description=%s",
+                    response.status_code,
+                    description,
+                )
+    except Exception as exc:
+        logger.warning(f"Failed to send Telegram video: {exc}")

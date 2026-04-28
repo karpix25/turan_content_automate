@@ -15,8 +15,9 @@ from .integrations.postmypost import PostMyPostClient
 from .processor import VideoProcessor
 from .database import SessionLocal, init_database
 from .publish_planner import plan_next_publish_times
-from .telegram_progress import update_task_status_message, send_avatar_audio_to_telegram
+from .telegram_progress import update_task_status_message, send_avatar_audio_to_telegram, send_avatar_video_to_telegram
 from .integrations.elevenlabs_client import ElevenLabsClient
+from .integrations.heygen_client import HeyGenClient
 from . import models
 from dotenv import load_dotenv
 
@@ -31,6 +32,7 @@ pmp_client = PostMyPostClient(api_key=(os.getenv("POSTMYPOST_API_KEY") or "").st
 scraper = ScrapeCreatorsClient(api_key=(os.getenv("SCRAPE_CREATORS_API_KEY") or "").strip())
 llm = LLMClient(api_key=(os.getenv("OPENROUTER_API_KEY") or "").strip())
 elevenlabs_client = ElevenLabsClient(api_key=(os.getenv("ELEVENLABS_API_KEY") or "").strip())
+heygen_client = HeyGenClient(api_key=(os.getenv("HEYGEN_API_KEY") or "").strip())
 rapidapi_yt = RapidAPIYoutubeClient(
     api_key=os.getenv("RAPIDAPI_KEY", ""),
     host=os.getenv("YOUTUBE_DOWNLOAD_RAPIDAPI_HOST", "youtube-mp4-mp3-downloader.p.rapidapi.com"),
@@ -835,16 +837,48 @@ def process_content_task(task_id: int):
             update_task_status_message(db, task, stage="Telegram", detail="Отправляю готовое аудио в Telegram.")
             send_avatar_audio_to_telegram(task, audio_output_path, estimated_minutes=estimated_minutes)
             
+            # --- HeyGen Video Generation ---
+            avatar_id = (user.heygen_avatar_id or os.getenv("HEYGEN_AVATAR_ID", "788070966a344933a30c6a8581005a30")).strip()
             update_task_status_message(
                 db,
                 task,
-                stage="Готово",
-                detail=f"Аудио для аватара готово и отправлено в Telegram (~{estimated_minutes} мин).",
-                ok=True,
+                stage="HeyGen",
+                detail=f"Отправляю аудио в HeyGen (Avatar: {avatar_id}).",
             )
-            task.status = "completed"
-            db.commit()
-            return # Avatar flow stops at script generation for now
+            
+            # 1. Upload audio to HeyGen assets
+            audio_url = asyncio.run(heygen_client.upload_asset(audio_output_path))
+            if not audio_url:
+                raise Exception("Failed to upload audio to HeyGen assets")
+                
+            # 2. Generate video
+            update_task_status_message(db, task, stage="HeyGen", detail="Генерирую видео с аватаром...")
+            heygen_video_id = asyncio.run(heygen_client.generate_avatar_video(avatar_id, audio_url))
+            if not heygen_video_id:
+                raise Exception("Failed to submit video generation to HeyGen")
+                
+            # 3. Poll for completion
+            update_task_status_message(db, task, stage="HeyGen", detail="Ожидаю рендеринг аватара (это может занять 10-20 мин)...")
+            final_video_url = asyncio.run(heygen_client.poll_video_status(heygen_video_id))
+            if not final_video_url:
+                raise Exception("HeyGen video generation timed out or failed")
+                
+            # 4. Download result
+            update_task_status_message(db, task, stage="Монтаж", detail="Скачиваю готовое видео из HeyGen.")
+            final_video_path = os.path.join(
+                os.getenv("OUTPUT_DIR", "./output").strip(),
+                f"avatar_video_{task_id}.mp4"
+            )
+            local_avatar_video = downloader.download_media(final_video_url, f"heygen_{task_id}")
+            if not local_avatar_video:
+                raise Exception("Failed to download final video from HeyGen")
+                
+            # --- Final Post-Processing (Plates/Endings) ---
+            # We treat this video as the 'source' for the final step
+            input_videos.append(local_avatar_video)
+            input_video_titles.append(task.source_title or f"Avatar Video {task_id}")
+            # Continue to standard processing loop below
+
 
         elif task.type == "instagram":
             update_task_status_message(db, task, stage="Скачивание", detail="Скачиваю видео из Instagram.")
@@ -1119,6 +1153,10 @@ def process_content_task(task_id: int):
                 primary_output["publish_at"],
             )
             celery_app.send_task("sync_publication_task", args=[task.id])
+
+        if task.type == "avatar_youtube" and task.output_path:
+            update_task_status_message(db, task, stage="Telegram", detail="Отправляю финальное видео в Telegram.")
+            send_avatar_video_to_telegram(task, task.output_path)
 
         for derived_output in rendered_outputs[1:]:
             derived_task = _upsert_processed_task(
