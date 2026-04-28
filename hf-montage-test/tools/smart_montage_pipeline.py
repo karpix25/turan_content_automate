@@ -100,10 +100,11 @@ def deepgram_transcribe(
     # Some Deepgram intelligence extras are model/language dependent and may return 400.
     # Keep them optional so RU flows remain stable.
     if include_intelligence:
-        params["topics"] = "true"
-        params["intents"] = "true"
-        params["sentiment"] = "true"
-        params["summarize"] = "v2"
+        if language.startswith("en"):
+            params["topics"] = "true"
+            params["intents"] = "true"
+            params["sentiment"] = "true"
+            params["summarize"] = "v2"
     url = "https://api.deepgram.com/v1/listen?" + urllib.parse.urlencode(params)
     mime, _ = mimetypes.guess_type(video_path.name)
     content_type = mime or "application/octet-stream"
