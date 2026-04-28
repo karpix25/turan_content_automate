@@ -52,8 +52,8 @@ def get_heygen_avatars(telegram_id: str = None, db: Session = Depends(get_db)):
         "x-api-key": api_key,
         "Accept": "application/json"
     }
-    # We'll fetch both public and private avatars for maximum flexibility
-    url = "https://api.heygen.com/v3/avatars"
+    # We'll fetch only private avatar looks as requested
+    url = "https://api.heygen.com/v3/avatars/looks?ownership=private"
     try:
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
