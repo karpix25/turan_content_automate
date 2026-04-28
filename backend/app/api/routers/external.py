@@ -15,7 +15,7 @@ def get_elevenlabs_voices(telegram_id: str = None, db: Session = Depends(get_db)
     
     api_key = ELEVENLABS_API_KEY.strip()
     if not api_key:
-        raise HTTPException(status_code=400, detail="ELEVENLABS_API_KEY is not configured")
+        return {"voices": []}
     
     headers = {
         "xi-api-key": api_key,
@@ -46,7 +46,7 @@ def get_heygen_avatars(telegram_id: str = None, db: Session = Depends(get_db)):
     from ...core.config import HEYGEN_API_KEY
     api_key = HEYGEN_API_KEY.strip()
     if not api_key:
-        raise HTTPException(status_code=400, detail="HEYGEN_API_KEY is not configured")
+        return {"data": {"avatars": []}}
     
     headers = {
         "x-api-key": api_key,
