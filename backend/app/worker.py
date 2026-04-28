@@ -77,8 +77,8 @@ rapidapi_yt = RapidAPIYoutubeClient(
 )
 downloader = Downloader(output_dir=(os.getenv("OUTPUT_DIR") or "./output").strip())
 processor = VideoProcessor()
-AVATAR_SCRIPT_MIN_MINUTES = int(os.getenv("AVATAR_SCRIPT_MIN_MINUTES", "10"))
-AVATAR_SCRIPT_MAX_MINUTES = int(os.getenv("AVATAR_SCRIPT_MAX_MINUTES", "15"))
+AVATAR_SCRIPT_MIN_MINUTES = int(os.getenv("AVATAR_SCRIPT_MIN_MINUTES", "4"))
+AVATAR_SCRIPT_MAX_MINUTES = int(os.getenv("AVATAR_SCRIPT_MAX_MINUTES", "6"))
 AVATAR_SCRIPT_WPM = int(os.getenv("AVATAR_SCRIPT_WORDS_PER_MINUTE", "110"))
 if AVATAR_SCRIPT_MIN_MINUTES < 1:
     AVATAR_SCRIPT_MIN_MINUTES = 1
@@ -152,7 +152,7 @@ def process_content_task(task_id: int):
                 db,
                 task,
                 stage="Сценарий",
-                detail="Пишу сценарий в вашем стиле на 10-15 минут.",
+                detail="Пишу сценарий в вашем стиле на 4-6 минут.",
             )
             style_profile = user.author_style_profile
             min_words = AVATAR_SCRIPT_MIN_MINUTES * AVATAR_SCRIPT_WPM
@@ -174,7 +174,7 @@ def process_content_task(task_id: int):
                     db,
                     task,
                     stage="Сценарий",
-                    detail="Подгоняю длину сценария под 10-15 минут.",
+                    detail="Подгоняю длину сценария под 4-6 минут.",
                 )
                 adjusted_script = llm.adjust_script_length(
                     script=script,
