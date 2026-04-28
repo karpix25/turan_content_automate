@@ -67,8 +67,8 @@ class HeyGenClient:
                 }
             ],
             "dimension": {
-                "width": 1080,
-                "height": 1920
+                "width": 1920,
+                "height": 1080
             }
         }
         
