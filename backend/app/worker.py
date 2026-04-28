@@ -101,7 +101,7 @@ def _run_remotion_pipeline(task_id: int, input_video: str, script: str) -> str |
     
     # 1. Run AI Scene Planner
     cmd_plan = [
-        "python", montage_script,
+        "python3", montage_script,
         "--video", input_video,
         "--index", dummy_index,
         "--out-plan", out_plan,
