@@ -276,13 +276,13 @@ def process_content_task(task_id: int):
             )
             
             # 1. Upload audio to HeyGen assets
-            audio_url = asyncio.run(heygen_client.upload_asset(audio_output_path))
-            if not audio_url:
+            audio_asset_id = asyncio.run(heygen_client.upload_asset(audio_output_path))
+            if not audio_asset_id:
                 raise Exception("Failed to upload audio to HeyGen assets")
                 
             # 2. Generate video
             update_task_status_message(db, task, stage="HeyGen", detail="Генерирую видео с аватаром...")
-            heygen_video_id = asyncio.run(heygen_client.generate_avatar_video(avatar_id, audio_url))
+            heygen_video_id = asyncio.run(heygen_client.generate_avatar_video(avatar_id, audio_asset_id))
             if not heygen_video_id:
                 raise Exception("Failed to submit video generation to HeyGen")
                 

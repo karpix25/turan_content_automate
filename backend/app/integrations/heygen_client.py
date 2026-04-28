@@ -18,36 +18,34 @@ class HeyGenClient:
 
     async def upload_asset(self, file_path: str, file_type: str = "audio") -> Optional[str]:
         """
-        Uploads a file to HeyGen and returns the asset URL or ID.
-        HeyGen v1 asset upload: POST /v1/asset/upload
+        Uploads a file to HeyGen and returns the asset ID.
+        HeyGen v1 asset upload: POST https://upload.heygen.com/v1/asset
         """
-        url = f"{self.base_url}/v1/asset/upload"
+        url = "https://upload.heygen.com/v1/asset"
         
-        # HeyGen expects query param 'type'
-        params = {"type": file_type}
-        
-        # Remove Content-Type for multipart upload
-        headers = {"X-Api-Key": self.api_key}
-        
-        filename = os.path.basename(file_path)
+        headers = {
+            "X-Api-Key": self.api_key,
+            "Content-Type": "audio/mpeg" if file_type == "audio" else "application/octet-stream"
+        }
         
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=120.0) as client:
                 with open(file_path, "rb") as f:
-                    files = {"file": (filename, f)}
-                    response = await client.post(url, params=params, headers=headers, files=files)
+                    content = f.read()
+                    
+                response = await client.post(url, headers=headers, content=content)
                     
                 if response.status_code != 200:
                     logger.error(f"HeyGen upload failed: {response.status_code} {response.text}")
                     return None
                 
                 data = response.json()
-                return data.get("data", {}).get("url")
+                return data.get("data", {}).get("id")
         except Exception as e:
             logger.exception(f"Error uploading asset to HeyGen: {e}")
             return None
 
-    async def generate_avatar_video(self, avatar_id: str, audio_url: str) -> Optional[str]:
+    async def generate_avatar_video(self, avatar_id: str, audio_asset_id: str) -> Optional[str]:
         """
         Submits a video generation task to HeyGen v2.
         Returns video_id.
@@ -64,7 +62,7 @@ class HeyGenClient:
                     },
                     "voice": {
                         "type": "audio",
-                        "audio_url": audio_url
+                        "audio_asset_id": audio_asset_id
                     }
                 }
             ],
