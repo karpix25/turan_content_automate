@@ -1,0 +1,2306 @@
+{
+  "metadata": {
+    "transaction_key": "deprecated",
+    "request_id": "019dcf7a-cedf-7d63-827d-03bf1347ef9a",
+    "sha256": "eb4bdec139bb295fe37f507651fac70c0f11bc5695db9611d1c5544405decaea",
+    "created": "2026-04-27T15:08:41.291Z",
+    "duration": 45.0,
+    "channels": 1,
+    "models": [
+      "5820fddd-8c26-4518-9c1f-818e44801622"
+    ],
+    "model_info": {
+      "5820fddd-8c26-4518-9c1f-818e44801622": {
+        "name": "general-nova-3",
+        "version": "2025-09-24.28817",
+        "arch": "nova-3"
+      }
+    }
+  },
+  "results": {
+    "channels": [
+      {
+        "alternatives": [
+          {
+            "transcript": "Государство закручивает гайки. И у малого бизнеса первая реакция уйдём в тень, платить не будем. Ребята, это смертельная ошибка. Прятаться в 2020 четвёртом это как в девяностые. Только вместо братков к вам придёт бездушный искусственный интеллект. И он не будет с вами договариваться. Многие думают, что можно как раньше уйти в обнал, и всё будет тип-топ. Забудьте. Я вам честно скажу, в начале девяностых мы сами обналивали деньги под 2%. Это было в порядке вещей, но сегодня обнал безумно дорогое и тупое удовольствие. Почему? Да потому что наша налоговая служба вышла на такой технологический уровень, который миру и не снился. Это уже не тётеньки со счетами и бумажками. Это ИИ, который видит вообще все ваши транзакции в реальном времени. Он просматривает всю цепочку НДС от завода до конечного покупателя. Любой разрыв в этой цепочке, любая мутная операция мгновенный красный флаг. Вам больше не надо считать налог на имущество, его просто присылают в личный",
+            "confidence": 0.99560547,
+            "words": [
+              {
+                "word": "государство",
+                "start": 0.0,
+                "end": 0.48,
+                "confidence": 0.98461914,
+                "punctuated_word": "Государство"
+              },
+              {
+                "word": "закручивает",
+                "start": 0.48,
+                "end": 0.96,
+                "confidence": 0.9983724,
+                "punctuated_word": "закручивает"
+              },
+              {
+                "word": "гайки",
+                "start": 0.96,
+                "end": 1.4399999,
+                "confidence": 0.90999347,
+                "punctuated_word": "гайки."
+              },
+              {
+                "word": "и",
+                "start": 1.4399999,
+                "end": 1.52,
+                "confidence": 0.97802734,
+                "punctuated_word": "И"
+              },
+              {
+                "word": "у",
+                "start": 1.52,
+                "end": 1.5999999,
+                "confidence": 0.9995117,
+                "punctuated_word": "у"
+              },
+              {
+                "word": "малого",
+                "start": 1.5999999,
+                "end": 1.92,
+                "confidence": 0.99902344,
+                "punctuated_word": "малого"
+              },
+              {
+                "word": "бизнеса",
+                "start": 1.92,
+                "end": 2.24,
+                "confidence": 1.0,
+                "punctuated_word": "бизнеса"
+              },
+              {
+                "word": "первая",
+                "start": 2.24,
+                "end": 2.56,
+                "confidence": 0.99560547,
+                "punctuated_word": "первая"
+              },
+              {
+                "word": "реакция",
+                "start": 2.56,
+                "end": 2.96,
+                "confidence": 1.0,
+                "punctuated_word": "реакция"
+              },
+              {
+                "word": "уйдём",
+                "start": 2.96,
+                "end": 3.4399998,
+                "confidence": 0.8442383,
+                "punctuated_word": "уйдём"
+              },
+              {
+                "word": "в",
+                "start": 3.4399998,
+                "end": 3.52,
+                "confidence": 0.9980469,
+                "punctuated_word": "в"
+              },
+              {
+                "word": "тень",
+                "start": 3.52,
+                "end": 3.84,
+                "confidence": 0.91845703,
+                "punctuated_word": "тень,"
+              },
+              {
+                "word": "платить",
+                "start": 3.84,
+                "end": 4.08,
+                "confidence": 1.0,
+                "punctuated_word": "платить"
+              },
+              {
+                "word": "не",
+                "start": 4.08,
+                "end": 4.3199997,
+                "confidence": 1.0,
+                "punctuated_word": "не"
+              },
+              {
+                "word": "будем",
+                "start": 4.3199997,
+                "end": 4.7999997,
+                "confidence": 0.9951172,
+                "punctuated_word": "будем."
+              },
+              {
+                "word": "ребята",
+                "start": 4.7999997,
+                "end": 5.2,
+                "confidence": 0.9951172,
+                "punctuated_word": "Ребята,"
+              },
+              {
+                "word": "это",
+                "start": 5.2,
+                "end": 5.44,
+                "confidence": 0.9951172,
+                "punctuated_word": "это"
+              },
+              {
+                "word": "смертельная",
+                "start": 5.44,
+                "end": 5.8399997,
+                "confidence": 0.99902344,
+                "punctuated_word": "смертельная"
+              },
+              {
+                "word": "ошибка",
+                "start": 5.8399997,
+                "end": 6.24,
+                "confidence": 0.9921875,
+                "punctuated_word": "ошибка."
+              },
+              {
+                "word": "прятаться",
+                "start": 6.24,
+                "end": 6.72,
+                "confidence": 0.9984375,
+                "punctuated_word": "Прятаться"
+              },
+              {
+                "word": "в",
+                "start": 6.72,
+                "end": 6.8799996,
+                "confidence": 1.0,
+                "punctuated_word": "в"
+              },
+              {
+                "word": "2020",
+                "start": 6.8799996,
+                "end": 7.3599997,
+                "confidence": 0.98876953,
+                "punctuated_word": "2020"
+              },
+              {
+                "word": "четвёртом",
+                "start": 7.3599997,
+                "end": 7.7599998,
+                "confidence": 0.99560547,
+                "punctuated_word": "четвёртом"
+              },
+              {
+                "word": "это",
+                "start": 7.7599998,
+                "end": 8.0,
+                "confidence": 0.9536133,
+                "punctuated_word": "это"
+              },
+              {
+                "word": "как",
+                "start": 8.0,
+                "end": 8.16,
+                "confidence": 0.9941406,
+                "punctuated_word": "как"
+              },
+              {
+                "word": "в",
+                "start": 8.16,
+                "end": 8.32,
+                "confidence": 0.99902344,
+                "punctuated_word": "в"
+              },
+              {
+                "word": "девяностые",
+                "start": 8.32,
+                "end": 8.8,
+                "confidence": 0.85302734,
+                "punctuated_word": "девяностые."
+              },
+              {
+                "word": "только",
+                "start": 8.8,
+                "end": 9.04,
+                "confidence": 0.9838867,
+                "punctuated_word": "Только"
+              },
+              {
+                "word": "вместо",
+                "start": 9.04,
+                "end": 9.28,
+                "confidence": 1.0,
+                "punctuated_word": "вместо"
+              },
+              {
+                "word": "братков",
+                "start": 9.28,
+                "end": 9.679999,
+                "confidence": 0.9914551,
+                "punctuated_word": "братков"
+              },
+              {
+                "word": "к",
+                "start": 9.679999,
+                "end": 9.84,
+                "confidence": 0.99902344,
+                "punctuated_word": "к"
+              },
+              {
+                "word": "вам",
+                "start": 9.84,
+                "end": 9.92,
+                "confidence": 0.9428711,
+                "punctuated_word": "вам"
+              },
+              {
+                "word": "придёт",
+                "start": 9.92,
+                "end": 10.16,
+                "confidence": 0.99316406,
+                "punctuated_word": "придёт"
+              },
+              {
+                "word": "бездушный",
+                "start": 10.16,
+                "end": 10.719999,
+                "confidence": 1.0,
+                "punctuated_word": "бездушный"
+              },
+              {
+                "word": "искусственный",
+                "start": 10.719999,
+                "end": 11.2,
+                "confidence": 0.9951172,
+                "punctuated_word": "искусственный"
+              },
+              {
+                "word": "интеллект",
+                "start": 11.2,
+                "end": 11.919999,
+                "confidence": 0.87353516,
+                "punctuated_word": "интеллект."
+              },
+              {
+                "word": "и",
+                "start": 11.92,
+                "end": 12.08,
+                "confidence": 0.97509766,
+                "punctuated_word": "И"
+              },
+              {
+                "word": "он",
+                "start": 12.08,
+                "end": 12.24,
+                "confidence": 0.99902344,
+                "punctuated_word": "он"
+              },
+              {
+                "word": "не",
+                "start": 12.24,
+                "end": 12.32,
+                "confidence": 1.0,
+                "punctuated_word": "не"
+              },
+              {
+                "word": "будет",
+                "start": 12.32,
+                "end": 12.48,
+                "confidence": 1.0,
+                "punctuated_word": "будет"
+              },
+              {
+                "word": "с",
+                "start": 12.48,
+                "end": 12.559999,
+                "confidence": 1.0,
+                "punctuated_word": "с"
+              },
+              {
+                "word": "вами",
+                "start": 12.559999,
+                "end": 12.719999,
+                "confidence": 1.0,
+                "punctuated_word": "вами"
+              },
+              {
+                "word": "договариваться",
+                "start": 12.719999,
+                "end": 13.28,
+                "confidence": 0.9736328,
+                "punctuated_word": "договариваться."
+              },
+              {
+                "word": "многие",
+                "start": 13.28,
+                "end": 13.5199995,
+                "confidence": 1.0,
+                "punctuated_word": "Многие"
+              },
+              {
+                "word": "думают",
+                "start": 13.5199995,
+                "end": 13.84,
+                "confidence": 0.99902344,
+                "punctuated_word": "думают,"
+              },
+              {
+                "word": "что",
+                "start": 13.84,
+                "end": 13.92,
+                "confidence": 0.99902344,
+                "punctuated_word": "что"
+              },
+              {
+                "word": "можно",
+                "start": 13.92,
+                "end": 14.16,
+                "confidence": 0.9970703,
+                "punctuated_word": "можно"
+              },
+              {
+                "word": "как",
+                "start": 14.16,
+                "end": 14.4,
+                "confidence": 0.8691406,
+                "punctuated_word": "как"
+              },
+              {
+                "word": "раньше",
+                "start": 14.4,
+                "end": 14.559999,
+                "confidence": 0.97802734,
+                "punctuated_word": "раньше"
+              },
+              {
+                "word": "уйти",
+                "start": 14.559999,
+                "end": 14.88,
+                "confidence": 1.0,
+                "punctuated_word": "уйти"
+              },
+              {
+                "word": "в",
+                "start": 14.88,
+                "end": 15.04,
+                "confidence": 1.0,
+                "punctuated_word": "в"
+              },
+              {
+                "word": "обнал",
+                "start": 15.04,
+                "end": 16.08,
+                "confidence": 0.84594727,
+                "punctuated_word": "обнал,"
+              },
+              {
+                "word": "и",
+                "start": 15.545,
+                "end": 15.625,
+                "confidence": 0.9921875,
+                "punctuated_word": "и"
+              },
+              {
+                "word": "всё",
+                "start": 15.625,
+                "end": 15.785,
+                "confidence": 0.8984375,
+                "punctuated_word": "всё"
+              },
+              {
+                "word": "будет",
+                "start": 15.785,
+                "end": 16.025,
+                "confidence": 1.0,
+                "punctuated_word": "будет"
+              },
+              {
+                "word": "тип-топ",
+                "start": 16.025,
+                "end": 16.665,
+                "confidence": 0.88012695,
+                "punctuated_word": "тип-топ."
+              },
+              {
+                "word": "забудьте",
+                "start": 16.665,
+                "end": 17.145,
+                "confidence": 0.9223633,
+                "punctuated_word": "Забудьте."
+              },
+              {
+                "word": "я",
+                "start": 17.145,
+                "end": 17.225,
+                "confidence": 0.99316406,
+                "punctuated_word": "Я"
+              },
+              {
+                "word": "вам",
+                "start": 17.225,
+                "end": 17.385,
+                "confidence": 0.9448242,
+                "punctuated_word": "вам"
+              },
+              {
+                "word": "честно",
+                "start": 17.385,
+                "end": 17.625,
+                "confidence": 0.99902344,
+                "punctuated_word": "честно"
+              },
+              {
+                "word": "скажу",
+                "start": 17.625,
+                "end": 17.865,
+                "confidence": 0.94091797,
+                "punctuated_word": "скажу,"
+              },
+              {
+                "word": "в",
+                "start": 17.865,
+                "end": 17.945,
+                "confidence": 0.9921875,
+                "punctuated_word": "в"
+              },
+              {
+                "word": "начале",
+                "start": 17.945,
+                "end": 18.185,
+                "confidence": 1.0,
+                "punctuated_word": "начале"
+              },
+              {
+                "word": "девяностых",
+                "start": 18.185,
+                "end": 18.585,
+                "confidence": 0.97314453,
+                "punctuated_word": "девяностых"
+              },
+              {
+                "word": "мы",
+                "start": 18.585,
+                "end": 18.745,
+                "confidence": 0.99902344,
+                "punctuated_word": "мы"
+              },
+              {
+                "word": "сами",
+                "start": 18.745,
+                "end": 18.905,
+                "confidence": 0.99609375,
+                "punctuated_word": "сами"
+              },
+              {
+                "word": "обналивали",
+                "start": 18.905,
+                "end": 19.385,
+                "confidence": 0.95874023,
+                "punctuated_word": "обналивали"
+              },
+              {
+                "word": "деньги",
+                "start": 19.385,
+                "end": 19.545,
+                "confidence": 0.99902344,
+                "punctuated_word": "деньги"
+              },
+              {
+                "word": "под",
+                "start": 19.545,
+                "end": 19.785,
+                "confidence": 0.6489258,
+                "punctuated_word": "под"
+              },
+              {
+                "word": "2%",
+                "start": 19.785,
+                "end": 20.505001,
+                "confidence": 0.91829425,
+                "punctuated_word": "2%."
+              },
+              {
+                "word": "это",
+                "start": 20.505001,
+                "end": 20.665,
+                "confidence": 0.9970703,
+                "punctuated_word": "Это"
+              },
+              {
+                "word": "было",
+                "start": 20.665,
+                "end": 20.825,
+                "confidence": 0.99902344,
+                "punctuated_word": "было"
+              },
+              {
+                "word": "в",
+                "start": 20.825,
+                "end": 20.985,
+                "confidence": 0.99121094,
+                "punctuated_word": "в"
+              },
+              {
+                "word": "порядке",
+                "start": 20.985,
+                "end": 21.305,
+                "confidence": 1.0,
+                "punctuated_word": "порядке"
+              },
+              {
+                "word": "вещей",
+                "start": 21.305,
+                "end": 21.705,
+                "confidence": 0.84350586,
+                "punctuated_word": "вещей,"
+              },
+              {
+                "word": "но",
+                "start": 21.705,
+                "end": 21.865,
+                "confidence": 0.99902344,
+                "punctuated_word": "но"
+              },
+              {
+                "word": "сегодня",
+                "start": 21.865,
+                "end": 22.185,
+                "confidence": 1.0,
+                "punctuated_word": "сегодня"
+              },
+              {
+                "word": "обнал",
+                "start": 22.185,
+                "end": 22.505001,
+                "confidence": 0.9967448,
+                "punctuated_word": "обнал"
+              },
+              {
+                "word": "безумно",
+                "start": 22.505001,
+                "end": 22.825,
+                "confidence": 1.0,
+                "punctuated_word": "безумно"
+              },
+              {
+                "word": "дорогое",
+                "start": 22.825,
+                "end": 23.145,
+                "confidence": 0.99902344,
+                "punctuated_word": "дорогое"
+              },
+              {
+                "word": "и",
+                "start": 23.145,
+                "end": 23.305,
+                "confidence": 0.9921875,
+                "punctuated_word": "и"
+              },
+              {
+                "word": "тупое",
+                "start": 23.305,
+                "end": 23.625,
+                "confidence": 0.9970703,
+                "punctuated_word": "тупое"
+              },
+              {
+                "word": "удовольствие",
+                "start": 23.625,
+                "end": 24.105,
+                "confidence": 0.9904785,
+                "punctuated_word": "удовольствие."
+              },
+              {
+                "word": "почему",
+                "start": 24.105,
+                "end": 24.425,
+                "confidence": 0.9838867,
+                "punctuated_word": "Почему?"
+              },
+              {
+                "word": "да",
+                "start": 24.425,
+                "end": 24.665,
+                "confidence": 0.9633789,
+                "punctuated_word": "Да"
+              },
+              {
+                "word": "потому",
+                "start": 24.665,
+                "end": 24.904999,
+                "confidence": 1.0,
+                "punctuated_word": "потому"
+              },
+              {
+                "word": "что",
+                "start": 24.904999,
+                "end": 24.985,
+                "confidence": 0.95703125,
+                "punctuated_word": "что"
+              },
+              {
+                "word": "наша",
+                "start": 24.985,
+                "end": 25.225,
+                "confidence": 0.9951172,
+                "punctuated_word": "наша"
+              },
+              {
+                "word": "налоговая",
+                "start": 25.225,
+                "end": 25.705,
+                "confidence": 0.9980469,
+                "punctuated_word": "налоговая"
+              },
+              {
+                "word": "служба",
+                "start": 25.705,
+                "end": 26.025,
+                "confidence": 1.0,
+                "punctuated_word": "служба"
+              },
+              {
+                "word": "вышла",
+                "start": 26.025,
+                "end": 26.265,
+                "confidence": 1.0,
+                "punctuated_word": "вышла"
+              },
+              {
+                "word": "на",
+                "start": 26.265,
+                "end": 26.345001,
+                "confidence": 1.0,
+                "punctuated_word": "на"
+              },
+              {
+                "word": "такой",
+                "start": 26.345001,
+                "end": 26.585,
+                "confidence": 1.0,
+                "punctuated_word": "такой"
+              },
+              {
+                "word": "технологический",
+                "start": 26.585,
+                "end": 27.224998,
+                "confidence": 0.9975586,
+                "punctuated_word": "технологический"
+              },
+              {
+                "word": "уровень",
+                "start": 27.305,
+                "end": 27.785,
+                "confidence": 0.9995117,
+                "punctuated_word": "уровень,"
+              },
+              {
+                "word": "который",
+                "start": 27.785,
+                "end": 28.025,
+                "confidence": 0.99316406,
+                "punctuated_word": "который"
+              },
+              {
+                "word": "миру",
+                "start": 28.025,
+                "end": 28.345001,
+                "confidence": 0.9970703,
+                "punctuated_word": "миру"
+              },
+              {
+                "word": "и",
+                "start": 28.345001,
+                "end": 28.505001,
+                "confidence": 0.99194336,
+                "punctuated_word": "и"
+              },
+              {
+                "word": "не",
+                "start": 28.505001,
+                "end": 28.585,
+                "confidence": 1.0,
+                "punctuated_word": "не"
+              },
+              {
+                "word": "снился",
+                "start": 28.585,
+                "end": 28.985,
+                "confidence": 0.9984375,
+                "punctuated_word": "снился."
+              },
+              {
+                "word": "это",
+                "start": 28.985,
+                "end": 29.305,
+                "confidence": 0.99902344,
+                "punctuated_word": "Это"
+              },
+              {
+                "word": "уже",
+                "start": 29.305,
+                "end": 29.465,
+                "confidence": 0.9970703,
+                "punctuated_word": "уже"
+              },
+              {
+                "word": "не",
+                "start": 29.465,
+                "end": 29.625,
+                "confidence": 0.99609375,
+                "punctuated_word": "не"
+              },
+              {
+                "word": "тётеньки",
+                "start": 29.625,
+                "end": 29.945,
+                "confidence": 0.9407552,
+                "punctuated_word": "тётеньки"
+              },
+              {
+                "word": "со",
+                "start": 29.945,
+                "end": 30.105,
+                "confidence": 0.99902344,
+                "punctuated_word": "со"
+              },
+              {
+                "word": "счетами",
+                "start": 30.105,
+                "end": 30.345001,
+                "confidence": 0.98779297,
+                "punctuated_word": "счетами"
+              },
+              {
+                "word": "и",
+                "start": 30.345001,
+                "end": 30.505001,
+                "confidence": 0.9995117,
+                "punctuated_word": "и"
+              },
+              {
+                "word": "бумажками",
+                "start": 30.505001,
+                "end": 31.145,
+                "confidence": 0.89575195,
+                "punctuated_word": "бумажками."
+              },
+              {
+                "word": "это",
+                "start": 31.07,
+                "end": 31.31,
+                "confidence": 0.99902344,
+                "punctuated_word": "Это"
+              },
+              {
+                "word": "ии",
+                "start": 31.31,
+                "end": 31.869999,
+                "confidence": 0.97509766,
+                "punctuated_word": "ИИ,"
+              },
+              {
+                "word": "который",
+                "start": 31.869999,
+                "end": 32.11,
+                "confidence": 0.984375,
+                "punctuated_word": "который"
+              },
+              {
+                "word": "видит",
+                "start": 32.11,
+                "end": 32.35,
+                "confidence": 0.94140625,
+                "punctuated_word": "видит"
+              },
+              {
+                "word": "вообще",
+                "start": 32.35,
+                "end": 32.59,
+                "confidence": 0.61035156,
+                "punctuated_word": "вообще"
+              },
+              {
+                "word": "все",
+                "start": 32.59,
+                "end": 32.829998,
+                "confidence": 0.98535156,
+                "punctuated_word": "все"
+              },
+              {
+                "word": "ваши",
+                "start": 32.829998,
+                "end": 32.989998,
+                "confidence": 0.99316406,
+                "punctuated_word": "ваши"
+              },
+              {
+                "word": "транзакции",
+                "start": 32.989998,
+                "end": 33.39,
+                "confidence": 0.99658203,
+                "punctuated_word": "транзакции"
+              },
+              {
+                "word": "в",
+                "start": 33.39,
+                "end": 33.47,
+                "confidence": 0.9838867,
+                "punctuated_word": "в"
+              },
+              {
+                "word": "реальном",
+                "start": 33.47,
+                "end": 33.79,
+                "confidence": 1.0,
+                "punctuated_word": "реальном"
+              },
+              {
+                "word": "времени",
+                "start": 33.79,
+                "end": 34.11,
+                "confidence": 0.81689453,
+                "punctuated_word": "времени."
+              },
+              {
+                "word": "он",
+                "start": 34.11,
+                "end": 34.27,
+                "confidence": 0.9716797,
+                "punctuated_word": "Он"
+              },
+              {
+                "word": "просматривает",
+                "start": 34.27,
+                "end": 34.75,
+                "confidence": 0.9848633,
+                "punctuated_word": "просматривает"
+              },
+              {
+                "word": "всю",
+                "start": 34.75,
+                "end": 34.989998,
+                "confidence": 0.99609375,
+                "punctuated_word": "всю"
+              },
+              {
+                "word": "цепочку",
+                "start": 34.989998,
+                "end": 35.47,
+                "confidence": 0.99658203,
+                "punctuated_word": "цепочку"
+              },
+              {
+                "word": "ндс",
+                "start": 35.47,
+                "end": 35.95,
+                "confidence": 0.98999023,
+                "punctuated_word": "НДС"
+              },
+              {
+                "word": "от",
+                "start": 35.95,
+                "end": 36.27,
+                "confidence": 0.7290039,
+                "punctuated_word": "от"
+              },
+              {
+                "word": "завода",
+                "start": 36.27,
+                "end": 36.51,
+                "confidence": 0.9970703,
+                "punctuated_word": "завода"
+              },
+              {
+                "word": "до",
+                "start": 36.51,
+                "end": 36.75,
+                "confidence": 0.9980469,
+                "punctuated_word": "до"
+              },
+              {
+                "word": "конечного",
+                "start": 36.75,
+                "end": 37.15,
+                "confidence": 1.0,
+                "punctuated_word": "конечного"
+              },
+              {
+                "word": "покупателя",
+                "start": 37.15,
+                "end": 37.79,
+                "confidence": 0.99560547,
+                "punctuated_word": "покупателя."
+              },
+              {
+                "word": "любой",
+                "start": 37.79,
+                "end": 38.19,
+                "confidence": 0.99853516,
+                "punctuated_word": "Любой"
+              },
+              {
+                "word": "разрыв",
+                "start": 38.19,
+                "end": 38.43,
+                "confidence": 0.99902344,
+                "punctuated_word": "разрыв"
+              },
+              {
+                "word": "в",
+                "start": 38.43,
+                "end": 38.59,
+                "confidence": 0.97509766,
+                "punctuated_word": "в"
+              },
+              {
+                "word": "этой",
+                "start": 38.59,
+                "end": 38.75,
+                "confidence": 0.8959961,
+                "punctuated_word": "этой"
+              },
+              {
+                "word": "цепочке",
+                "start": 38.75,
+                "end": 39.309998,
+                "confidence": 0.9010417,
+                "punctuated_word": "цепочке,"
+              },
+              {
+                "word": "любая",
+                "start": 39.309998,
+                "end": 39.55,
+                "confidence": 1.0,
+                "punctuated_word": "любая"
+              },
+              {
+                "word": "мутная",
+                "start": 39.55,
+                "end": 39.95,
+                "confidence": 0.9949951,
+                "punctuated_word": "мутная"
+              },
+              {
+                "word": "операция",
+                "start": 39.95,
+                "end": 40.27,
+                "confidence": 1.0,
+                "punctuated_word": "операция"
+              },
+              {
+                "word": "мгновенный",
+                "start": 40.27,
+                "end": 41.07,
+                "confidence": 0.8911133,
+                "punctuated_word": "мгновенный"
+              },
+              {
+                "word": "красный",
+                "start": 41.07,
+                "end": 41.39,
+                "confidence": 0.99902344,
+                "punctuated_word": "красный"
+              },
+              {
+                "word": "флаг",
+                "start": 41.39,
+                "end": 41.87,
+                "confidence": 0.9812012,
+                "punctuated_word": "флаг."
+              },
+              {
+                "word": "вам",
+                "start": 41.87,
+                "end": 42.03,
+                "confidence": 0.9873047,
+                "punctuated_word": "Вам"
+              },
+              {
+                "word": "больше",
+                "start": 42.03,
+                "end": 42.27,
+                "confidence": 0.97265625,
+                "punctuated_word": "больше"
+              },
+              {
+                "word": "не",
+                "start": 42.27,
+                "end": 42.43,
+                "confidence": 0.9980469,
+                "punctuated_word": "не"
+              },
+              {
+                "word": "надо",
+                "start": 42.43,
+                "end": 42.59,
+                "confidence": 0.9863281,
+                "punctuated_word": "надо"
+              },
+              {
+                "word": "считать",
+                "start": 42.59,
+                "end": 42.83,
+                "confidence": 1.0,
+                "punctuated_word": "считать"
+              },
+              {
+                "word": "налог",
+                "start": 42.83,
+                "end": 43.07,
+                "confidence": 0.9951172,
+                "punctuated_word": "налог"
+              },
+              {
+                "word": "на",
+                "start": 43.07,
+                "end": 43.23,
+                "confidence": 1.0,
+                "punctuated_word": "на"
+              },
+              {
+                "word": "имущество",
+                "start": 43.23,
+                "end": 43.87,
+                "confidence": 0.71655273,
+                "punctuated_word": "имущество,"
+              },
+              {
+                "word": "его",
+                "start": 43.87,
+                "end": 43.95,
+                "confidence": 0.9819336,
+                "punctuated_word": "его"
+              },
+              {
+                "word": "просто",
+                "start": 43.95,
+                "end": 44.19,
+                "confidence": 0.97265625,
+                "punctuated_word": "просто"
+              },
+              {
+                "word": "присылают",
+                "start": 44.19,
+                "end": 44.59,
+                "confidence": 0.9980469,
+                "punctuated_word": "присылают"
+              },
+              {
+                "word": "в",
+                "start": 44.59,
+                "end": 44.67,
+                "confidence": 0.98828125,
+                "punctuated_word": "в"
+              },
+              {
+                "word": "личный",
+                "start": 44.67,
+                "end": 44.91,
+                "confidence": 0.9736328,
+                "punctuated_word": "личный"
+              }
+            ],
+            "paragraphs": {
+              "transcript": "\nГосударство закручивает гайки. И у малого бизнеса первая реакция уйдём в тень, платить не будем. Ребята, это смертельная ошибка. Прятаться в 2020 четвёртом это как в девяностые. Только вместо братков к вам придёт бездушный искусственный интеллект.\n\nИ он не будет с вами договариваться. Многие думают, что можно как раньше уйти в обнал, и всё будет тип-топ. Забудьте. Я вам честно скажу, в начале девяностых мы сами обналивали деньги под 2%. Это было в порядке вещей, но сегодня обнал безумно дорогое и тупое удовольствие.\n\nПочему? Да потому что наша налоговая служба вышла на такой технологический уровень, который миру и не снился. Это уже не тётеньки со счетами и бумажками. Это ИИ, который видит вообще все ваши транзакции в реальном времени. Он просматривает всю цепочку НДС от завода до конечного покупателя.\n\nЛюбой разрыв в этой цепочке, любая мутная операция мгновенный красный флаг. Вам больше не надо считать налог на имущество, его просто присылают в личный",
+              "paragraphs": [
+                {
+                  "sentences": [
+                    {
+                      "text": "Государство закручивает гайки.",
+                      "start": 0.0,
+                      "end": 1.4399999
+                    },
+                    {
+                      "text": "И у малого бизнеса первая реакция уйдём в тень, платить не будем.",
+                      "start": 1.4399999,
+                      "end": 4.7999997
+                    },
+                    {
+                      "text": "Ребята, это смертельная ошибка.",
+                      "start": 4.7999997,
+                      "end": 6.24
+                    },
+                    {
+                      "text": "Прятаться в 2020 четвёртом это как в девяностые.",
+                      "start": 6.24,
+                      "end": 8.8
+                    },
+                    {
+                      "text": "Только вместо братков к вам придёт бездушный искусственный интеллект.",
+                      "start": 8.8,
+                      "end": 11.919999
+                    }
+                  ],
+                  "num_words": 36,
+                  "start": 0.0,
+                  "end": 11.919999
+                },
+                {
+                  "sentences": [
+                    {
+                      "text": "И он не будет с вами договариваться.",
+                      "start": 11.92,
+                      "end": 13.28
+                    },
+                    {
+                      "text": "Многие думают, что можно как раньше уйти в обнал, и всё будет тип-топ.",
+                      "start": 13.28,
+                      "end": 16.665
+                    },
+                    {
+                      "text": "Забудьте.",
+                      "start": 16.665,
+                      "end": 17.145
+                    },
+                    {
+                      "text": "Я вам честно скажу, в начале девяностых мы сами обналивали деньги под 2%.",
+                      "start": 17.145,
+                      "end": 20.505001
+                    },
+                    {
+                      "text": "Это было в порядке вещей, но сегодня обнал безумно дорогое и тупое удовольствие.",
+                      "start": 20.505001,
+                      "end": 24.105
+                    }
+                  ],
+                  "num_words": 47,
+                  "start": 11.92,
+                  "end": 24.105
+                },
+                {
+                  "sentences": [
+                    {
+                      "text": "Почему?",
+                      "start": 24.105,
+                      "end": 24.425
+                    },
+                    {
+                      "text": "Да потому что наша налоговая служба вышла на такой технологический уровень, который миру и не снился.",
+                      "start": 24.425,
+                      "end": 28.985
+                    },
+                    {
+                      "text": "Это уже не тётеньки со счетами и бумажками.",
+                      "start": 28.985,
+                      "end": 31.145
+                    },
+                    {
+                      "text": "Это ИИ, который видит вообще все ваши транзакции в реальном времени.",
+                      "start": 31.07,
+                      "end": 34.11
+                    },
+                    {
+                      "text": "Он просматривает всю цепочку НДС от завода до конечного покупателя.",
+                      "start": 34.11,
+                      "end": 37.79
+                    }
+                  ],
+                  "num_words": 46,
+                  "start": 24.105,
+                  "end": 37.79
+                },
+                {
+                  "sentences": [
+                    {
+                      "text": "Любой разрыв в этой цепочке, любая мутная операция мгновенный красный флаг.",
+                      "start": 37.79,
+                      "end": 41.87
+                    },
+                    {
+                      "text": "Вам больше не надо считать налог на имущество, его просто присылают в личный",
+                      "start": 41.87,
+                      "end": 44.91
+                    }
+                  ],
+                  "num_words": 24,
+                  "start": 37.79,
+                  "end": 44.91
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "utterances": [
+      {
+        "start": 0.0,
+        "end": 44.91,
+        "confidence": 0.97061276,
+        "channel": 0,
+        "transcript": "Государство закручивает гайки. И у малого бизнеса первая реакция уйдём в тень, платить не будем. Ребята, это смертельная ошибка. Прятаться в 2020 четвёртом это как в девяностые. Только вместо братков к вам придёт бездушный искусственный интеллект. И он не будет с вами договариваться. Многие думают, что можно как раньше уйти в обнал, и всё будет тип-топ. Забудьте. Я вам честно скажу, в начале девяностых мы сами обналивали деньги под 2%. Это было в порядке вещей, но сегодня обнал безумно дорогое и тупое удовольствие. Почему? Да потому что наша налоговая служба вышла на такой технологический уровень, который миру и не снился. Это уже не тётеньки со счетами и бумажками. Это ИИ, который видит вообще все ваши транзакции в реальном времени. Он просматривает всю цепочку НДС от завода до конечного покупателя. Любой разрыв в этой цепочке, любая мутная операция мгновенный красный флаг. Вам больше не надо считать налог на имущество, его просто присылают в личный",
+        "words": [
+          {
+            "word": "государство",
+            "start": 0.0,
+            "end": 0.48,
+            "confidence": 0.98461914,
+            "punctuated_word": "Государство"
+          },
+          {
+            "word": "закручивает",
+            "start": 0.48,
+            "end": 0.96,
+            "confidence": 0.9983724,
+            "punctuated_word": "закручивает"
+          },
+          {
+            "word": "гайки",
+            "start": 0.96,
+            "end": 1.4399999,
+            "confidence": 0.90999347,
+            "punctuated_word": "гайки."
+          },
+          {
+            "word": "и",
+            "start": 1.4399999,
+            "end": 1.52,
+            "confidence": 0.97802734,
+            "punctuated_word": "И"
+          },
+          {
+            "word": "у",
+            "start": 1.52,
+            "end": 1.5999999,
+            "confidence": 0.9995117,
+            "punctuated_word": "у"
+          },
+          {
+            "word": "малого",
+            "start": 1.5999999,
+            "end": 1.92,
+            "confidence": 0.99902344,
+            "punctuated_word": "малого"
+          },
+          {
+            "word": "бизнеса",
+            "start": 1.92,
+            "end": 2.24,
+            "confidence": 1.0,
+            "punctuated_word": "бизнеса"
+          },
+          {
+            "word": "первая",
+            "start": 2.24,
+            "end": 2.56,
+            "confidence": 0.99560547,
+            "punctuated_word": "первая"
+          },
+          {
+            "word": "реакция",
+            "start": 2.56,
+            "end": 2.96,
+            "confidence": 1.0,
+            "punctuated_word": "реакция"
+          },
+          {
+            "word": "уйдём",
+            "start": 2.96,
+            "end": 3.4399998,
+            "confidence": 0.8442383,
+            "punctuated_word": "уйдём"
+          },
+          {
+            "word": "в",
+            "start": 3.4399998,
+            "end": 3.52,
+            "confidence": 0.9980469,
+            "punctuated_word": "в"
+          },
+          {
+            "word": "тень",
+            "start": 3.52,
+            "end": 3.84,
+            "confidence": 0.91845703,
+            "punctuated_word": "тень,"
+          },
+          {
+            "word": "платить",
+            "start": 3.84,
+            "end": 4.08,
+            "confidence": 1.0,
+            "punctuated_word": "платить"
+          },
+          {
+            "word": "не",
+            "start": 4.08,
+            "end": 4.3199997,
+            "confidence": 1.0,
+            "punctuated_word": "не"
+          },
+          {
+            "word": "будем",
+            "start": 4.3199997,
+            "end": 4.7999997,
+            "confidence": 0.9951172,
+            "punctuated_word": "будем."
+          },
+          {
+            "word": "ребята",
+            "start": 4.7999997,
+            "end": 5.2,
+            "confidence": 0.9951172,
+            "punctuated_word": "Ребята,"
+          },
+          {
+            "word": "это",
+            "start": 5.2,
+            "end": 5.44,
+            "confidence": 0.9951172,
+            "punctuated_word": "это"
+          },
+          {
+            "word": "смертельная",
+            "start": 5.44,
+            "end": 5.8399997,
+            "confidence": 0.99902344,
+            "punctuated_word": "смертельная"
+          },
+          {
+            "word": "ошибка",
+            "start": 5.8399997,
+            "end": 6.24,
+            "confidence": 0.9921875,
+            "punctuated_word": "ошибка."
+          },
+          {
+            "word": "прятаться",
+            "start": 6.24,
+            "end": 6.72,
+            "confidence": 0.9984375,
+            "punctuated_word": "Прятаться"
+          },
+          {
+            "word": "в",
+            "start": 6.72,
+            "end": 6.8799996,
+            "confidence": 1.0,
+            "punctuated_word": "в"
+          },
+          {
+            "word": "2020",
+            "start": 6.8799996,
+            "end": 7.3599997,
+            "confidence": 0.98876953,
+            "punctuated_word": "2020"
+          },
+          {
+            "word": "четвёртом",
+            "start": 7.3599997,
+            "end": 7.7599998,
+            "confidence": 0.99560547,
+            "punctuated_word": "четвёртом"
+          },
+          {
+            "word": "это",
+            "start": 7.7599998,
+            "end": 8.0,
+            "confidence": 0.9536133,
+            "punctuated_word": "это"
+          },
+          {
+            "word": "как",
+            "start": 8.0,
+            "end": 8.16,
+            "confidence": 0.9941406,
+            "punctuated_word": "как"
+          },
+          {
+            "word": "в",
+            "start": 8.16,
+            "end": 8.32,
+            "confidence": 0.99902344,
+            "punctuated_word": "в"
+          },
+          {
+            "word": "девяностые",
+            "start": 8.32,
+            "end": 8.8,
+            "confidence": 0.85302734,
+            "punctuated_word": "девяностые."
+          },
+          {
+            "word": "только",
+            "start": 8.8,
+            "end": 9.04,
+            "confidence": 0.9838867,
+            "punctuated_word": "Только"
+          },
+          {
+            "word": "вместо",
+            "start": 9.04,
+            "end": 9.28,
+            "confidence": 1.0,
+            "punctuated_word": "вместо"
+          },
+          {
+            "word": "братков",
+            "start": 9.28,
+            "end": 9.679999,
+            "confidence": 0.9914551,
+            "punctuated_word": "братков"
+          },
+          {
+            "word": "к",
+            "start": 9.679999,
+            "end": 9.84,
+            "confidence": 0.99902344,
+            "punctuated_word": "к"
+          },
+          {
+            "word": "вам",
+            "start": 9.84,
+            "end": 9.92,
+            "confidence": 0.9428711,
+            "punctuated_word": "вам"
+          },
+          {
+            "word": "придёт",
+            "start": 9.92,
+            "end": 10.16,
+            "confidence": 0.99316406,
+            "punctuated_word": "придёт"
+          },
+          {
+            "word": "бездушный",
+            "start": 10.16,
+            "end": 10.719999,
+            "confidence": 1.0,
+            "punctuated_word": "бездушный"
+          },
+          {
+            "word": "искусственный",
+            "start": 10.719999,
+            "end": 11.2,
+            "confidence": 0.9951172,
+            "punctuated_word": "искусственный"
+          },
+          {
+            "word": "интеллект",
+            "start": 11.2,
+            "end": 11.919999,
+            "confidence": 0.87353516,
+            "punctuated_word": "интеллект."
+          },
+          {
+            "word": "и",
+            "start": 11.92,
+            "end": 12.08,
+            "confidence": 0.97509766,
+            "punctuated_word": "И"
+          },
+          {
+            "word": "он",
+            "start": 12.08,
+            "end": 12.24,
+            "confidence": 0.99902344,
+            "punctuated_word": "он"
+          },
+          {
+            "word": "не",
+            "start": 12.24,
+            "end": 12.32,
+            "confidence": 1.0,
+            "punctuated_word": "не"
+          },
+          {
+            "word": "будет",
+            "start": 12.32,
+            "end": 12.48,
+            "confidence": 1.0,
+            "punctuated_word": "будет"
+          },
+          {
+            "word": "с",
+            "start": 12.48,
+            "end": 12.559999,
+            "confidence": 1.0,
+            "punctuated_word": "с"
+          },
+          {
+            "word": "вами",
+            "start": 12.559999,
+            "end": 12.719999,
+            "confidence": 1.0,
+            "punctuated_word": "вами"
+          },
+          {
+            "word": "договариваться",
+            "start": 12.719999,
+            "end": 13.28,
+            "confidence": 0.9736328,
+            "punctuated_word": "договариваться."
+          },
+          {
+            "word": "многие",
+            "start": 13.28,
+            "end": 13.5199995,
+            "confidence": 1.0,
+            "punctuated_word": "Многие"
+          },
+          {
+            "word": "думают",
+            "start": 13.5199995,
+            "end": 13.84,
+            "confidence": 0.99902344,
+            "punctuated_word": "думают,"
+          },
+          {
+            "word": "что",
+            "start": 13.84,
+            "end": 13.92,
+            "confidence": 0.99902344,
+            "punctuated_word": "что"
+          },
+          {
+            "word": "можно",
+            "start": 13.92,
+            "end": 14.16,
+            "confidence": 0.9970703,
+            "punctuated_word": "можно"
+          },
+          {
+            "word": "как",
+            "start": 14.16,
+            "end": 14.4,
+            "confidence": 0.8691406,
+            "punctuated_word": "как"
+          },
+          {
+            "word": "раньше",
+            "start": 14.4,
+            "end": 14.559999,
+            "confidence": 0.97802734,
+            "punctuated_word": "раньше"
+          },
+          {
+            "word": "уйти",
+            "start": 14.559999,
+            "end": 14.88,
+            "confidence": 1.0,
+            "punctuated_word": "уйти"
+          },
+          {
+            "word": "в",
+            "start": 14.88,
+            "end": 15.04,
+            "confidence": 1.0,
+            "punctuated_word": "в"
+          },
+          {
+            "word": "обнал",
+            "start": 15.04,
+            "end": 16.08,
+            "confidence": 0.84594727,
+            "punctuated_word": "обнал,"
+          },
+          {
+            "word": "и",
+            "start": 15.545,
+            "end": 15.625,
+            "confidence": 0.9921875,
+            "punctuated_word": "и"
+          },
+          {
+            "word": "всё",
+            "start": 15.625,
+            "end": 15.785,
+            "confidence": 0.8984375,
+            "punctuated_word": "всё"
+          },
+          {
+            "word": "будет",
+            "start": 15.785,
+            "end": 16.025,
+            "confidence": 1.0,
+            "punctuated_word": "будет"
+          },
+          {
+            "word": "тип-топ",
+            "start": 16.025,
+            "end": 16.665,
+            "confidence": 0.88012695,
+            "punctuated_word": "тип-топ."
+          },
+          {
+            "word": "забудьте",
+            "start": 16.665,
+            "end": 17.145,
+            "confidence": 0.9223633,
+            "punctuated_word": "Забудьте."
+          },
+          {
+            "word": "я",
+            "start": 17.145,
+            "end": 17.225,
+            "confidence": 0.99316406,
+            "punctuated_word": "Я"
+          },
+          {
+            "word": "вам",
+            "start": 17.225,
+            "end": 17.385,
+            "confidence": 0.9448242,
+            "punctuated_word": "вам"
+          },
+          {
+            "word": "честно",
+            "start": 17.385,
+            "end": 17.625,
+            "confidence": 0.99902344,
+            "punctuated_word": "честно"
+          },
+          {
+            "word": "скажу",
+            "start": 17.625,
+            "end": 17.865,
+            "confidence": 0.94091797,
+            "punctuated_word": "скажу,"
+          },
+          {
+            "word": "в",
+            "start": 17.865,
+            "end": 17.945,
+            "confidence": 0.9921875,
+            "punctuated_word": "в"
+          },
+          {
+            "word": "начале",
+            "start": 17.945,
+            "end": 18.185,
+            "confidence": 1.0,
+            "punctuated_word": "начале"
+          },
+          {
+            "word": "девяностых",
+            "start": 18.185,
+            "end": 18.585,
+            "confidence": 0.97314453,
+            "punctuated_word": "девяностых"
+          },
+          {
+            "word": "мы",
+            "start": 18.585,
+            "end": 18.745,
+            "confidence": 0.99902344,
+            "punctuated_word": "мы"
+          },
+          {
+            "word": "сами",
+            "start": 18.745,
+            "end": 18.905,
+            "confidence": 0.99609375,
+            "punctuated_word": "сами"
+          },
+          {
+            "word": "обналивали",
+            "start": 18.905,
+            "end": 19.385,
+            "confidence": 0.95874023,
+            "punctuated_word": "обналивали"
+          },
+          {
+            "word": "деньги",
+            "start": 19.385,
+            "end": 19.545,
+            "confidence": 0.99902344,
+            "punctuated_word": "деньги"
+          },
+          {
+            "word": "под",
+            "start": 19.545,
+            "end": 19.785,
+            "confidence": 0.6489258,
+            "punctuated_word": "под"
+          },
+          {
+            "word": "2%",
+            "start": 19.785,
+            "end": 20.505001,
+            "confidence": 0.91829425,
+            "punctuated_word": "2%."
+          },
+          {
+            "word": "это",
+            "start": 20.505001,
+            "end": 20.665,
+            "confidence": 0.9970703,
+            "punctuated_word": "Это"
+          },
+          {
+            "word": "было",
+            "start": 20.665,
+            "end": 20.825,
+            "confidence": 0.99902344,
+            "punctuated_word": "было"
+          },
+          {
+            "word": "в",
+            "start": 20.825,
+            "end": 20.985,
+            "confidence": 0.99121094,
+            "punctuated_word": "в"
+          },
+          {
+            "word": "порядке",
+            "start": 20.985,
+            "end": 21.305,
+            "confidence": 1.0,
+            "punctuated_word": "порядке"
+          },
+          {
+            "word": "вещей",
+            "start": 21.305,
+            "end": 21.705,
+            "confidence": 0.84350586,
+            "punctuated_word": "вещей,"
+          },
+          {
+            "word": "но",
+            "start": 21.705,
+            "end": 21.865,
+            "confidence": 0.99902344,
+            "punctuated_word": "но"
+          },
+          {
+            "word": "сегодня",
+            "start": 21.865,
+            "end": 22.185,
+            "confidence": 1.0,
+            "punctuated_word": "сегодня"
+          },
+          {
+            "word": "обнал",
+            "start": 22.185,
+            "end": 22.505001,
+            "confidence": 0.9967448,
+            "punctuated_word": "обнал"
+          },
+          {
+            "word": "безумно",
+            "start": 22.505001,
+            "end": 22.825,
+            "confidence": 1.0,
+            "punctuated_word": "безумно"
+          },
+          {
+            "word": "дорогое",
+            "start": 22.825,
+            "end": 23.145,
+            "confidence": 0.99902344,
+            "punctuated_word": "дорогое"
+          },
+          {
+            "word": "и",
+            "start": 23.145,
+            "end": 23.305,
+            "confidence": 0.9921875,
+            "punctuated_word": "и"
+          },
+          {
+            "word": "тупое",
+            "start": 23.305,
+            "end": 23.625,
+            "confidence": 0.9970703,
+            "punctuated_word": "тупое"
+          },
+          {
+            "word": "удовольствие",
+            "start": 23.625,
+            "end": 24.105,
+            "confidence": 0.9904785,
+            "punctuated_word": "удовольствие."
+          },
+          {
+            "word": "почему",
+            "start": 24.105,
+            "end": 24.425,
+            "confidence": 0.9838867,
+            "punctuated_word": "Почему?"
+          },
+          {
+            "word": "да",
+            "start": 24.425,
+            "end": 24.665,
+            "confidence": 0.9633789,
+            "punctuated_word": "Да"
+          },
+          {
+            "word": "потому",
+            "start": 24.665,
+            "end": 24.904999,
+            "confidence": 1.0,
+            "punctuated_word": "потому"
+          },
+          {
+            "word": "что",
+            "start": 24.904999,
+            "end": 24.985,
+            "confidence": 0.95703125,
+            "punctuated_word": "что"
+          },
+          {
+            "word": "наша",
+            "start": 24.985,
+            "end": 25.225,
+            "confidence": 0.9951172,
+            "punctuated_word": "наша"
+          },
+          {
+            "word": "налоговая",
+            "start": 25.225,
+            "end": 25.705,
+            "confidence": 0.9980469,
+            "punctuated_word": "налоговая"
+          },
+          {
+            "word": "служба",
+            "start": 25.705,
+            "end": 26.025,
+            "confidence": 1.0,
+            "punctuated_word": "служба"
+          },
+          {
+            "word": "вышла",
+            "start": 26.025,
+            "end": 26.265,
+            "confidence": 1.0,
+            "punctuated_word": "вышла"
+          },
+          {
+            "word": "на",
+            "start": 26.265,
+            "end": 26.345001,
+            "confidence": 1.0,
+            "punctuated_word": "на"
+          },
+          {
+            "word": "такой",
+            "start": 26.345001,
+            "end": 26.585,
+            "confidence": 1.0,
+            "punctuated_word": "такой"
+          },
+          {
+            "word": "технологический",
+            "start": 26.585,
+            "end": 27.224998,
+            "confidence": 0.9975586,
+            "punctuated_word": "технологический"
+          },
+          {
+            "word": "уровень",
+            "start": 27.305,
+            "end": 27.785,
+            "confidence": 0.9995117,
+            "punctuated_word": "уровень,"
+          },
+          {
+            "word": "который",
+            "start": 27.785,
+            "end": 28.025,
+            "confidence": 0.99316406,
+            "punctuated_word": "который"
+          },
+          {
+            "word": "миру",
+            "start": 28.025,
+            "end": 28.345001,
+            "confidence": 0.9970703,
+            "punctuated_word": "миру"
+          },
+          {
+            "word": "и",
+            "start": 28.345001,
+            "end": 28.505001,
+            "confidence": 0.99194336,
+            "punctuated_word": "и"
+          },
+          {
+            "word": "не",
+            "start": 28.505001,
+            "end": 28.585,
+            "confidence": 1.0,
+            "punctuated_word": "не"
+          },
+          {
+            "word": "снился",
+            "start": 28.585,
+            "end": 28.985,
+            "confidence": 0.9984375,
+            "punctuated_word": "снился."
+          },
+          {
+            "word": "это",
+            "start": 28.985,
+            "end": 29.305,
+            "confidence": 0.99902344,
+            "punctuated_word": "Это"
+          },
+          {
+            "word": "уже",
+            "start": 29.305,
+            "end": 29.465,
+            "confidence": 0.9970703,
+            "punctuated_word": "уже"
+          },
+          {
+            "word": "не",
+            "start": 29.465,
+            "end": 29.625,
+            "confidence": 0.99609375,
+            "punctuated_word": "не"
+          },
+          {
+            "word": "тётеньки",
+            "start": 29.625,
+            "end": 29.945,
+            "confidence": 0.9407552,
+            "punctuated_word": "тётеньки"
+          },
+          {
+            "word": "со",
+            "start": 29.945,
+            "end": 30.105,
+            "confidence": 0.99902344,
+            "punctuated_word": "со"
+          },
+          {
+            "word": "счетами",
+            "start": 30.105,
+            "end": 30.345001,
+            "confidence": 0.98779297,
+            "punctuated_word": "счетами"
+          },
+          {
+            "word": "и",
+            "start": 30.345001,
+            "end": 30.505001,
+            "confidence": 0.9995117,
+            "punctuated_word": "и"
+          },
+          {
+            "word": "бумажками",
+            "start": 30.505001,
+            "end": 31.145,
+            "confidence": 0.89575195,
+            "punctuated_word": "бумажками."
+          },
+          {
+            "word": "это",
+            "start": 31.07,
+            "end": 31.31,
+            "confidence": 0.99902344,
+            "punctuated_word": "Это"
+          },
+          {
+            "word": "ии",
+            "start": 31.31,
+            "end": 31.869999,
+            "confidence": 0.97509766,
+            "punctuated_word": "ИИ,"
+          },
+          {
+            "word": "который",
+            "start": 31.869999,
+            "end": 32.11,
+            "confidence": 0.984375,
+            "punctuated_word": "который"
+          },
+          {
+            "word": "видит",
+            "start": 32.11,
+            "end": 32.35,
+            "confidence": 0.94140625,
+            "punctuated_word": "видит"
+          },
+          {
+            "word": "вообще",
+            "start": 32.35,
+            "end": 32.59,
+            "confidence": 0.61035156,
+            "punctuated_word": "вообще"
+          },
+          {
+            "word": "все",
+            "start": 32.59,
+            "end": 32.829998,
+            "confidence": 0.98535156,
+            "punctuated_word": "все"
+          },
+          {
+            "word": "ваши",
+            "start": 32.829998,
+            "end": 32.989998,
+            "confidence": 0.99316406,
+            "punctuated_word": "ваши"
+          },
+          {
+            "word": "транзакции",
+            "start": 32.989998,
+            "end": 33.39,
+            "confidence": 0.99658203,
+            "punctuated_word": "транзакции"
+          },
+          {
+            "word": "в",
+            "start": 33.39,
+            "end": 33.47,
+            "confidence": 0.9838867,
+            "punctuated_word": "в"
+          },
+          {
+            "word": "реальном",
+            "start": 33.47,
+            "end": 33.79,
+            "confidence": 1.0,
+            "punctuated_word": "реальном"
+          },
+          {
+            "word": "времени",
+            "start": 33.79,
+            "end": 34.11,
+            "confidence": 0.81689453,
+            "punctuated_word": "времени."
+          },
+          {
+            "word": "он",
+            "start": 34.11,
+            "end": 34.27,
+            "confidence": 0.9716797,
+            "punctuated_word": "Он"
+          },
+          {
+            "word": "просматривает",
+            "start": 34.27,
+            "end": 34.75,
+            "confidence": 0.9848633,
+            "punctuated_word": "просматривает"
+          },
+          {
+            "word": "всю",
+            "start": 34.75,
+            "end": 34.989998,
+            "confidence": 0.99609375,
+            "punctuated_word": "всю"
+          },
+          {
+            "word": "цепочку",
+            "start": 34.989998,
+            "end": 35.47,
+            "confidence": 0.99658203,
+            "punctuated_word": "цепочку"
+          },
+          {
+            "word": "ндс",
+            "start": 35.47,
+            "end": 35.95,
+            "confidence": 0.98999023,
+            "punctuated_word": "НДС"
+          },
+          {
+            "word": "от",
+            "start": 35.95,
+            "end": 36.27,
+            "confidence": 0.7290039,
+            "punctuated_word": "от"
+          },
+          {
+            "word": "завода",
+            "start": 36.27,
+            "end": 36.51,
+            "confidence": 0.9970703,
+            "punctuated_word": "завода"
+          },
+          {
+            "word": "до",
+            "start": 36.51,
+            "end": 36.75,
+            "confidence": 0.9980469,
+            "punctuated_word": "до"
+          },
+          {
+            "word": "конечного",
+            "start": 36.75,
+            "end": 37.15,
+            "confidence": 1.0,
+            "punctuated_word": "конечного"
+          },
+          {
+            "word": "покупателя",
+            "start": 37.15,
+            "end": 37.79,
+            "confidence": 0.99560547,
+            "punctuated_word": "покупателя."
+          },
+          {
+            "word": "любой",
+            "start": 37.79,
+            "end": 38.19,
+            "confidence": 0.99853516,
+            "punctuated_word": "Любой"
+          },
+          {
+            "word": "разрыв",
+            "start": 38.19,
+            "end": 38.43,
+            "confidence": 0.99902344,
+            "punctuated_word": "разрыв"
+          },
+          {
+            "word": "в",
+            "start": 38.43,
+            "end": 38.59,
+            "confidence": 0.97509766,
+            "punctuated_word": "в"
+          },
+          {
+            "word": "этой",
+            "start": 38.59,
+            "end": 38.75,
+            "confidence": 0.8959961,
+            "punctuated_word": "этой"
+          },
+          {
+            "word": "цепочке",
+            "start": 38.75,
+            "end": 39.309998,
+            "confidence": 0.9010417,
+            "punctuated_word": "цепочке,"
+          },
+          {
+            "word": "любая",
+            "start": 39.309998,
+            "end": 39.55,
+            "confidence": 1.0,
+            "punctuated_word": "любая"
+          },
+          {
+            "word": "мутная",
+            "start": 39.55,
+            "end": 39.95,
+            "confidence": 0.9949951,
+            "punctuated_word": "мутная"
+          },
+          {
+            "word": "операция",
+            "start": 39.95,
+            "end": 40.27,
+            "confidence": 1.0,
+            "punctuated_word": "операция"
+          },
+          {
+            "word": "мгновенный",
+            "start": 40.27,
+            "end": 41.07,
+            "confidence": 0.8911133,
+            "punctuated_word": "мгновенный"
+          },
+          {
+            "word": "красный",
+            "start": 41.07,
+            "end": 41.39,
+            "confidence": 0.99902344,
+            "punctuated_word": "красный"
+          },
+          {
+            "word": "флаг",
+            "start": 41.39,
+            "end": 41.87,
+            "confidence": 0.9812012,
+            "punctuated_word": "флаг."
+          },
+          {
+            "word": "вам",
+            "start": 41.87,
+            "end": 42.03,
+            "confidence": 0.9873047,
+            "punctuated_word": "Вам"
+          },
+          {
+            "word": "больше",
+            "start": 42.03,
+            "end": 42.27,
+            "confidence": 0.97265625,
+            "punctuated_word": "больше"
+          },
+          {
+            "word": "не",
+            "start": 42.27,
+            "end": 42.43,
+            "confidence": 0.9980469,
+            "punctuated_word": "не"
+          },
+          {
+            "word": "надо",
+            "start": 42.43,
+            "end": 42.59,
+            "confidence": 0.9863281,
+            "punctuated_word": "надо"
+          },
+          {
+            "word": "считать",
+            "start": 42.59,
+            "end": 42.83,
+            "confidence": 1.0,
+            "punctuated_word": "считать"
+          },
+          {
+            "word": "налог",
+            "start": 42.83,
+            "end": 43.07,
+            "confidence": 0.9951172,
+            "punctuated_word": "налог"
+          },
+          {
+            "word": "на",
+            "start": 43.07,
+            "end": 43.23,
+            "confidence": 1.0,
+            "punctuated_word": "на"
+          },
+          {
+            "word": "имущество",
+            "start": 43.23,
+            "end": 43.87,
+            "confidence": 0.71655273,
+            "punctuated_word": "имущество,"
+          },
+          {
+            "word": "его",
+            "start": 43.87,
+            "end": 43.95,
+            "confidence": 0.9819336,
+            "punctuated_word": "его"
+          },
+          {
+            "word": "просто",
+            "start": 43.95,
+            "end": 44.19,
+            "confidence": 0.97265625,
+            "punctuated_word": "просто"
+          },
+          {
+            "word": "присылают",
+            "start": 44.19,
+            "end": 44.59,
+            "confidence": 0.9980469,
+            "punctuated_word": "присылают"
+          },
+          {
+            "word": "в",
+            "start": 44.59,
+            "end": 44.67,
+            "confidence": 0.98828125,
+            "punctuated_word": "в"
+          },
+          {
+            "word": "личный",
+            "start": 44.67,
+            "end": 44.91,
+            "confidence": 0.9736328,
+            "punctuated_word": "личный"
+          }
+        ],
+        "id": "9676cfe8-5281-47cd-b9b9-287274b7cc10"
+      }
+    ]
+  }
+}

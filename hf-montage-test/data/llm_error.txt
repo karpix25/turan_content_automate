@@ -1,0 +1,5 @@
+Loaded existing transcript: data/deepgram_transcript.json
+Duration used for scene plan: 60.0s
+Generating LLM scene-plan with model=gpt-4o ...
+Saved scene plan: data/scene-plan.generated.json
+Injected scene-plan into: index.html

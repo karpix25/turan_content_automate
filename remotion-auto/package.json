@@ -1,0 +1,25 @@
+{
+  "name": "remotion-auto",
+  "version": "1.0.0",
+  "description": "Automated montage project powered by Remotion",
+  "private": true,
+  "scripts": {
+    "dev": "remotion studio src/index.ts",
+    "bundle": "remotion bundle src/index.ts",
+    "render": "remotion render src/index.ts AutoMontage renders/auto-montage.mp4 --overwrite",
+    "render:auto": "node scripts/render-auto.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.451",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.451"
+  },
+  "devDependencies": {
+    "@types/node": "24.9.1",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "typescript": "5.9.3"
+  }
+}

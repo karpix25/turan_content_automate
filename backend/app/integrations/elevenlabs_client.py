@@ -28,7 +28,7 @@ class ElevenLabsClient:
             "voice_settings": {
                 "stability": 1.0,
                 "similarity_boost": 1.0,
-                "speed": 1.2
+                "speed": 1.0
             }
         }
         

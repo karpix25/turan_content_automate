@@ -10,3 +10,8 @@ database/media/
 .ipynb_checkpoints/
 .vscode/
 .idea/
+.env
+.env.local
+node_modules/
+renders/
+*.mp4

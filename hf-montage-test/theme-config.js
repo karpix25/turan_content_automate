@@ -3,8 +3,8 @@ window.__HF_THEME = {
   // CSS variables applied to :root at runtime
   cssVars: {
     "--font-main": "'Oswald', 'Segoe UI', sans-serif",
-    "--bg-0": "#f8fafc",
-    "--bg-1": "#f1f5f9",
+    "--bg-0": "#000000",
+    "--bg-1": "#f4f5f9",
     "--bg-2": "#e2e8f0",
     "--ink-0": "#0f172a",
     "--ink-1": "#1e293b",
@@ -63,11 +63,11 @@ window.__HF_THEME = {
 
   // Character limits for text compaction
   textLimits: {
-    titleMain: 120, // Allow more text with the new large style
+    titleMain: 100, // Allow more text with the new large style
     titleAccent: 80,
     lead: 150,
     insight: 250,
-    step: 120,
+    step: 100,
     barLabel: 50
   }
 };

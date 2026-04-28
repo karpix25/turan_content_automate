@@ -303,13 +303,13 @@
       id="root"
       data-composition-id="main"
       data-start="0"
-      data-duration="60"
+      data-duration="355"
       data-width="1920"
       data-height="1080"
     >
       <div id="bg"></div>
       <div id="top-strip"></div>
-      <div id="stage-layout" class="mode-full">
+      <div id="stage-layout" class="mode-full" style="z-index: 1">
         <div id="safe-margins"></div>
         <div id="a-roll-wrapper">
           <video
@@ -318,9 +318,9 @@
             muted
             playsinline
             data-start="0"
-            data-duration="60"
-            data-track-index="2"
-          ></video>
+            data-duration="355"
+            data-track-index="1"
+           style="z-index: 3"></video>
         </div>
         <div id="frame-outline"></div>
         <div id="panel-shell">
@@ -331,160 +331,96 @@
         id="a-roll-audio"
         src="Untitled Video_1080p.mp4"
         data-start="0"
-        data-duration="60"
+        data-duration="355"
         data-track-index="3"
         data-volume="1"
-      ></audio>
-      <div id="avatar-cues"></div>
+       style="z-index: 2"></audio>
+      <div id="avatar-cues" style="z-index: 1"></div>
     </div>
 
     <script id="scene-plan" type="application/json">
       [
         {
           "start": 0.0,
-          "end": 18.0,
+          "end": 8.5,
+          "blockName": "ХУК",
           "mode": "full",
+          "chartType": "BIG_NUMBER",
+          "title": "Смысловой блок",
+          "subtitle": "ХУК",
+          "value": null,
+          "unit": "%",
+          "facts": [],
           "titleLines": [
-            "Государство закручивает гайки",
-            "Малый бизнес в тени",
-            "Искусственный интеллект и налоги",
-            "Ошибки девяностых"
+            "Государство закручивает гайки.",
+            "Уйдём в тень? Смертельная ошибка!"
           ],
           "steps": [
-            "Прятаться в тени - ошибка",
-            "ИИ видит все транзакции",
-            "Налоговая служба - технологичная машина"
+            "Шаг 1",
+            "Шаг 2",
+            "Шаг 3"
           ],
-          "insight": "Прятаться от налогов бессмысленно",
-          "cta": "Работайте в белую",
-          "keyword": "налоги",
+          "insight": "Глубокая аналитическая мысль",
+          "cta": "Смысловой блок",
+          "keyword": "Смысловой блок",
           "bars": [
             {
-              "label": "Технологии",
+              "label": "Показатель 1",
               "value": 0.85
             },
             {
-              "label": "Налоги",
-              "value": 0.93
+              "label": "Показатель 2",
+              "value": 0.7
             },
             {
-              "label": "Бизнес",
-              "value": 0.78
+              "label": "Показатель 3",
+              "value": 0.92
             },
             {
-              "label": "ИИ",
-              "value": 0.62
+              "label": "Показатель 4",
+              "value": 0.65
             }
           ]
         },
         {
-          "start": 18.0,
-          "end": 36.0,
-          "mode": "mini",
-          "titleLines": [
-            "Технониколь и налоги",
-            "Социальные налоги и НДС",
-            "Маркетплейсы и самозанятые",
-            "Кривизна системы"
-          ],
-          "steps": [
-            "Платим все налоги",
-            "Маркетплейсы не платят социалку",
-            "Инженеры идут в курьеры"
-          ],
-          "insight": "Системная кривизна мешает бизнесу",
-          "cta": "Ищите честные пути",
-          "keyword": "социальные налоги",
-          "bars": [
-            {
-              "label": "Социалка",
-              "value": 0.78
-            },
-            {
-              "label": "Маркетплейсы",
-              "value": 0.85
-            },
-            {
-              "label": "Инженеры",
-              "value": 0.62
-            },
-            {
-              "label": "Кривизна",
-              "value": 0.93
-            }
-          ]
-        },
-        {
-          "start": 36.0,
-          "end": 54.0,
+          "start": 19.0,
+          "end": 45.0,
+          "blockName": "АНАЛИЗ",
           "mode": "full",
+          "chartType": "DONUT",
+          "title": "Смысловой блок",
+          "subtitle": "АНАЛИЗ",
+          "value": null,
+          "unit": "%",
+          "facts": [],
           "titleLines": [
-            "Цифровой рубль и коррупция",
-            "Госконтракты и контроль",
-            "Искусственный интеллект и бюджет",
-            "Цифровизация и её проблемы"
+            "Обнал — дорогое удовольствие.",
+            "Налоговая служба на новом уровне."
           ],
           "steps": [
-            "Цифровой рубль - благо для бизнеса",
-            "Контроль за госконтрактами",
-            "ИИ блокирует нецелевые транзакции"
+            "Шаг 1",
+            "Шаг 2",
+            "Шаг 3"
           ],
-          "insight": "Цифровой рубль может закрыть дыры в бюджете",
-          "cta": "Поддержите цифровизацию",
-          "keyword": "цифровой рубль",
+          "insight": "Новая реальность бизнеса",
+          "cta": "Смысловой блок",
+          "keyword": "Смысловой блок",
           "bars": [
             {
-              "label": "Коррупция",
-              "value": 0.93
+              "label": "Технологический уровень",
+              "value": 0.95
             },
             {
-              "label": "Госконтракты",
+              "label": "Видимость транзакций",
+              "value": 0.9
+            },
+            {
+              "label": "Риск штрафов",
               "value": 0.85
             },
             {
-              "label": "ИИ",
-              "value": 0.78
-            },
-            {
-              "label": "Цифровизация",
-              "value": 0.62
-            }
-          ]
-        },
-        {
-          "start": 54.0,
-          "end": 60.0,
-          "mode": "full",
-          "titleLines": [
-            "Налоговая реформа и бизнес",
-            "Дыра в бюджете",
-            "Малый бизнес и налоговые платежи",
-            "Зубочистки против пробоин"
-          ],
-          "steps": [
-            "Повышенные платежи с бизнеса",
-            "Дыра в бюджете из-за коррупции",
-            "Малый бизнес затыкает микротрещины"
-          ],
-          "insight": "Коррупция съедает бюджет",
-          "cta": "Боритесь с коррупцией",
-          "keyword": "налоговая реформа",
-          "bars": [
-            {
-              "label": "Реформа",
-              "value": 0.78
-            },
-            {
-              "label": "Бюджет",
-              "value": 0.85
-            },
-            {
-              "label": "Бизнес",
-              "value": 0.93
-            },
-            {
-              "label": "Коррупция",
-              "value": 0.62
+              "label": "Обнал в 90-е",
+              "value": 0.5
             }
           ]
         }
@@ -1309,7 +1245,7 @@
       if (window.Flip) gsap.registerPlugin(Flip);
       if (window.DrawSVGPlugin) gsap.registerPlugin(DrawSVGPlugin);
 
-      const TOTAL_DURATION = 60;
+      const TOTAL_DURATION = 356;
       const stageLayout = document.getElementById("stage-layout");
       const sceneDeck = document.getElementById("scene-deck");
       const avatarCueLayer = document.getElementById("avatar-cues");
@@ -1657,6 +1593,14 @@
           tl.set(cards, { autoAlpha: 0 }, at);
           tl.set(card, { autoAlpha: 1 }, at + 0.01);
 
+          // Показываем основную мысль в плашке внизу
+          const insight = scene.insight || "ОСНОВНАЯ МЫСЛЬ";
+          tl.set("#avatar-cues", { 
+            innerHTML: `<div class="avatar-cue-pill" style="display:flex; opacity:1;">${escapeHtml(insight)}</div>`, 
+            autoAlpha: 0 
+          }, at);
+          tl.to("#avatar-cues", { autoAlpha: 1, y: 0, duration: 0.6, ease: "power2.out" }, at + 0.4);
+
           tl.fromTo(
             blocks,
             { y: 12, autoAlpha: 0 },
@@ -1686,6 +1630,45 @@
 
       const cards = createSceneCards();
       buildTimeline(cards);
+    </script>
+
+    <div id="scrubber-ui" style="position:fixed; bottom:20px; left:50%; transform:translateX(-50%); width:80%; background:rgba(0,0,0,0.8); padding:15px; border-radius:10px; z-index:10000; display:flex; align-items:center; gap:15px; color:white; font-family:sans-serif;">
+      <span id="time-display" style="min-width:60px;">0:00</span>
+      <input type="range" id="time-slider" min="0" max="1" step="0.001" value="0" style="flex:1; cursor:pointer;">
+    </div>
+
+    <script>
+      if (window.isHyperframesRender) {
+        document.getElementById('scrubber-ui').style.display = 'none';
+      }
+
+      window.addEventListener('load', () => {
+        const slider = document.getElementById('time-slider');
+        const display = document.getElementById('time-display');
+        
+        const checkTimeline = setInterval(() => {
+          if (window.__timelines && window.__timelines.main) {
+            clearInterval(checkTimeline);
+            const tl = window.__timelines.main;
+            const dur = tl.duration();
+            
+            slider.addEventListener('input', () => {
+              tl.pause();
+              tl.progress(slider.value);
+              const cur = (slider.value * dur).toFixed(1);
+              display.innerText = `${Math.floor(cur/60)}:${(cur%60).toFixed(0).padStart(2,'0')}`;
+            });
+
+            tl.eventCallback("onUpdate", () => {
+              if (!slider._isDragging) {
+                slider.value = tl.progress();
+                const cur = tl.time().toFixed(1);
+                display.innerText = `${Math.floor(cur/60)}:${(cur%60).toFixed(0).padStart(2,'0')}`;
+              }
+            });
+          }
+        }, 500);
+      });
     </script>
   </body>
 </html>
