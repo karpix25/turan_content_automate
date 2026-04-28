@@ -117,6 +117,13 @@ def normalize_source_url(value: str, task_type: str | None = None) -> str:
         raise HTTPException(status_code=400, detail="source_url is empty")
     
     t_type = (task_type or "").strip().lower()
+    if t_type == "avatar_youtube":
+        # Allow reusing already generated HeyGen videos by id without forcing URL normalization.
+        # Supported forms:
+        # - heygen:<video_id>
+        # - <video_id> (32 hex chars)
+        if url.lower().startswith("heygen:") or re.fullmatch(r"[0-9a-fA-F]{32}", url):
+            return url
     if t_type == "youtube":
         return normalize_youtube_url(url)
     if t_type == "vizard":

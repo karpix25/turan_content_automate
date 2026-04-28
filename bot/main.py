@@ -123,6 +123,15 @@ def detect_task_type(url: str) -> str:
     return task_type
 
 
+def extract_heygen_video_id(value: str) -> str | None:
+    raw = (value or "").strip()
+    if raw.lower().startswith("heygen:"):
+        raw = raw.split(":", 1)[1].strip()
+    if re.fullmatch(r"[0-9a-fA-F]{32}", raw):
+        return raw
+    return None
+
+
 
 def is_youtube_shorts_url(url: str) -> bool:
     raw = (url or "").strip()
@@ -205,6 +214,7 @@ async def send_welcome(message: types.Message):
         "Welcome to the Content Processor Bot!\n\n"
         "1. Open Settings to upload your logo and choose subtitle styles.\n"
         "2. Send me a link to a YouTube video or Instagram Reel.\n"
+        "   Or send HeyGen video id: heygen:<video_id>.\n"
         "3. I will process it and send you the result!",
         reply_markup=kb
     )
@@ -212,6 +222,19 @@ async def send_welcome(message: types.Message):
 @dp.message_handler(commands=['id'])
 async def send_user_id(message: types.Message):
     await message.reply(f"Ваш Telegram ID: `{message.from_user.id}`", parse_mode="Markdown")
+
+
+@dp.message_handler(regexp=r'^(?:heygen:)?[0-9a-fA-F]{32}$')
+async def handle_heygen_video_id(message: types.Message):
+    raw_text = (message.text or "").strip()
+    heygen_video_id = extract_heygen_video_id(raw_text)
+    if not heygen_video_id:
+        await message.reply("❌ Некорректный HeyGen video id.")
+        return
+
+    user_id = str(message.from_user.id)
+    status_message = await message.reply("⏳ Получил HeyGen ID\nЭтап: создаю задачу avatar_youtube.")
+    await create_task_in_backend(user_id, f"heygen:{heygen_video_id}", "avatar_youtube", status_message)
 
 @dp.message_handler(regexp=r'(https?://)?(www\.)?(youtube\.com|youtu\.be|instagram\.com|vizard\.ai)/.+')
 async def handle_link(message: types.Message):

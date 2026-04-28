@@ -3,6 +3,7 @@ import asyncio
 import random
 import logging
 import re
+import shutil
 from typing import List
 from urllib.parse import urlparse, parse_qs
 from celery import Celery
@@ -86,6 +87,22 @@ if AVATAR_SCRIPT_MAX_MINUTES < AVATAR_SCRIPT_MIN_MINUTES:
     AVATAR_SCRIPT_MAX_MINUTES = AVATAR_SCRIPT_MIN_MINUTES
 if AVATAR_SCRIPT_WPM < 80:
     AVATAR_SCRIPT_WPM = 80
+
+
+def _extract_heygen_video_id(value: str | None) -> str | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    if raw.lower().startswith("heygen:"):
+        raw = raw.split(":", 1)[1].strip()
+    if re.fullmatch(r"[0-9a-fA-F]{32}", raw):
+        return raw
+    parsed = urlparse(raw)
+    if parsed.query:
+        video_id = parse_qs(parsed.query).get("video_id", [""])[0].strip()
+        if re.fullmatch(r"[0-9a-fA-F]{32}", video_id):
+            return video_id
+    return None
 
 
 def _run_remotion_pipeline(task_id: int, input_video: str, script: str) -> str | None:
@@ -200,6 +217,42 @@ def process_content_task(task_id: int):
             clips = _download_vizard_project_clips(db, task, source_url)
             input_videos.extend(path for path, _title in clips)
             input_video_titles.extend(title for _path, title in clips)
+
+        elif task.type == "avatar_youtube" and _extract_heygen_video_id(source_url_raw):
+            heygen_video_id = _extract_heygen_video_id(source_url_raw)
+            if not heygen_video_id:
+                raise Exception("Invalid HeyGen video_id for avatar_youtube task")
+
+            update_task_status_message(
+                db,
+                task,
+                stage="HeyGen",
+                detail=f"Получаю уже готовое видео HeyGen по id={heygen_video_id}.",
+            )
+            logging.info("Task %s: avatar_youtube using existing HeyGen video_id=%s", task_id, heygen_video_id)
+
+            final_video_url = asyncio.run(heygen_client.poll_video_status(heygen_video_id))
+            if not final_video_url:
+                raise Exception(f"HeyGen video with id={heygen_video_id} is unavailable, failed, or timed out")
+
+            update_task_status_message(db, task, stage="Монтаж", detail="Скачиваю готовое видео из HeyGen.")
+            local_avatar_video = downloader.download_media(final_video_url, f"heygen_{task_id}")
+            if not local_avatar_video:
+                raise Exception("Failed to download existing HeyGen video")
+
+            update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Remotion (AI)...")
+            remotion_output = _run_remotion_pipeline(task_id, local_avatar_video, "")
+            if remotion_output:
+                local_avatar_video = remotion_output
+                logging.info(f"Task {task_id}: Successfully replaced raw video with Remotion output.")
+            else:
+                raise Exception(
+                    "Remotion rendering failed for avatar_youtube task. "
+                    "Raw HeyGen fallback is disabled by policy."
+                )
+
+            input_videos.append(local_avatar_video)
+            input_video_titles.append(task.source_title or f"Avatar Video {task_id}")
 
         elif task.type == "avatar_youtube":
             update_task_status_message(db, task, stage="Сценарий", detail="Получаю транскрипт видео.")
@@ -559,6 +612,37 @@ def process_content_task(task_id: int):
                 for account_id in target_account_ids:
                     slot_idx = account_variant_index.get(account_id, 1)
                     platform_code = account_platform_map.get(account_id, "universal")
+                    account_output = f"{video_root}_final_s{slot_idx}_a{account_id}.mp4"
+
+                    if task.type == "avatar_youtube":
+                        logging.info(
+                            "Task %s: clip=%s account=%s platform=%s slot=%s using Remotion-only output (no plate/CTA overlay)",
+                            task_id,
+                            clip_index,
+                            account_id,
+                            platform_code,
+                            slot_idx,
+                        )
+                        shutil.copy2(video_path, account_output)
+                        publish_at = publish_times[publish_index] if len(publish_times) > publish_index else None
+                        publish_index += 1
+                        rendered_outputs.append(
+                            {
+                                "output_path": account_output,
+                                "publish_at": publish_at,
+                                "target_account_id": account_id,
+                                "target_platform": platform_code,
+                                "source_title": clip_title,
+                                "source_label": _build_source_label(
+                                    base_source,
+                                    clip_index=clip_index if process_all_clips else None,
+                                    slot_index=slot_idx,
+                                    account_id=account_id,
+                                ),
+                            }
+                        )
+                        continue
+
                     plate_path, plate_start_percent = _get_channel_plate_config(db, user, account_id)
                     ending = _pick_platform_ending(
                         clips=ending_clips,
@@ -600,7 +684,6 @@ def process_content_task(task_id: int):
                             account_id,
                             platform_code,
                         )
-                    account_output = f"{video_root}_final_s{slot_idx}_a{account_id}.mp4"
                     processor.process_video(
                         input_path=video_path,
                         output_path=account_output,
