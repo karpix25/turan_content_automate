@@ -1,5 +1,5 @@
 # Используем Node.js как базу (важно для Remotion)
-FROM node:20-bullseye
+FROM node:20-bookworm
 
 # Устанавливаем системные зависимости (Python, FFmpeg, Chrome deps)
 RUN apt-get update && apt-get install -y \
@@ -29,8 +29,8 @@ WORKDIR /app
 # Копируем зависимости Python
 COPY hf-montage-test/requirements.txt ./hf-montage-test/
 COPY backend/requirements.txt ./backend/
-RUN pip3 install --no-cache-dir -r hf-montage-test/requirements.txt && \
-    pip3 install --no-cache-dir -r backend/requirements.txt
+RUN pip3 install --break-system-packages --no-cache-dir -r hf-montage-test/requirements.txt && \
+    pip3 install --break-system-packages --no-cache-dir -r backend/requirements.txt
 
 # Копируем зависимости Remotion
 COPY remotion-auto/package*.json ./remotion-auto/
