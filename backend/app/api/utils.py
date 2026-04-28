@@ -12,6 +12,13 @@ def _parse_csv_env(value: str | None) -> list[str]:
     parts = re.split(r"[,\n; ]+", raw)
     return [item.strip() for item in parts if item.strip()]
 
+def normalize_utc_naive(dt: datetime.datetime | None) -> datetime.datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:
+        return dt.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+    return dt
+
 def get_allowed_cors_origins() -> list[str]:
     return _parse_csv_env(os.getenv("CORS_ALLOWED_ORIGINS"))
 
