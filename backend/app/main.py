@@ -659,6 +659,28 @@ def update_postmypost_channels(
     db.commit()
     return build_postmypost_channels_response(db=db, user=user, accounts=accounts, channels=channels)
 
+@app.get("/elevenlabs/voices")
+def get_elevenlabs_voices(telegram_id: str = None, db: Session = Depends(get_db)):
+    if telegram_id:
+        ensure_admin_access(telegram_id)
+    api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
+    if not api_key:
+        raise HTTPException(status_code=400, detail="ELEVENLABS_API_KEY is not configured")
+    
+    import requests
+    headers = {
+        "xi-api-key": api_key,
+        "Accept": "application/json"
+    }
+    url = "https://api.elevenlabs.io/v2/voices?category=cloned"
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        logging.error(f"Failed to fetch ElevenLabs voices: {e}")
+        raise HTTPException(status_code=502, detail="Failed to fetch voices from ElevenLabs")
+
 @app.get("/settings/style/{telegram_id}", response_model=dict)
 async def get_style_settings(telegram_id: str, db: Session = Depends(get_db)):
     ensure_admin_access(telegram_id)

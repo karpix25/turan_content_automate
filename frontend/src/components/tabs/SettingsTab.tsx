@@ -12,8 +12,10 @@ export const SettingsTab: React.FC = () => {
   const [trainingStatus, setTrainingStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [loadingStyle, setLoadingStyle] = useState(false);
   
+  const [clonedVoices, setClonedVoices] = useState<{id: string, name: string}[]>([]);
+  const [loadingVoices, setLoadingVoices] = useState(false);
   const [selectedAvatar, setSelectedAvatar] = useState<string>('');
-  const [selectedVoice, setSelectedVoice] = useState<string>('nPczCjzB2oQXqZ4mU67e');
+  const [selectedVoice, setSelectedVoice] = useState<string>('');
   const [savingSettings, setSavingSettings] = useState(false);
   const [savedSettings, setSavedSettings] = useState(false);
 
@@ -32,7 +34,33 @@ export const SettingsTab: React.FC = () => {
         setLoadingStyle(false);
       }
     };
+    
+    const loadVoices = async () => {
+      if (!telegramId) return;
+      setLoadingVoices(true);
+      try {
+        const response = await apiClient.getElevenLabsVoices(telegramId);
+        if (response && response.voices) {
+          const fetchedVoices = response.voices.map((v: any) => ({
+            id: v.voice_id,
+            name: v.name
+          }));
+          setClonedVoices(fetchedVoices);
+          
+          // If no voice is selected but we have fetched voices, select the first one
+          if (fetchedVoices.length > 0) {
+            setSelectedVoice(prev => prev || fetchedVoices[0].id);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load voices:", error);
+      } finally {
+        setLoadingVoices(false);
+      }
+    };
+
     loadStyle();
+    loadVoices();
   }, [telegramId]);
 
   const trainStyle = async () => {
@@ -70,13 +98,6 @@ export const SettingsTab: React.FC = () => {
     { id: 'Wayne_20240711', name: 'Wayne', desc: 'Строгий, деловой', img: 'https://cdn2.heygen.ai/avatar/v3/Wayne_20240711/preview.jpg' },
     { id: 'Joshua_20240711', name: 'Joshua', desc: 'Харизматичный', img: 'https://cdn2.heygen.ai/avatar/v3/Joshua_20240711/preview.jpg' },
     { id: 'Bella_20240711', name: 'Bella', desc: 'Дружелюбная', img: 'https://cdn2.heygen.ai/avatar/v3/Bella_20240711/preview.jpg' }
-  ];
-
-  const voices = [
-    { id: 'nPczCjzB2oQXqZ4mU67e', name: 'Brian (Глубокий)' },
-    { id: 'cgSgspJ2msm6clMCkdW9', name: 'Jessica (Профи)' },
-    { id: 'pNInz6obbfDQGcgMyIGb', name: 'Adam (Энергичный)' },
-    { id: 'ErXwobaYiN019PkySvjV', name: 'Antoni (Мягкий)' }
   ];
 
   if (loadingStyle) {
@@ -144,12 +165,19 @@ export const SettingsTab: React.FC = () => {
         <select
           value={selectedVoice}
           onChange={(e) => setSelectedVoice(e.target.value)}
-          className="input-field w-full h-12 text-[15px] font-medium appearance-none bg-slate-50"
+          disabled={loadingVoices}
+          className="input-field w-full h-12 text-[15px] font-medium appearance-none bg-slate-50 disabled:opacity-50"
           style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'24\' height=\'24\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%2394a3b8\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '16px' }}
         >
-          {voices.map(voice => (
-            <option key={voice.id} value={voice.id}>{voice.name}</option>
-          ))}
+          {loadingVoices ? (
+            <option value="">Загрузка голосов...</option>
+          ) : clonedVoices.length === 0 ? (
+            <option value="">Нет склонированных голосов</option>
+          ) : (
+            clonedVoices.map(voice => (
+              <option key={voice.id} value={voice.id}>{voice.name}</option>
+            ))
+          )}
         </select>
         <p className="text-[11px] text-slate-500 mt-2">
           Этот голос будет использоваться при генерации новых ИИ-видео.
