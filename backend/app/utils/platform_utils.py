@@ -6,7 +6,6 @@ from typing import List
 
 from .. import models
 from ..publish_planner import plan_next_publish_times
-from ..worker import pmp_client
 from .media_utils import _resolve_media_file_path
 
 
@@ -69,6 +68,7 @@ def _get_target_account_ids(db, user_id: int) -> List[int]:
     # Fallback: if user did not configure channel toggles yet, use all
     # accounts available in the selected PostMyPost project.
     try:
+        from ..worker import pmp_client
         if pmp_client.api_key:
             project_id_raw = os.getenv("POSTMYPOST_PROJECT_ID", "").strip()
             project_id = int(project_id_raw) if project_id_raw else None
@@ -95,6 +95,7 @@ def _get_target_account_ids(db, user_id: int) -> List[int]:
 
 
 def _get_account_platform_map(account_ids: List[int]) -> dict[int, str]:
+    from ..worker import pmp_client
     if not account_ids or not pmp_client.api_key:
         return {}
     try:
