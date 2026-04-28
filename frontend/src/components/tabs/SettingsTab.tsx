@@ -66,10 +66,13 @@ export const SettingsTab: React.FC = () => {
       setLoadingAvatars(true);
       try {
         const response = await apiClient.getHeyGenAvatars(telegramId);
-        if (response && response.data) {
-          const fetchedAvatars = response.data.map((a: any) => ({
-            id: a.id,
-            name: a.name,
+        // HeyGen API v3 /avatars usually returns { data: { avatars: [...] } } or { data: [...] }
+        const avatarsList = response?.data?.avatars || response?.data || [];
+        
+        if (Array.isArray(avatarsList)) {
+          const fetchedAvatars = avatarsList.map((a: any) => ({
+            id: a.avatar_id || a.id,
+            name: a.avatar_name || a.name,
             preview: a.preview_image_url || a.preview_video_url || ''
           }));
           setHeygenAvatars(fetchedAvatars);

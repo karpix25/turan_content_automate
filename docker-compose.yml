@@ -68,6 +68,9 @@ services:
       - PLATES_DIR=/app/database/media/plates
       - CTA_DIR=/app/database/media/cta
       - OUTPUT_DIR=/app/database/media/output
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      - HEYGEN_API_KEY=${HEYGEN_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - PYTHONPATH=.
     depends_on:
       - db
@@ -117,6 +120,9 @@ services:
       - PLATES_DIR=/app/database/media/plates
       - CTA_DIR=/app/database/media/cta
       - OUTPUT_DIR=/app/database/media/output
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      - HEYGEN_API_KEY=${HEYGEN_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - PYTHONPATH=.
     depends_on:
       - db
