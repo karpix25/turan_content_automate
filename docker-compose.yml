@@ -1,11 +1,186 @@
-version: '3.8'
-
 services:
-  video-production:
-    build: .
-    container_name: turan-video-ai
-    volumes:
-      - .:/app
-    env_file:
-      - .env
+  db:
+    image: postgres:15-alpine
     restart: unless-stopped
+    init: true
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-content_studio}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-content_studio}"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    networks:
+      - content-network
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    init: true
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks:
+      - content-network
+
+  api:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=* --workers ${API_WORKERS:-2} --timeout-keep-alive 30
+    # No code volume in production! It overwrites the built image.
+    volumes:
+      - media_data:/app/database/media
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-content_studio}
+      - REDIS_URL=redis://redis:6379/0
+      - VIZARD_API_KEY=${VIZARD_API_KEY}
+      - SCRAPE_CREATORS_API_KEY=${SCRAPE_CREATORS_API_KEY}
+      - RAPIDAPI_KEY=${RAPIDAPI_KEY}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}
+      - TELEGRAM_ADMIN_IDS=${TELEGRAM_ADMIN_IDS}
+      - YOUTUBE_DOWNLOAD_RAPIDAPI_HOST=${YOUTUBE_DOWNLOAD_RAPIDAPI_HOST:-youtube-mp4-mp3-downloader.p.rapidapi.com}
+      - YOUTUBE_DOWNLOAD_FORMAT=${YOUTUBE_DOWNLOAD_FORMAT:-720}
+      - YOUTUBE_DOWNLOAD_AUDIO_QUALITY=${YOUTUBE_DOWNLOAD_AUDIO_QUALITY:-128}
+      - YOUTUBE_DOWNLOAD_POLL_INTERVAL_SECONDS=${YOUTUBE_DOWNLOAD_POLL_INTERVAL_SECONDS:-2}
+      - YOUTUBE_DOWNLOAD_TIMEOUT_SECONDS=${YOUTUBE_DOWNLOAD_TIMEOUT_SECONDS:-90}
+      - POSTMYPOST_API_KEY=${POSTMYPOST_API_KEY}
+      - POSTMYPOST_PROJECT_ID=${POSTMYPOST_PROJECT_ID}
+      - POSTMYPOST_CHANNEL_IDS=${POSTMYPOST_CHANNEL_IDS}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - POSTMYPOST_REQUEST_TIMEOUT_SECONDS=${POSTMYPOST_REQUEST_TIMEOUT_SECONDS:-12}
+      - POSTMYPOST_CONNECT_TIMEOUT_SECONDS=${POSTMYPOST_CONNECT_TIMEOUT_SECONDS:-4}
+      - POSTMYPOST_WRITE_TIMEOUT_SECONDS=${POSTMYPOST_WRITE_TIMEOUT_SECONDS:-20}
+      - POSTMYPOST_MAX_RETRIES=${POSTMYPOST_MAX_RETRIES:-2}
+      - POSTMYPOST_CACHE_TTL_SECONDS=${POSTMYPOST_CACHE_TTL_SECONDS:-120}
+      - POSTMYPOST_STALE_CACHE_TTL_SECONDS=${POSTMYPOST_STALE_CACHE_TTL_SECONDS:-900}
+      - POSTMYPOST_UPLOAD_POLL_INTERVAL_SECONDS=${POSTMYPOST_UPLOAD_POLL_INTERVAL_SECONDS:-8}
+      - POSTMYPOST_UPLOAD_POLL_TIMEOUT_SECONDS=${POSTMYPOST_UPLOAD_POLL_TIMEOUT_SECONDS:-300}
+      - PLATES_DIR=/app/database/media/plates
+      - CTA_DIR=/app/database/media/cta
+      - OUTPUT_DIR=/app/database/media/output
+      - PYTHONPATH=.
+    depends_on:
+      - db
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=3)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    networks:
+      - content-network
+      - coolify
+
+  worker:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 120s
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=${CELERY_WORKER_CONCURRENCY:-1} --prefetch-multiplier=1 --max-tasks-per-child=5 -Ofair
+    volumes:
+      - media_data:/app/database/media
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-content_studio}
+      - REDIS_URL=redis://redis:6379/0
+      - VIZARD_API_KEY=${VIZARD_API_KEY}
+      - SCRAPE_CREATORS_API_KEY=${SCRAPE_CREATORS_API_KEY}
+      - RAPIDAPI_KEY=${RAPIDAPI_KEY}
+      - YOUTUBE_DOWNLOAD_RAPIDAPI_HOST=${YOUTUBE_DOWNLOAD_RAPIDAPI_HOST:-youtube-mp4-mp3-downloader.p.rapidapi.com}
+      - YOUTUBE_DOWNLOAD_FORMAT=${YOUTUBE_DOWNLOAD_FORMAT:-720}
+      - YOUTUBE_DOWNLOAD_AUDIO_QUALITY=${YOUTUBE_DOWNLOAD_AUDIO_QUALITY:-128}
+      - YOUTUBE_DOWNLOAD_POLL_INTERVAL_SECONDS=${YOUTUBE_DOWNLOAD_POLL_INTERVAL_SECONDS:-2}
+      - YOUTUBE_DOWNLOAD_TIMEOUT_SECONDS=${YOUTUBE_DOWNLOAD_TIMEOUT_SECONDS:-90}
+      - POSTMYPOST_API_KEY=${POSTMYPOST_API_KEY}
+      - POSTMYPOST_PROJECT_ID=${POSTMYPOST_PROJECT_ID}
+      - POSTMYPOST_CHANNEL_IDS=${POSTMYPOST_CHANNEL_IDS}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - POSTMYPOST_REQUEST_TIMEOUT_SECONDS=${POSTMYPOST_REQUEST_TIMEOUT_SECONDS:-12}
+      - POSTMYPOST_CONNECT_TIMEOUT_SECONDS=${POSTMYPOST_CONNECT_TIMEOUT_SECONDS:-4}
+      - POSTMYPOST_WRITE_TIMEOUT_SECONDS=${POSTMYPOST_WRITE_TIMEOUT_SECONDS:-20}
+      - POSTMYPOST_MAX_RETRIES=${POSTMYPOST_MAX_RETRIES:-2}
+      - POSTMYPOST_CACHE_TTL_SECONDS=${POSTMYPOST_CACHE_TTL_SECONDS:-120}
+      - POSTMYPOST_STALE_CACHE_TTL_SECONDS=${POSTMYPOST_STALE_CACHE_TTL_SECONDS:-900}
+      - POSTMYPOST_UPLOAD_POLL_INTERVAL_SECONDS=${POSTMYPOST_UPLOAD_POLL_INTERVAL_SECONDS:-8}
+      - POSTMYPOST_UPLOAD_POLL_TIMEOUT_SECONDS=${POSTMYPOST_UPLOAD_POLL_TIMEOUT_SECONDS:-300}
+      - PLATES_DIR=/app/database/media/plates
+      - CTA_DIR=/app/database/media/cta
+      - OUTPUT_DIR=/app/database/media/output
+      - PYTHONPATH=.
+    depends_on:
+      - db
+      - redis
+    networks:
+      - content-network
+
+  beat:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    init: true
+    command: celery -A app.worker.celery_app beat --loglevel=info --pidfile=
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-content_studio}
+      - REDIS_URL=redis://redis:6379/0
+      - PYTHONPATH=.
+    depends_on:
+      - db
+      - redis
+    networks:
+      - content-network
+
+  bot:
+    build:
+      context: ./bot
+    restart: unless-stopped
+    init: true
+    # No code volume!
+    environment:
+      - BACKEND_API_URL=${BACKEND_API_URL:-http://api:8000}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-content_studio}
+      - REDIS_URL=redis://redis:6379/0
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - WEBAPP_URL=${WEBAPP_URL}
+      - PYTHONPATH=.
+    depends_on:
+      - db
+      - redis
+    networks:
+      - content-network
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    networks:
+      - content-network
+      - coolify
+
+networks:
+  content-network:
+    driver: bridge
+  coolify:
+    external: true
+
+volumes:
+  postgres_data:
+  media_data:
