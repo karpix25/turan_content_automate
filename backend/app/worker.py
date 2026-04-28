@@ -90,6 +90,7 @@ if AVATAR_SCRIPT_WPM < 80:
 
 def _run_remotion_pipeline(task_id: int, input_video: str, script: str) -> str | None:
     import subprocess
+    import json
     logging.info(f"Task {task_id}: Starting Remotion pipeline on {input_video}")
     montage_script = "/app/hf-montage-test/tools/smart_montage_pipeline.py"
     remotion_dir = "/app/remotion-auto"
@@ -115,11 +116,27 @@ def _run_remotion_pipeline(task_id: int, input_video: str, script: str) -> str |
         
     out_words_generated = out_plan.replace("scene-plan_", "scene-word-cues_")
     if os.path.exists(out_words_generated):
-        os.rename(out_words_generated, out_words)
+        if out_words_generated != out_words:
+            os.rename(out_words_generated, out_words)
     else:
         out_words_generated = os.path.join(os.path.dirname(out_plan), "scene-word-cues.generated.json")
         if os.path.exists(out_words_generated):
             os.rename(out_words_generated, out_words)
+
+    if not os.path.exists(out_words):
+        try:
+            with open(out_plan, "r", encoding="utf-8") as fp:
+                scenes = json.load(fp)
+            scene_count = len(scenes) if isinstance(scenes, list) else 0
+        except Exception:
+            scene_count = 0
+        fallback_cues = [[] for _ in range(scene_count)]
+        with open(out_words, "w", encoding="utf-8") as fp:
+            json.dump(fallback_cues, fp, ensure_ascii=False, indent=2)
+        logging.warning(
+            f"Task {task_id}: Scene word cues were missing after planner run. "
+            f"Created fallback cues file: {out_words} (scenes={scene_count})"
+        )
             
     # 2. Run Remotion Render
     final_output = os.path.join(out_dir, f"remotion_{task_id}.mp4")

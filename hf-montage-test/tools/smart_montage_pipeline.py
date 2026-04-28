@@ -1236,6 +1236,49 @@ def inject_scene_plan_into_index(index_path: Path, scenes: list[dict[str, Any]])
     index_path.write_text(updated, encoding="utf-8")
 
 
+def extract_word_cues(transcript_payload: dict[str, Any], scenes: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    channels = (transcript_payload.get("results") or {}).get("channels") or []
+    alternatives = channels[0].get("alternatives") if channels else []
+    words = alternatives[0].get("words") if alternatives else []
+    if not isinstance(words, list):
+        words = []
+
+    cues_by_scene: list[list[dict[str, Any]]] = []
+    for scene in scenes:
+        start = float(scene.get("start", 0.0))
+        end = float(scene.get("end", 0.0))
+        scene_cues: list[dict[str, Any]] = []
+        for word in words:
+            word_start = word.get("start")
+            if word_start is None:
+                continue
+            try:
+                word_start_f = float(word_start)
+            except (TypeError, ValueError):
+                continue
+            if word_start_f < start or word_start_f >= end:
+                continue
+
+            text = (word.get("punctuated_word") or word.get("word") or "").strip()
+            if not text:
+                continue
+            scene_cues.append({"time": round(word_start_f, 3), "text": text})
+        cues_by_scene.append(scene_cues)
+    return cues_by_scene
+
+
+def inject_scene_word_cues_into_index(index_path: Path, scene_word_cues: list[list[dict[str, Any]]]) -> None:
+    html = index_path.read_text(encoding="utf-8")
+    cues_json = json.dumps(scene_word_cues, ensure_ascii=False, indent=2)
+    indented = "\n".join(f"      {line}" for line in cues_json.splitlines())
+    repl = f'<script id="scene-word-cues" type="application/json">\n{indented}\n    </script>'
+    pattern = r'<script id="scene-word-cues" type="application/json">[\s\S]*?</script>'
+    updated, count = re.subn(pattern, repl, html, count=1)
+    if count != 1:
+        raise RuntimeError("Cannot find <script id=\"scene-word-cues\" type=\"application/json\"> in index.html")
+    index_path.write_text(updated, encoding="utf-8")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate semantic scene-plan from Deepgram transcript and inject to HyperFrames HTML")
     parser.add_argument("--video", required=True, help="Path to local source video/audio")
@@ -1274,6 +1317,11 @@ def parse_args() -> argparse.Namespace:
         help="Output semantic blocks JSON path",
     )
     parser.add_argument("--out-plan", default="data/scene-plan.generated.json", help="Output scene plan JSON path")
+    parser.add_argument(
+        "--out-word-cues",
+        default="",
+        help="Output scene word cues JSON path (default: derive from --out-plan)",
+    )
     return parser.parse_args()
 
 
@@ -1289,9 +1337,15 @@ def main() -> int:
     out_transcript = Path(args.out_transcript)
     out_semantic_blocks = Path(args.out_semantic_blocks)
     out_plan = Path(args.out_plan)
+    if args.out_word_cues:
+        out_word_cues = Path(args.out_word_cues)
+    else:
+        out_word_cues_name = out_plan.name.replace("scene-plan", "scene-word-cues")
+        out_word_cues = out_plan.with_name(out_word_cues_name)
     out_transcript.parent.mkdir(parents=True, exist_ok=True)
     out_semantic_blocks.parent.mkdir(parents=True, exist_ok=True)
     out_plan.parent.mkdir(parents=True, exist_ok=True)
+    out_word_cues.parent.mkdir(parents=True, exist_ok=True)
 
     if not video_path.exists():
         raise FileNotFoundError(f"Video not found: {video_path}")
@@ -1370,21 +1424,25 @@ def main() -> int:
             scenes = build_fallback_scene_plan(utterances, semantic_blocks, duration, args.max_scenes)
 
     out_plan.write_text(json.dumps(scenes, ensure_ascii=False, indent=2), encoding="utf-8")
+    scene_word_cues = extract_word_cues(transcript_payload, scenes)
+    out_word_cues.write_text(json.dumps(scene_word_cues, ensure_ascii=False, indent=2), encoding="utf-8")
     inject_scene_plan_into_index(index_path, scenes)
+    inject_scene_word_cues_into_index(index_path, scene_word_cues)
     eprint(f"Saved scene plan: {out_plan}")
+    eprint(f"Saved scene word cues: {out_word_cues}")
     eprint(f"Injected scene-plan into: {index_path}")
+    eprint(f"Injected scene-word-cues into: {index_path}")
 
     # Auto-sync to remotion-auto/public/input/ so Remotion Studio picks it up immediately
     remotion_public = Path(__file__).parent.parent.parent / "remotion-auto" / "public" / "input"
     if remotion_public.exists():
         import shutil
         dest_plan = remotion_public / "scene-plan.generated.json"
+        dest_word_cues = remotion_public / "scene-word-cues.generated.json"
         shutil.copy2(out_plan, dest_plan)
+        shutil.copy2(out_word_cues, dest_word_cues)
         eprint(f"Synced to Remotion: {dest_plan}")
-        word_cues_src = out_plan.parent / "scene-word-cues.generated.json"
-        if word_cues_src.exists():
-            shutil.copy2(word_cues_src, remotion_public / "scene-word-cues.generated.json")
-            eprint(f"Synced word cues to Remotion")
+        eprint(f"Synced word cues to Remotion: {dest_word_cues}")
     else:
         eprint(f"Note: remotion-auto/public/input not found at {remotion_public}, skipping sync.")
 
