@@ -93,7 +93,7 @@ def _run_remotion_pipeline(task_id: int, input_video: str, script: str) -> str |
     logging.info(f"Task {task_id}: Starting Remotion pipeline on {input_video}")
     montage_script = "/app/hf-montage-test/tools/smart_montage_pipeline.py"
     remotion_dir = "/app/remotion-auto"
-    dummy_index = "/app/remotion-auto/src/index.ts"
+    scene_plan_index = "/app/hf-montage-test/index.html"
     
     out_dir = os.getenv("OUTPUT_DIR", "./output").strip()
     out_plan = os.path.join(out_dir, f"scene-plan_{task_id}.json")
@@ -103,7 +103,7 @@ def _run_remotion_pipeline(task_id: int, input_video: str, script: str) -> str |
     cmd_plan = [
         "python3", montage_script,
         "--video", input_video,
-        "--index", dummy_index,
+        "--index", scene_plan_index,
         "--out-plan", out_plan,
         "--deepgram-intelligence"
     ]
