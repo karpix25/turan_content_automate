@@ -33,12 +33,12 @@ class ElevenLabsClient:
         }
         
         try:
-            with httpx.Client(timeout=300.0) as client:
-                response = client.post(url, json=data, headers=headers)
-                response.raise_for_status()
-                with open(output_path, 'wb') as f:
-                    for chunk in response.iter_bytes(chunk_size=8192):
-                        f.write(chunk)
+            with httpx.Client(timeout=600.0) as client:
+                with client.stream("POST", url, json=data, headers=headers) as response:
+                    response.raise_for_status()
+                    with open(output_path, 'wb') as f:
+                        for chunk in response.iter_bytes(chunk_size=8192):
+                            f.write(chunk)
                 return output_path
         except Exception as e:
             logger.error(f"ElevenLabs request failed: {e}")
