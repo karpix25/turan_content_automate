@@ -819,9 +819,13 @@ def process_content_task(task_id: int):
             
             os.makedirs(os.path.dirname(audio_output_path), exist_ok=True)
             
+            # Determine voice ID (User setting -> ENV -> Default Brian)
+            voice_id = (user.elevenlabs_voice_id or os.getenv("ELEVENLABS_VOICE_ID", "nPczCjzB2oQXqZ4mU67e")).strip()
+            logging.info(f"Generating audio for task {task_id} using voice_id: {voice_id}")
+
             generated_audio = elevenlabs_client.generate_audio(
                 text=script,
-                voice_id="MkpLCbCi07zFaS4HYwlU",
+                voice_id=voice_id,
                 output_path=audio_output_path
             )
 

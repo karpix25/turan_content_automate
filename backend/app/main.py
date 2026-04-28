@@ -665,7 +665,9 @@ async def get_style_settings(telegram_id: str, db: Session = Depends(get_db)):
     user = get_or_create_user(db, telegram_id)
     return {
         "author_style_profile": user.author_style_profile,
-        "training_source": user.training_source
+        "training_source": user.training_source,
+        "heygen_avatar_id": user.heygen_avatar_id,
+        "elevenlabs_voice_id": user.elevenlabs_voice_id
     }
 
 @app.post("/settings/train-style/{telegram_id}")

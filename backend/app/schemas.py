@@ -13,6 +13,8 @@ class UserSettingsUpdate(BaseModel):
     publish_window_end_msk: Optional[str] = None
     selected_plate_id: Optional[int] = None
     plate_start_percent: Optional[int] = None
+    heygen_avatar_id: Optional[str] = None
+    elevenlabs_voice_id: Optional[str] = None
 
     telegram_chat_id: Optional[str] = None
     telegram_status_message_id: Optional[str] = None
@@ -117,6 +119,8 @@ class UserSettings(BaseModel):
     plate_start_percent: int
     author_style_profile: Optional[str] = None
     training_source: Optional[str] = None
+    heygen_avatar_id: Optional[str] = None
+    elevenlabs_voice_id: Optional[str] = None
 
     class Config:
         from_attributes = True

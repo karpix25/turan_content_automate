@@ -20,6 +20,8 @@ import {
   PlaySquare,
   Camera,
   Music2,
+  Settings,
+  UserCog,
 } from 'lucide-react';
 import axios from 'axios';
 
@@ -32,6 +34,8 @@ type UserSettings = {
   plate_start_percent?: number;
   author_style_profile?: string | null;
   training_source?: string | null;
+  heygen_avatar_id?: string | null;
+  elevenlabs_voice_id?: string | null;
 };
 
 type VideoTaskItem = {
@@ -169,6 +173,8 @@ const App = () => {
   const [newVideoCount, setNewVideoCount] = useState(5);
   const [isTraining, setIsTraining] = useState(false);
   const [trainingError, setTrainingError] = useState<string | null>(null);
+  const [selectedAvatar, setSelectedAvatar] = useState('c2378b7228ca478f850ab8ddea830bb9');
+  const [selectedVoice, setSelectedVoice] = useState('nPczCjzB2oQXqZ4mU67e');
 
   const [telegramId, setTelegramId] = useState('');
   const [telegramIdInput, setTelegramIdInput] = useState('');
@@ -248,9 +254,14 @@ const App = () => {
       typeof styleRes.data?.training_source === 'string'
         ? styleRes.data.training_source
         : null;
+    const heygenId = typeof styleRes.data?.heygen_avatar_id === 'string' ? styleRes.data.heygen_avatar_id : 'c2378b7228ca478f850ab8ddea830bb9';
+    const voiceId = typeof styleRes.data?.elevenlabs_voice_id === 'string' ? styleRes.data.elevenlabs_voice_id : 'nPczCjzB2oQXqZ4mU67e';
+    
     setAuthorStyleProfile(authorStyle);
     setTrainingSource(source);
-    return { authorStyleProfile: authorStyle, trainingSource: source };
+    setSelectedAvatar(heygenId);
+    setSelectedVoice(voiceId);
+    return { authorStyleProfile: authorStyle, trainingSource: source, selectedAvatar: heygenId, selectedVoice: voiceId };
   };
 
   useEffect(() => {
@@ -591,6 +602,20 @@ const App = () => {
     }
   };
 
+  const saveStyleSettings = async () => {
+    if (!telegramId) return;
+    setLoading(true);
+    try {
+      await axios.post(`${API_BASE}/settings/${telegramId}/update`, {
+        heygen_avatar_id: selectedAvatar,
+        elevenlabs_voice_id: selectedVoice,
+      });
+      flashSaved();
+    } catch (error) {} finally {
+      setLoading(false);
+    }
+  };
+
   const saveTaskSchedule = async (taskId: number) => {
     if (!telegramId) return;
     const localValue = scheduleInputs[taskId];
@@ -843,7 +868,7 @@ const App = () => {
   const sectionMeta: Record<string, { title: string; actionLabel: string | null }> = {
     channels: { title: 'Каналы', actionLabel: 'Сохранить' },
     planning: { title: 'Планирование', actionLabel: 'Сохранить' },
-    style: { title: 'Стиль', actionLabel: null },
+    style: { title: 'Настройки', actionLabel: 'Сохранить' },
     queue: { title: 'Очередь', actionLabel: null },
   };
 
@@ -911,6 +936,8 @@ const App = () => {
     }
     if (activeTab === 'planning') {
       await savePlanningSettings();
+    } else if (activeTab === 'style') {
+      await saveStyleSettings();
     }
   };
 
@@ -1163,39 +1190,81 @@ const App = () => {
           {activeTab === 'style' && (
             <motion.div key="style" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6 pb-20">
               <div className="tg-card p-4 bg-gradient-to-br from-[#f0f9ff] to-[#e0f2fe] border border-[#bae6fd]">
-                <p className="text-[12px] uppercase tracking-[0.18em] text-[#0369a1]">Обучение аватара</p>
-                <h2 className="text-[22px] font-bold mt-2 text-slate-900">Ваш авторский стиль</h2>
+                <p className="text-[12px] uppercase tracking-[0.18em] text-[#0369a1]">Персонализация</p>
+                <h2 className="text-[22px] font-bold mt-2 text-slate-900">ИИ Продакшн</h2>
                 <p className="text-sm text-slate-600 mt-2">
-                  Используйте Gemini 2.5 Pro для анализа вашего канала. Модель изучит ваши транскрипты и создаст профиль вашего голоса для генерации новых сценариев.
+                  Выберите визуальный образ аватара и голос диктора для ваших роликов.
                 </p>
               </div>
 
               <div className="tg-card">
                 <div className="p-4 border-b">
-                  <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Начать обучение</h3>
+                  <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Аватар (HeyGen)</h3>
+                </div>
+                <div className="p-4 space-y-4">
+                  <div className="grid grid-cols-1 gap-3">
+                    {[
+                      { id: 'c2378b7228ca478f850ab8ddea830bb9', name: 'Wayne (Бизнес/Профи)', desc: 'Мужчина, строгий стиль' },
+                      { id: '35549045761a4c9c812d1b11b7f03673', name: 'Joshua (Кэжуал)', desc: 'Молодой человек, футболка' },
+                      { id: '81a666993129486c91353982f9d85f75', name: 'Bella (Элегантность)', desc: 'Девушка, деловой стиль' }
+                    ].map(avatar => (
+                      <button
+                        key={avatar.id}
+                        onClick={() => setSelectedAvatar(avatar.id)}
+                        className={`p-4 rounded-2xl border-2 text-left transition-all flex items-center justify-between ${
+                          selectedAvatar === avatar.id 
+                          ? 'border-[#24a1de] bg-blue-50/50' 
+                          : 'border-slate-100 hover:border-slate-200'
+                        }`}
+                      >
+                        <div>
+                          <p className={`font-bold ${selectedAvatar === avatar.id ? 'text-[#0088cc]' : 'text-slate-900'}`}>{avatar.name}</p>
+                          <p className="text-xs text-slate-500 mt-0.5">{avatar.desc}</p>
+                        </div>
+                        {selectedAvatar === avatar.id && <CheckCircle2 className="text-[#24a1de]" size={20} />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="tg-card">
+                <div className="p-4 border-b flex items-center gap-2">
+                  <Music2 size={16} className="text-[#707579]" />
+                  <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Голос (ElevenLabs)</h3>
+                </div>
+                <div className="p-4">
+                  <select 
+                    value={selectedVoice} 
+                    onChange={(e) => setSelectedVoice(e.target.value)}
+                    className="input-field h-12 w-full appearance-none bg-slate-50 border-slate-200"
+                  >
+                    <option value="nPczCjzB2oQXqZ4mU67e">Brian (Наратор - Рекомендуется)</option>
+                    <option value="cgSgspJ2msm6clMCkdW9">Jessica (Профессиональный)</option>
+                    <option value="pNInz6obpgDQGcFmaJgB">Adam (Глубокий)</option>
+                    <option value="ErXw6BOqqiS2OcqL8SJ8">Antoni (Приятный)</option>
+                  </select>
+                  <p className="text-[11px] text-slate-400 mt-2 px-1">
+                    Голос используется для озвучки сценария. Brian лучше всего подходит для новостного и аналитического контента.
+                  </p>
+                </div>
+              </div>
+
+              <div className="tg-card">
+                <div className="p-4 border-b flex items-center gap-2">
+                  <UserCog size={16} className="text-[#707579]" />
+                  <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Обучение стилю (GEMINI)</h3>
                 </div>
                 <div className="p-4 space-y-4">
                   <div className="space-y-3">
                     <label className="flex flex-col gap-1">
-                      <span className="text-xs text-[#707579]">Ссылка на канал, хэндл (@...) или публичное YouTube-видео</span>
+                      <span className="text-xs text-[#707579]">Ссылка на канал или YouTube-видео</span>
                       <input
                         type="text"
-                        placeholder="https://youtube.com/@paddygalloway"
+                        placeholder="https://youtube.com/@..."
                         className="input-field h-11"
                         value={newChannelUrl}
                         onChange={(e) => setNewChannelUrl(e.target.value)}
-                        disabled={isTraining}
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1">
-                      <span className="text-xs text-[#707579]">Количество видео для анализа (3-10)</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={10}
-                        className="input-field h-11"
-                        value={newVideoCount}
-                        onChange={(e) => setNewVideoCount(Number(e.target.value))}
                         disabled={isTraining}
                       />
                     </label>
@@ -1213,26 +1282,23 @@ const App = () => {
                     {isTraining ? (
                       <>
                         <Loader2 className="animate-spin" size={18} />
-                        Анализирую канал...
+                        Анализирую стиль...
                       </>
                     ) : (
-                      'Запустить обучение стилю'
+                      'Обучить нейронку на примере'
                     )}
                   </button>
+                  {authorStyleProfile && (
+                    <div className="mt-4 p-4 bg-slate-50 rounded-xl border border-slate-100 min-h-[100px] whitespace-pre-wrap text-[13px] text-slate-800 leading-relaxed font-serif">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Текущий профиль</span>
+                        <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-bold">Обучено на: {trainingSource}</span>
+                      </div>
+                      {authorStyleProfile}
+                    </div>
+                  )}
                 </div>
               </div>
-
-              {authorStyleProfile && (
-                <div className="tg-card">
-                  <div className="p-4 border-b flex items-center justify-between">
-                    <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight">Текущий профиль стиля</h3>
-                    <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded-full font-bold">Обучено на: {trainingSource}</span>
-                  </div>
-                  <div className="p-4 bg-slate-50 min-h-[100px] whitespace-pre-wrap text-sm text-slate-800 leading-relaxed font-serif">
-                    {authorStyleProfile}
-                  </div>
-                </div>
-              )}
             </motion.div>
           )}
 
@@ -1559,10 +1625,10 @@ const App = () => {
       </main>
       <nav className="bottom-nav">
         {[
-          { id: 'channels', icon: LayoutGrid, label: 'Каналы' },
+          { id: 'channels', icon: Globe2, label: 'Каналы' },
           { id: 'planning', icon: CalendarClock, label: 'План' },
-          { id: 'style', icon: Search, label: 'Стиль' },
-          { id: 'queue', icon: RefreshCcw, label: 'Очередь [DEBUG]' }
+          { id: 'style', icon: Settings, label: 'Настройки' },
+          { id: 'queue', icon: RefreshCcw, label: 'Очередь' }
         ].map(tab => (
           <button 
             key={tab.id}

@@ -26,6 +26,8 @@ class User(Base):
     # Writing style training
     author_style_profile = Column(String, nullable=True)  # Detailed tone/style analyzed by LLM
     training_source = Column(String, nullable=True)       # YouTube channel link/handle
+    heygen_avatar_id = Column(String, nullable=True)
+    elevenlabs_voice_id = Column(String, nullable=True)
 
 class Plate(Base):
     __tablename__ = "plates"
