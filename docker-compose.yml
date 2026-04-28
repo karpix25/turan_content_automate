@@ -72,6 +72,7 @@ services:
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
       - HEYGEN_API_KEY=${HEYGEN_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}
       - PYTHONPATH=.
     depends_on:
       - db
@@ -126,6 +127,7 @@ services:
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
       - HEYGEN_API_KEY=${HEYGEN_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}
       - PYTHONPATH=.
     depends_on:
       - db
@@ -143,6 +145,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-content_studio}
       - REDIS_URL=redis://redis:6379/0
+      - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}
       - PYTHONPATH=.
     depends_on:
       - db
