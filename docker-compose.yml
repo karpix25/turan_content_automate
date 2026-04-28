@@ -33,6 +33,7 @@ services:
   api:
     build:
       context: ./backend
+      dockerfile: Dockerfile
     restart: unless-stopped
     init: true
     stop_grace_period: 30s
@@ -135,6 +136,7 @@ services:
   beat:
     build:
       context: ./backend
+      dockerfile: Dockerfile
     restart: unless-stopped
     init: true
     command: celery -A app.worker.celery_app beat --loglevel=info --pidfile=
