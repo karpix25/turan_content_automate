@@ -1,7 +1,8 @@
 import os
-from ..worker import llm, AVATAR_SCRIPT_WPM
-
-def _estimate_script_minutes(text: str, words_per_minute: int = AVATAR_SCRIPT_WPM) -> float:
+def _estimate_script_minutes(text: str, words_per_minute: int | None = None) -> float:
+    from ..worker import llm, AVATAR_SCRIPT_WPM
+    if words_per_minute is None:
+        words_per_minute = AVATAR_SCRIPT_WPM
     words = llm.estimate_word_count(text)
     if words_per_minute <= 0:
         return 0.0

@@ -4,7 +4,6 @@ import logging
 from typing import List
 
 from .. import models
-from ..worker import vizard, downloader
 
 
 def _extract_vizard_project_id(url_or_id: str) -> str | None:
@@ -53,6 +52,7 @@ def _extract_vizard_clip_title(clip: dict) -> str | None:
     return None
 
 def _download_vizard_project_clips(db, task: models.VideoTask, source_url: str, **create_kwargs) -> List[tuple[str, str | None]]:
+    from ..worker import vizard, downloader
     logging.info(f"Task {task.id}: Processing vizard/youtube source: '{source_url}'")
     
     # Check if we already have a project ID or if source_url is a Vizard link
