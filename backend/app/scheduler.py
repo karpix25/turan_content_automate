@@ -10,6 +10,7 @@ from . import models
 from .integrations.postmypost import PostMyPostClient
 from .telegram_progress import update_task_status_message
 from .worker import celery_app
+from .utils.platform_utils import _get_account_platform_map, _normalize_platform_code
 
 load_dotenv()
 
@@ -178,6 +179,17 @@ def sync_publication_task(task_id: int, force_now: bool = False):
             raise RuntimeError("Task user not found")
 
         account_ids = _get_task_account_ids(db, task, user.id)
+        if task.type == "avatar_youtube":
+            account_platform_map = _get_account_platform_map(account_ids)
+            account_ids = [
+                account_id
+                for account_id in account_ids
+                if _normalize_platform_code(account_platform_map.get(account_id)) == "youtube"
+            ]
+            if not account_ids:
+                raise RuntimeError(
+                    "avatar_youtube publication blocked: no YouTube accounts in resolved target list"
+                )
         account_descriptions = _get_account_descriptions(db, user.id)
         content_by_account = {
             account_id: account_descriptions[account_id]

@@ -379,7 +379,10 @@ def process_content_task(task_id: int):
                 local_avatar_video = remotion_output
                 logging.info(f"Task {task_id}: Successfully replaced raw video with Remotion output.")
             else:
-                logging.warning(f"Task {task_id}: Remotion failed, proceeding with raw HeyGen video.")
+                raise Exception(
+                    "Remotion rendering failed for avatar_youtube task. "
+                    "Raw HeyGen fallback is disabled by policy."
+                )
                 
             # --- Final Post-Processing (Plates/Endings) ---
             # We treat this video as the 'source' for the final step
@@ -461,6 +464,9 @@ def process_content_task(task_id: int):
             raise Exception("No input videos were downloaded")
         update_task_status_message(db, task, stage="Монтаж", detail="Собираю финальные ролики.")
         process_all_clips = bool(task.vizard_project_id)
+        if task.type == "avatar_youtube":
+            # Avatar flow always has a single HeyGen source clip and must not fan out by clip.
+            process_all_clips = False
         if process_all_clips:
             source_items = [
                 (index, input_videos[index - 1], input_video_titles[index - 1] if len(input_video_titles) >= index else None)
@@ -487,6 +493,24 @@ def process_content_task(task_id: int):
         target_account_ids = list(dict.fromkeys(target_account_ids))
 
         account_platform_map = _get_account_platform_map(target_account_ids)
+        if task.type == "avatar_youtube":
+            youtube_only_accounts = [
+                account_id
+                for account_id in target_account_ids
+                if _normalize_platform_code(account_platform_map.get(account_id)) == "youtube"
+            ]
+            if not youtube_only_accounts:
+                raise Exception(
+                    "No YouTube target accounts configured/enabled for avatar_youtube task. "
+                    "Enable at least one YouTube channel in PostMyPost settings."
+                )
+            target_account_ids = youtube_only_accounts
+            logging.info(
+                "Task %s: avatar_youtube restricted publication targets to YouTube accounts: %s",
+                task_id,
+                target_account_ids,
+            )
+
         variants_count, account_variant_index = _build_account_variant_plan(
             account_ids=target_account_ids,
             account_platform_map=account_platform_map,
@@ -495,8 +519,6 @@ def process_content_task(task_id: int):
             models.CTAClip.user_id == user.id
         ).order_by(models.CTAClip.id.desc()).all()
         
-        if task.type == "avatar_youtube":
-            ending_clips = []  # Bypass endings for Remotion-processed avatars
         logging.info(
             "Task %s: user_id=%s telegram_id=%s accounts=%s variants_count=%s endings_loaded=%s",
             task_id,
@@ -556,15 +578,28 @@ def process_content_task(task_id: int):
                             ending.file_path,
                         )
                     logging.info(
-                        "Task %s: clip=%s account=%s platform=%s slot=%s ending_id=%s ending_path=%s",
+                        (
+                            "Task %s: clip=%s account=%s platform=%s slot=%s "
+                            "plate_path=%s plate_start_percent=%s ending_id=%s ending_path=%s"
+                        ),
                         task_id,
                         clip_index,
                         account_id,
                         platform_code,
                         slot_idx,
+                        plate_path,
+                        plate_start_percent,
                         getattr(ending, "id", None),
                         ending_path,
                     )
+                    if not plate_path:
+                        logging.warning(
+                            "Task %s: plate is not configured/resolved for account=%s platform=%s. "
+                            "Final output will not contain UI plate overlay.",
+                            task_id,
+                            account_id,
+                            platform_code,
+                        )
                     account_output = f"{video_root}_final_s{slot_idx}_a{account_id}.mp4"
                     processor.process_video(
                         input_path=video_path,
@@ -596,6 +631,21 @@ def process_content_task(task_id: int):
             else:
                 base_output = f"{video_root}_final.mp4"
                 plate_path, plate_start_percent = _get_channel_plate_config(db, user, None)
+                logging.info(
+                    "Task %s: clip=%s account=%s platform=%s plate_path=%s plate_start_percent=%s",
+                    task_id,
+                    clip_index,
+                    None,
+                    _normalize_platform_code(task.type),
+                    plate_path,
+                    plate_start_percent,
+                )
+                if not plate_path:
+                    logging.warning(
+                        "Task %s: plate is not configured/resolved for non-account output. "
+                        "Final output will not contain UI plate overlay.",
+                        task_id,
+                    )
                 processor.process_video(
                     input_path=video_path,
                     output_path=base_output,
