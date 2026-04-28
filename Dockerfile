@@ -28,7 +28,9 @@ WORKDIR /app
 
 # Копируем зависимости Python
 COPY hf-montage-test/requirements.txt ./hf-montage-test/
-RUN pip3 install --no-cache-dir -r hf-montage-test/requirements.txt
+COPY backend/requirements.txt ./backend/
+RUN pip3 install --no-cache-dir -r hf-montage-test/requirements.txt && \
+    pip3 install --no-cache-dir -r backend/requirements.txt
 
 # Копируем зависимости Remotion
 COPY remotion-auto/package*.json ./remotion-auto/

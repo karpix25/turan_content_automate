@@ -88,6 +88,59 @@ if AVATAR_SCRIPT_WPM < 80:
     AVATAR_SCRIPT_WPM = 80
 
 
+def _run_remotion_pipeline(task_id: int, input_video: str, script: str) -> str | None:
+    import subprocess
+    logging.info(f"Task {task_id}: Starting Remotion pipeline on {input_video}")
+    montage_script = "/app/hf-montage-test/tools/smart_montage_pipeline.py"
+    remotion_dir = "/app/remotion-auto"
+    dummy_index = "/app/remotion-auto/src/index.ts"
+    
+    out_dir = os.getenv("OUTPUT_DIR", "./output").strip()
+    out_plan = os.path.join(out_dir, f"scene-plan_{task_id}.json")
+    out_words = os.path.join(out_dir, f"scene-word-cues_{task_id}.json")
+    
+    # 1. Run AI Scene Planner
+    cmd_plan = [
+        "python", montage_script,
+        "--video", input_video,
+        "--index", dummy_index,
+        "--out-plan", out_plan,
+        "--deepgram-intelligence"
+    ]
+    logging.info(f"Task {task_id}: Running scene planner: {' '.join(cmd_plan)}")
+    res = subprocess.run(cmd_plan, capture_output=True, text=True)
+    if res.returncode != 0:
+        logging.error(f"Task {task_id}: Scene planner failed. STDOUT: {res.stdout}\nSTDERR: {res.stderr}")
+        return None
+        
+    out_words_generated = out_plan.replace("scene-plan_", "scene-word-cues_")
+    if os.path.exists(out_words_generated):
+        os.rename(out_words_generated, out_words)
+    else:
+        out_words_generated = os.path.join(os.path.dirname(out_plan), "scene-word-cues.generated.json")
+        if os.path.exists(out_words_generated):
+            os.rename(out_words_generated, out_words)
+            
+    # 2. Run Remotion Render
+    final_output = os.path.join(out_dir, f"remotion_{task_id}.mp4")
+    cmd_render = [
+        "npm", "run", "render:auto", "--",
+        "--video", input_video,
+        "--scene-plan", out_plan,
+        "--word-cues", out_words,
+        "--out", final_output
+    ]
+    logging.info(f"Task {task_id}: Running Remotion: {' '.join(cmd_render)}")
+    res_render = subprocess.run(cmd_render, cwd=remotion_dir, capture_output=True, text=True)
+    if res_render.returncode != 0:
+        logging.error(f"Task {task_id}: Remotion failed. STDOUT: {res_render.stdout}\nSTDERR: {res_render.stderr}")
+        return None
+        
+    if os.path.exists(final_output):
+        return final_output
+    return None
+
+
 @celery_app.task(name="process_content_task")
 def process_content_task(task_id: int):
     db = SessionLocal()
@@ -302,6 +355,15 @@ def process_content_task(task_id: int):
             if not local_avatar_video:
                 raise Exception("Failed to download final video from HeyGen")
                 
+            # --- Remotion AI Rendering ---
+            update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Remotion (AI)...")
+            remotion_output = _run_remotion_pipeline(task_id, local_avatar_video, script)
+            if remotion_output:
+                local_avatar_video = remotion_output
+                logging.info(f"Task {task_id}: Successfully replaced raw video with Remotion output.")
+            else:
+                logging.warning(f"Task {task_id}: Remotion failed, proceeding with raw HeyGen video.")
+                
             # --- Final Post-Processing (Plates/Endings) ---
             # We treat this video as the 'source' for the final step
             input_videos.append(local_avatar_video)
@@ -415,6 +477,9 @@ def process_content_task(task_id: int):
         ending_clips = db.query(models.CTAClip).filter(
             models.CTAClip.user_id == user.id
         ).order_by(models.CTAClip.id.desc()).all()
+        
+        if task.type == "avatar_youtube":
+            ending_clips = []  # Bypass endings for Remotion-processed avatars
         logging.info(
             "Task %s: user_id=%s telegram_id=%s accounts=%s variants_count=%s endings_loaded=%s",
             task_id,

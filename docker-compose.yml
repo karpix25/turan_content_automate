@@ -87,7 +87,9 @@ services:
 
   worker:
     build:
-      context: ./backend
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /app/backend
     restart: unless-stopped
     init: true
     stop_grace_period: 120s
