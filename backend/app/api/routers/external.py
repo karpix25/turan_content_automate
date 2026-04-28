@@ -21,11 +21,19 @@ def get_elevenlabs_voices(telegram_id: str = None, db: Session = Depends(get_db)
         "xi-api-key": api_key,
         "Accept": "application/json"
     }
-    url = "https://api.elevenlabs.io/v2/voices?category=cloned"
+    url = "https://api.elevenlabs.io/v2/voices"
     try:
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+        
+        # Filter to only show user's own voices (Instant and Professional clones)
+        if "voices" in data:
+            data["voices"] = [
+                v for v in data["voices"] 
+                if v.get("category") in ("cloned", "professional")
+            ]
+        return data
     except Exception as e:
         logging.error(f"Failed to fetch ElevenLabs voices: {e}")
         raise HTTPException(status_code=502, detail="Failed to fetch voices from ElevenLabs")
