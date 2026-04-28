@@ -111,12 +111,13 @@ class LLMClient:
         target_words = int((min_words + max_words) / 2)
 
         narrative_rules = (
-            "Follow these YouTube Master Storytelling Rules:\n"
-            "1. THE HOOK: Start with a 3-5 second hook that immediately addresses the audience's core curiosity or problem. "
-            "2. NO FILLER: Cut the intro basics ('Hey guys', 'Welcome back'). Jump straight into the action.\n"
-            "3. NARRATIVE ARC: Structure the content as a story (Setting the stage -> Conflict -> Climax -> Resolution).\n"
-            "4. RETENTION LOOPS: Every 30-60 seconds, tease an upcoming value point to keep the viewer watching (Open loops).\n"
-            "5. NATIVE CTA: Weave the call to action naturally before the very end."
+            "Follow the 2026 YouTube Master Narrative & Retention Framework:\n"
+            "1. THE 8-SECOND HOOK: Start instantly with 'productive discomfort', a contrarian truth, or the core conflict. ZERO 'Welcome back' or 'In this video' greetings.\n"
+            "2. THE RETENTION ANCHOR: Establish one massive 'Aha!' realization or core goal. Tease it early, but delay the full explanation to maintain narrative tension.\n"
+            "3. SEGMENTED NARRATIVE: Break the body into 3-4 distinct 'chapters'. Every chapter must start with a micro-hook and deliver progressive value, pulling the viewer deeper into the story.\n"
+            "4. WRITE FOR THE EAR: Use ultra-conversational language. Keep sentences punchy (under 20 words). No corporate or academic fluff.\n"
+            "5. SEAMLESS CTA: Weave the Call to Action (subscribe/like) naturally into the middle of a high-value point or at the emotional climax. Do not make it feel like a forced ad.\n"
+            "6. ABRUPT OUTRO: End powerfully and concisely after the final value is delivered. Do not drag out the ending with long goodbyes."
         )
         
         system_prompt = (
