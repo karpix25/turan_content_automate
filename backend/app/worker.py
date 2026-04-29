@@ -16,7 +16,7 @@ from .integrations.postmypost import PostMyPostClient
 from .processor import VideoProcessor
 from .database import SessionLocal, init_database
 from .publish_planner import plan_next_publish_times
-from .telegram_progress import update_task_status_message, send_avatar_audio_to_telegram, send_avatar_video_to_telegram
+from .telegram_progress import update_task_status_message, send_avatar_audio_to_telegram
 from .integrations.elevenlabs_client import ElevenLabsClient
 from .integrations.heygen_client import HeyGenClient
 
@@ -581,7 +581,6 @@ def process_content_task(task_id: int):
             variants_count,
             len(ending_clips),
         )
-        auto_publish_enabled = task.type != "avatar_youtube"
         output_platforms: list[str] = []
         if target_account_ids:
             for _clip_index, _video_path, _clip_title in source_items:
@@ -590,19 +589,13 @@ def process_content_task(task_id: int):
         else:
             for _clip_index, _video_path, _clip_title in source_items:
                 output_platforms.append(_normalize_platform_code(task.type))
-        if auto_publish_enabled:
-            publish_times = _plan_publish_times_for_outputs(
-                db=db,
-                user=user,
-                output_platforms=output_platforms,
-                manual_publish_at=None if process_all_clips else task.publish_at,
-            )
-        else:
-            publish_times = [None] * len(output_platforms)
-
-        # Remotion avatar flow should deliver result to Telegram as a file first
-        # and not auto-publish to PostMyPost.
-        should_sync_outputs = bool(target_account_ids) and auto_publish_enabled
+        publish_times = _plan_publish_times_for_outputs(
+            db=db,
+            user=user,
+            output_platforms=output_platforms,
+            manual_publish_at=None if process_all_clips else task.publish_at,
+        )
+        should_sync_outputs = bool(target_account_ids)
         base_source = _get_base_source_label(task.source_url)
         rendered_outputs: List[dict] = []
         publish_index = 0
@@ -804,9 +797,7 @@ def process_content_task(task_id: int):
             )
             celery_app.send_task("sync_publication_task", args=[task.id])
 
-        if task.type == "avatar_youtube" and task.output_path:
-            update_task_status_message(db, task, stage="Telegram", detail="Отправляю финальный файл в Telegram.")
-            send_avatar_video_to_telegram(task, task.output_path)
+        # avatar_youtube публикуется через PostMyPost; Telegram delivery для финального видео отключен.
 
         for derived_output in rendered_outputs[1:]:
             derived_task = _upsert_processed_task(
