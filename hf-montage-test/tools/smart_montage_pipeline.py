@@ -842,16 +842,10 @@ def build_llm_prompt_payload(
                     "end": 8.5,
                     "blockName": "ХУК",
                     "reason": "Вводная часть, устанавливаем контакт (Layout: Side)",
+                    "mode": "mini",
                     "titleLines": ["Заголовок 1", "Заголовок 2", "Заголовок 3", "Заголовок 4"],
                     "steps": ["Шаг 1", "Шаг 2", "Шаг 3"],
-                    "insight": "Глубокая аналитическая мысль",
-                    "chartType": "BARS",
-                    "bars": [
-                        {"label": "Показатель 1", "value": 0.85},
-                        {"label": "Показатель 2", "value": 0.70},
-                        {"label": "Показатель 3", "value": 0.92},
-                        {"label": "Показатель 4", "value": 0.65}
-                    ]
+                    "insight": "Глубокая аналитическая мысль"
                 }
             ]
         },
@@ -893,13 +887,14 @@ def generate_scene_plan_llm(
 
 ГЛАВНЫЕ ПРАВИЛА ТАЙМИНГА И РЕЖИМОВ (mode):
 1. ЧИСТЫЙ ХУК: Строго запрещено ставить любые сцены в первые 10-15 секунд видео. Спикер должен смотреть в глаза зрителю и произнести хук без графики. Первая сцена может начаться только после 15 секунды.
-2. СТАРТ БЛОКА (mode: "insight"): Когда начинается новая смысловая тема/глава, ставь сцену в режиме "insight". Это крупная плашка на весь экран, которая появляется на 2-4 секунды, чтобы громко заявить тему, а затем исчезает.
-3. ЦИФРЫ И ФАКТЫ (mode: "lower-third"): Если внутри блока звучит важная цифра, статистика или факт, ставь сцену в режиме "lower-third" (нижняя плашка). Она аккуратно подсветит данные, не перекрывая лицо.
+2. Используй ТОЛЬКО два режима: "full" (крупная плашка) и "mini" (маленькая плашка).
+3. СТАРТ БЛОКА = mode "full": новая тема/глава должна начинаться крупной плашкой на 2-4 секунды.
+4. ЦИФРЫ И ФАКТЫ = mode "mini": важные цифры и факты внутри блока — маленькой плашкой, не перекрывая лицо.
 
 ПРАВИЛА ТЕКСТА:
 - ТЕКСТ (title): Строго 3-6 слов. Это заголовок, который можно прочитать за 2 секунды. "бьет в лоб".
-- ПОДТЕКСТ (subtitle): Уточнение из 2-4 слов (например, "Прогноз на 2026", "Данные ФНС").
-- INSIGHT: Глубокая мысль или конкретная цифра для режима lower-third.
+- subtitle НЕ использовать вообще.
+- INSIGHT: Глубокая мысль или конкретная цифра для mini/full.
 
 ОТБОР МОМЕНТОВ:
 - Выбирай только самые эмоциональные или фактологические пики.
@@ -913,17 +908,15 @@ def generate_scene_plan_llm(
       "start": 15.0,
       "end": 19.0,
       "blockName": "КРИТИЧНО",
-      "mode": "insight",
-      "title": "ФНС ЗАКРЫВАЕТ СХЕМЫ",
-      "subtitle": "Новый ИИ-контроль"
+      "mode": "full",
+      "title": "ФНС ЗАКРЫВАЕТ СХЕМЫ"
     },
     {
       "start": 35.0,
       "end": 40.0,
       "blockName": "ШТРАФЫ",
-      "mode": "lower-third",
+      "mode": "mini",
       "title": "ШТРАФ ДО 40%",
-      "subtitle": "За умысел",
       "insight": "Доказано в 90% судов"
     }
   ]
@@ -1042,8 +1035,6 @@ def _build_semantic_fallback(window_text: str, block_name: str) -> dict[str, Any
     keyword_text = " ".join(keywords[:2]) if keywords else phrase_from_sentence(sentences[0], 3)
 
     title = normalize_scene_text(phrase_from_sentence(sentences[0], 6), 40, 6)
-    subtitle_src = sentences[1] if len(sentences) > 1 else block_name
-    subtitle = normalize_scene_text(phrase_from_sentence(subtitle_src, 6), 60, 8)
     insight = normalize_scene_text(" ".join(sentences[:2]), TEXT_LIMITS["insight"], WORD_LIMITS["insight"])
     cta = normalize_scene_text(phrase_from_sentence(sentences[-1], 8), TEXT_LIMITS["cta"], WORD_LIMITS["cta"])
     keyword = normalize_scene_text(keyword_text, TEXT_LIMITS["keyword"], WORD_LIMITS["keyword"])
@@ -1061,13 +1052,65 @@ def _build_semantic_fallback(window_text: str, block_name: str) -> dict[str, Any
     ]
     return {
         "title": title,
-        "subtitle": subtitle,
         "insight": insight,
         "cta": cta,
         "keyword": keyword,
         "steps": steps,
         "facts": facts,
     }
+
+
+def _default_chapter_title(block_name: str) -> str:
+    upper = normalize_plain_text(block_name).upper()
+    if "ХУК" in upper or "HOOK" in upper:
+        return "О чем это видео"
+    if "КОНТЕКСТ" in upper or "CONTEXT" in upper or "SETUP" in upper:
+        return "Что происходит на рынке"
+    if "АНАЛИЗ" in upper or "ANALYSIS" in upper:
+        return "Ключевой разбор"
+    if "РИСК" in upper or "RISK" in upper:
+        return "Главные риски"
+    if "РЕШЕН" in upper or "SOLUTION" in upper:
+        return "Практическое решение"
+    if "ИТОГ" in upper or "SUMMARY" in upper:
+        return "Главный вывод"
+    return "Новая глава"
+
+
+def _build_chapter_meta(scene: dict[str, Any]) -> tuple[str, str]:
+    block_name = str(scene.get("blockName") or "")
+
+    title_candidates = [
+        str(scene.get("title") or ""),
+        str(scene.get("keyword") or ""),
+        " ".join([str(x) for x in (scene.get("titleLines") or []) if str(x).strip()]),
+        _default_chapter_title(block_name),
+    ]
+    chapter_title = ""
+    for candidate in title_candidates:
+        text = normalize_scene_text(candidate, 56, 8)
+        if text and not _is_generic_scene_text(text):
+            chapter_title = text
+            break
+    if not chapter_title:
+        chapter_title = _default_chapter_title(block_name)
+
+    subtitle_candidates = [
+        str(scene.get("insight") or ""),
+        " ".join([str(x) for x in (scene.get("facts") or []) if str(x).strip()][:1]),
+        " ".join([str(x) for x in (scene.get("steps") or []) if str(x).strip()][:1]),
+        str(scene.get("cta") or ""),
+    ]
+    chapter_subtitle = ""
+    for candidate in subtitle_candidates:
+        text = normalize_scene_text(candidate, 88, 14)
+        if text and not _is_generic_scene_text(text):
+            chapter_subtitle = text
+            break
+    if not chapter_subtitle:
+        chapter_subtitle = "Смотрите ключевую мысль блока."
+
+    return chapter_title, chapter_subtitle
 
 
 def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str, Any]]:
@@ -1096,23 +1139,16 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
         is_context = "КОНТЕКСТ" in block_name or "CONTEXT" in block_name or "SETUP" in block_name
         is_cta = "CTA" in block_name or "ПРИЗЫВ" in block_name
 
-        # Mode: LLM decides, but we enforce some rules
-        mode = str(item.get("mode") or "full").lower()
+        # Mode normalization for production preset: only mini/full are allowed.
+        raw_mode = str(item.get("mode") or "full").lower().strip()
+        if raw_mode in {"mini", "lower-third", "lower_third", "overlay", "side"}:
+            mode = "mini"
+        elif raw_mode in {"full", "insight", "chart", "clean", "face"}:
+            mode = "full"
+        else:
+            mode = "full"
         if is_hook or is_context or is_cta:
             mode = "mini"  # Hooks and CTAs are always mini accents
-
-        # chartType: prefer LLM choice, fall back to smart rotation using ACTUAL component types
-        VALID_CHART_TYPES = ['BIG_NUMBER', 'DONUT', 'BAR', 'COMPARISON']
-        raw_chart = str(item.get("chartType") or "").upper()
-        if raw_chart in VALID_CHART_TYPES:
-            chart_type = raw_chart
-        elif mode == "mini":
-            chart_type = "BIG_NUMBER"  # Mini always shows one big stat
-        else:
-            # Rotate through all types for variety
-            chart_type = VALID_CHART_TYPES[i % len(VALID_CHART_TYPES)]
-
-        layout_pattern = str(item.get("layoutPattern") or "CENTER").upper()
 
         # SMART WORD SNAPPING
         def find_best_start(target_time: float, utterances: list[dict]) -> float:
@@ -1147,12 +1183,6 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
         if _is_generic_scene_text(title):
             title = semantic_fallback["title"]
 
-        subtitle = str(item.get("subtitle") or "").strip()
-        if _is_generic_scene_text(subtitle):
-            subtitle = str(item.get("blockName") or "").strip()
-        if _is_generic_scene_text(subtitle):
-            subtitle = semantic_fallback["subtitle"]
-
         if start >= duration:
             continue
         if end > duration:
@@ -1176,7 +1206,6 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
 
         # Extract new schema fields
         title = normalize_scene_text(title, 40, 6)
-        subtitle = normalize_scene_text(subtitle, 60, 8)
         # Primary numeric value for BIG_NUMBER
         raw_value = item.get("value")
         try:
@@ -1219,7 +1248,7 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
             normalize_scene_text(str(x), TEXT_LIMITS["title_line"], WORD_LIMITS["title_line"])
             for x in title_lines
             if not _is_generic_scene_text(str(x))
-        ][:2] or [title, subtitle]
+        ][:2] or [title]
 
         steps = item.get("steps") if isinstance(item.get("steps"), list) else []
         steps = [
@@ -1241,10 +1270,7 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
             "end": round(end, 2),
             "blockName": str(item.get("blockName") or "АНАЛИЗ"),
             "mode": mode,
-            # New schema fields
-            "chartType": chart_type,
             "title": title,
-            "subtitle": subtitle,
             "value": chart_value,
             "unit": unit,
             "facts": facts,
@@ -1319,6 +1345,30 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
 
     fixed[0]["start"] = 0.0
     fixed[-1]["end"] = round(duration, 2)
+
+    # Build chapter metadata so viewer always sees topic context.
+    chapter_idx = 0
+    active_block = ""
+    active_title = ""
+    active_subtitle = ""
+    for i, scene in enumerate(fixed):
+        block = normalize_plain_text(str(scene.get("blockName") or "")).upper()
+        mode = normalize_plain_text(str(scene.get("mode") or "")).lower()
+        prev_start = float(fixed[i - 1].get("start", 0.0)) if i > 0 else 0.0
+        cur_start = float(scene.get("start", 0.0))
+        is_new_chapter = (
+            i == 0
+            or (block and block != active_block)
+            or (mode == "full" and (cur_start - prev_start) >= 20.0)
+        )
+        if is_new_chapter:
+            chapter_idx += 1
+            active_block = block
+            active_title, active_subtitle = _build_chapter_meta(scene)
+        scene["chapterIndex"] = chapter_idx
+        scene["chapterTitle"] = active_title
+        scene["chapterSubtitle"] = active_subtitle
+
     return fixed
 
 

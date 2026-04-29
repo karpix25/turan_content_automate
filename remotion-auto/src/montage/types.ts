@@ -42,10 +42,12 @@ export type ScenePlanItem = {
   layoutPattern?: LayoutPattern;
   // Structured data for charts
   title?: string;        // Short hook title (2-4 words)
-  subtitle?: string;     // Supporting context
   value?: number;        // Primary number (e.g. 90 for "90%")
   unit?: string;         // Unit string (e.g. "%" or "млн ₽")
   facts?: string[];      // 2-3 synthesized factual statements
+  chapterIndex?: number;
+  chapterTitle?: string;
+  chapterSubtitle?: string;
 };
 
 export type WordCue = {
@@ -65,4 +67,3 @@ export type AutoMontageProps = {
   themePreset: ThemePreset;
   montagePreset: MontagePreset;
 };
-

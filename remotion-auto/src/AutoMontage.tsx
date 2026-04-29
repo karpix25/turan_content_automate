@@ -20,6 +20,7 @@ import {
 } from './montage/youtube-rules';
 import {FullSlide} from './montage/components/FullSlide';
 import {MiniAccent} from './montage/components/MiniAccent';
+import {ChapterBanner} from './montage/components/ChapterBanner';
 
 type LoadedData = {
   scenes: ScenePlanItem[];
@@ -126,6 +127,10 @@ export const AutoMontage: React.FC<AutoMontageProps> = ({
     mode === 'lower-third' ||
     mode === 'lower_third' ||
     mode === 'side';
+  const prevScene = activeSceneIndex > 0 ? scenes[activeSceneIndex - 1] : null;
+  const currentChapter = Number(activeScene?.chapterIndex ?? activeSceneIndex + 1);
+  const prevChapter = Number(prevScene?.chapterIndex ?? 0);
+  const isChapterStart = activeSceneIndex === 0 || currentChapter !== prevChapter;
 
   return (
     <AbsoluteFill style={{backgroundColor: '#000'}}>
@@ -145,6 +150,11 @@ export const AutoMontage: React.FC<AutoMontageProps> = ({
           ) : (
             <FullSlide scene={activeScene} />
           )}
+          <ChapterBanner
+            scene={activeScene}
+            isChapterStart={isChapterStart}
+            inSceneFrame={inSceneFrame}
+          />
         </AbsoluteFill>
       )}
     </AbsoluteFill>
