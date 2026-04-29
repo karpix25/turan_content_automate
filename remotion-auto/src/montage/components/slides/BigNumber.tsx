@@ -16,13 +16,14 @@ export const BigNumber: React.FC<BigNumberProps> = ({ scene, accentColor }) => {
   const scale = interpolate(enter, [0, 1], [0.85, 1]);
 
   // Resolve display value
-  const displayValue = scene.value !== undefined
+  const hasNumericValue = typeof scene.value === 'number' && Number.isFinite(scene.value);
+  const displayValue = hasNumericValue
     ? `${scene.value}`
     : scene.bars?.[0]
       ? `${Math.round(scene.bars[0].value * 100)}`
       : '—';
 
-  const displayUnit = scene.unit ?? '%';
+  const displayUnit = scene.unit ?? (hasNumericValue ? '' : '%');
   const displayTitle = scene.title || scene.keyword || '';
   const displaySubtitle = scene.subtitle || scene.insight || '';
   const facts = scene.facts || scene.steps?.slice(0, 2) || [];

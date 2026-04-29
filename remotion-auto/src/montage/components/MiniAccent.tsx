@@ -10,9 +10,10 @@ interface MiniAccentProps {
 // Picks the best content for a mini accent
 const getMiniContent = (scene: ScenePlanItem): { value: string; label: string } => {
   // Prefer structured fields
-  if (scene.value !== undefined && scene.title) {
+  if (typeof scene.value === 'number' && Number.isFinite(scene.value) && scene.title) {
+    const safeUnit = scene.unit ?? '';
     return {
-      value: `${scene.value}${scene.unit || '%'}`,
+      value: `${scene.value}${safeUnit}`,
       label: scene.title,
     };
   }
