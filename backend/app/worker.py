@@ -581,6 +581,7 @@ def process_content_task(task_id: int):
             variants_count,
             len(ending_clips),
         )
+        auto_publish_enabled = task.type != "avatar_youtube"
         output_platforms: list[str] = []
         if target_account_ids:
             for _clip_index, _video_path, _clip_title in source_items:
@@ -589,14 +590,19 @@ def process_content_task(task_id: int):
         else:
             for _clip_index, _video_path, _clip_title in source_items:
                 output_platforms.append(_normalize_platform_code(task.type))
-        publish_times = _plan_publish_times_for_outputs(
-            db=db,
-            user=user,
-            output_platforms=output_platforms,
-            manual_publish_at=None if process_all_clips else task.publish_at,
-        )
+        if auto_publish_enabled:
+            publish_times = _plan_publish_times_for_outputs(
+                db=db,
+                user=user,
+                output_platforms=output_platforms,
+                manual_publish_at=None if process_all_clips else task.publish_at,
+            )
+        else:
+            publish_times = [None] * len(output_platforms)
 
-        should_sync_outputs = bool(target_account_ids)
+        # Remotion avatar flow should deliver result to Telegram as a file first
+        # and not auto-publish to PostMyPost.
+        should_sync_outputs = bool(target_account_ids) and auto_publish_enabled
         base_source = _get_base_source_label(task.source_url)
         rendered_outputs: List[dict] = []
         publish_index = 0
@@ -799,7 +805,7 @@ def process_content_task(task_id: int):
             celery_app.send_task("sync_publication_task", args=[task.id])
 
         if task.type == "avatar_youtube" and task.output_path:
-            update_task_status_message(db, task, stage="Telegram", detail="Отправляю финальное видео в Telegram.")
+            update_task_status_message(db, task, stage="Telegram", detail="Отправляю финальный файл в Telegram.")
             send_avatar_video_to_telegram(task, task.output_path)
 
         for derived_output in rendered_outputs[1:]:

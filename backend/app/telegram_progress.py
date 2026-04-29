@@ -173,23 +173,23 @@ def send_avatar_video_to_telegram(task, video_path: str, caption: str | None = N
         return
 
     if not caption:
-        caption = f"✅ Видео с ИИ-аватаром готово!\nВидео #{getattr(task, 'id', '-')}"
+        caption = f"✅ Файл с видео готов.\nВидео #{getattr(task, 'id', '-')}"
     
     try:
         with httpx.Client(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
             with open(video_path, "rb") as f:
                 response = client.post(
-                    f"https://api.telegram.org/bot{token}/sendVideo",
+                    f"https://api.telegram.org/bot{token}/sendDocument",
                     data={"chat_id": chat_id, "caption": caption},
-                    files={"video": f}
+                    files={"document": (os.path.basename(video_path), f, "video/mp4")}
                 )
             payload = response.json()
             if response.status_code >= 400 or not payload.get("ok", False):
                 description = payload.get("description") if isinstance(payload, dict) else response.text[:300]
                 logger.warning(
-                    "Failed to send Telegram video: status=%s description=%s",
+                    "Failed to send Telegram document: status=%s description=%s",
                     response.status_code,
                     description,
                 )
     except Exception as exc:
-        logger.warning(f"Failed to send Telegram video: {exc}")
+        logger.warning(f"Failed to send Telegram document: {exc}")
