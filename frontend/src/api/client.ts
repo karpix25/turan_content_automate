@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { UserSettings, VideoTaskItem, PublishAccount, EndingClip } from '../types';
+import { UserSettings, VideoTaskItem, PublishAccount, EndingClip, ThumbnailReference } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
@@ -15,6 +15,7 @@ export const apiClient = {
       training_source: string | null;
       heygen_avatar_id: string | null;
       elevenlabs_voice_id: string | null;
+      thumbnail_face_path: string | null;
     }>(`${API_BASE}/settings/style/${telegramId}`);
     return res.data;
   },
@@ -85,6 +86,32 @@ export const apiClient = {
   },
   deleteEnding: async (telegramId: string, endingId: number) => {
     const res = await axios.delete(`${API_BASE}/endings/${telegramId}/${endingId}`);
+    return res.data;
+  },
+
+  // Thumbnail references / face
+  listThumbnailReferences: async (telegramId: string) => {
+    const res = await axios.get<ThumbnailReference[]>(`${API_BASE}/thumbnail-references/${telegramId}`);
+    return res.data;
+  },
+  uploadThumbnailReference: async (telegramId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await axios.post<ThumbnailReference>(`${API_BASE}/upload/thumbnail-reference/${telegramId}`, formData);
+    return res.data;
+  },
+  deleteThumbnailReference: async (telegramId: string, referenceId: number) => {
+    const res = await axios.delete(`${API_BASE}/thumbnail-references/${telegramId}/${referenceId}`);
+    return res.data;
+  },
+  uploadThumbnailFace: async (telegramId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await axios.post<{ status: string; file_path: string }>(`${API_BASE}/upload/thumbnail-face/${telegramId}`, formData);
+    return res.data;
+  },
+  deleteThumbnailFace: async (telegramId: string) => {
+    const res = await axios.delete(`${API_BASE}/thumbnail-face/${telegramId}`);
     return res.data;
   },
 };

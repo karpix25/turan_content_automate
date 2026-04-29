@@ -15,6 +15,7 @@ class UserSettingsUpdate(BaseModel):
     plate_start_percent: Optional[int] = None
     heygen_avatar_id: Optional[str] = None
     elevenlabs_voice_id: Optional[str] = None
+    thumbnail_face_path: Optional[str] = None
 
     telegram_chat_id: Optional[str] = None
     telegram_status_message_id: Optional[str] = None
@@ -104,6 +105,16 @@ class EndingClipOut(BaseModel):
     class Config:
         from_attributes = True
 
+
+class ThumbnailReferenceOut(BaseModel):
+    id: int
+    user_id: int
+    file_path: str
+    created_at: datetime.datetime
+
+    class Config:
+        from_attributes = True
+
 class UserSettings(BaseModel):
     id: int
     telegram_id: str
@@ -121,6 +132,7 @@ class UserSettings(BaseModel):
     training_source: Optional[str] = None
     heygen_avatar_id: Optional[str] = None
     elevenlabs_voice_id: Optional[str] = None
+    thumbnail_face_path: Optional[str] = None
 
     class Config:
         from_attributes = True

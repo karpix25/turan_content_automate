@@ -69,6 +69,11 @@ def init_database() -> None:
             )
         )
         conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS thumbnail_face_path TEXT"
+            )
+        )
+        conn.execute(
             text("UPDATE users SET auto_schedule_enabled = FALSE WHERE auto_schedule_enabled IS NULL")
         )
         conn.execute(

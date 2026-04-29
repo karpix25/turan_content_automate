@@ -19,6 +19,7 @@ from .publish_planner import plan_next_publish_times
 from .telegram_progress import update_task_status_message, send_avatar_audio_to_telegram
 from .integrations.elevenlabs_client import ElevenLabsClient
 from .integrations.heygen_client import HeyGenClient
+from .integrations.thumbnail_generator import ThumbnailGeneratorClient
 
 # Utilities
 from .utils.platform_utils import (
@@ -68,6 +69,7 @@ scraper = ScrapeCreatorsClient(api_key=(os.getenv("SCRAPE_CREATORS_API_KEY") or 
 llm = LLMClient(api_key=(os.getenv("OPENROUTER_API_KEY") or "").strip())
 elevenlabs_client = ElevenLabsClient(api_key=(os.getenv("ELEVENLABS_API_KEY") or "").strip())
 heygen_client = HeyGenClient(api_key=(os.getenv("HEYGEN_API_KEY") or "").strip())
+thumbnail_generator = ThumbnailGeneratorClient()
 rapidapi_yt = RapidAPIYoutubeClient(
     api_key=os.getenv("RAPIDAPI_KEY", ""),
     host=os.getenv("YOUTUBE_DOWNLOAD_RAPIDAPI_HOST", "youtube-mp4-mp3-downloader.p.rapidapi.com"),
@@ -348,6 +350,54 @@ def process_content_task(task_id: int):
             update_task_status_message(db, task, stage="Сценарий", detail="Проверяю сценарий на соответствие фактам.")
             validation = llm.verify_faithfulness(outline, script)
             estimated_minutes = _estimate_script_minutes(script, AVATAR_SCRIPT_WPM)
+            thumbnail_prompt = llm.generate_youtube_thumbnail_prompt(outline, script)
+            thumbnail_meta: dict = {
+                "status": "skipped",
+                "reason": "thumbnail_prompt_empty",
+                "output_path": None,
+                "used_reference_count": 0,
+                "face_path": user.thumbnail_face_path,
+            }
+            if thumbnail_prompt:
+                references = (
+                    db.query(models.ThumbnailReference)
+                    .filter(models.ThumbnailReference.user_id == user.id)
+                    .order_by(models.ThumbnailReference.created_at.desc(), models.ThumbnailReference.id.desc())
+                    .all()
+                )
+                reference_paths = [item.file_path for item in references if item and item.file_path]
+                thumbnail_output_path = os.path.join(
+                    os.getenv("OUTPUT_DIR", "./output").strip(),
+                    f"thumbnail_{task_id}.png",
+                )
+                update_task_status_message(
+                    db,
+                    task,
+                    stage="Обложка",
+                    detail="Генерирую обложку YouTube по сценарию и референсам.",
+                )
+                generated_thumbnail = thumbnail_generator.generate_thumbnail(
+                    prompt=thumbnail_prompt,
+                    face_path=user.thumbnail_face_path,
+                    reference_paths=reference_paths,
+                    output_path=thumbnail_output_path,
+                )
+                if generated_thumbnail:
+                    thumbnail_meta = {
+                        "status": "generated",
+                        "reason": None,
+                        "output_path": generated_thumbnail,
+                        "used_reference_count": len(reference_paths[:5]),
+                        "face_path": user.thumbnail_face_path,
+                    }
+                else:
+                    thumbnail_meta = {
+                        "status": "failed",
+                        "reason": "generator_failed_or_unconfigured",
+                        "output_path": None,
+                        "used_reference_count": len(reference_paths[:5]),
+                        "face_path": user.thumbnail_face_path,
+                    }
             task.script_text = script
             task.script_meta = {
                 **(validation or {}),
@@ -355,6 +405,8 @@ def process_content_task(task_id: int):
                 "words_per_minute_assumption": AVATAR_SCRIPT_WPM,
                 "word_count": word_count,
                 "estimated_minutes": estimated_minutes,
+                "thumbnail_prompt": thumbnail_prompt,
+                "thumbnail": thumbnail_meta,
             }
             db.commit()
 

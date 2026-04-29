@@ -245,3 +245,37 @@ class LLMClient:
             return json.loads(result[start:end])
         except:
             return {"is_faithful": True, "hallucinations": [], "error": "Parsing failed"}
+
+    def generate_youtube_thumbnail_prompt(self, factual_outline: str, script: str) -> Optional[str]:
+        """
+        Builds a concise high-CTR Russian prompt for thumbnail generation.
+        """
+        source_outline = (factual_outline or "").strip()
+        source_script = (script or "").strip()
+        if not source_outline and not source_script:
+            return None
+
+        system_prompt = (
+            "Ты креативный директор YouTube-обложек. "
+            "Сделай промт для генератора изображения, который даст высокий CTR.\n"
+            "Требования:\n"
+            "- Язык: русский.\n"
+            "- 1-3 коротких предложения, без списков.\n"
+            "- Четко передай главный конфликт/обещание видео.\n"
+            "- Визуал: крупный план, сильная эмоция, контрастный фон, чистая композиция.\n"
+            "- Должен быть триггер и интрига без кликбейта-обмана.\n"
+            "- Если релевантно, укажи короткий текст на обложке (до 4 слов).\n"
+            "- Не добавляй технические параметры типа 16:9, 4k, lens, seed.\n"
+            "- Верни только финальный промт."
+        )
+        user_prompt = (
+            "Суть видео и факты:\n"
+            f"{source_outline[:5000]}\n\n"
+            "Фрагмент сценария:\n"
+            f"{source_script[:5000]}"
+        )
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        return self._complete(messages, temperature=0.85)

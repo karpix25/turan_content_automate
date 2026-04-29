@@ -57,7 +57,8 @@ async def get_style_settings(telegram_id: str, db: Session = Depends(get_db)):
         "author_style_profile": user.author_style_profile,
         "training_source": user.training_source,
         "heygen_avatar_id": user.heygen_avatar_id,
-        "elevenlabs_voice_id": user.elevenlabs_voice_id
+        "elevenlabs_voice_id": user.elevenlabs_voice_id,
+        "thumbnail_face_path": user.thumbnail_face_path,
     }
 
 @router.post("/train-style/{telegram_id}")

@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Settings, Save, Loader2, Link2, BookOpen, User, Mic } from 'lucide-react';
+import { Settings, Save, Loader2, Link2, BookOpen, User, Mic, Upload, Image as ImageIcon, Trash2 } from 'lucide-react';
 import { apiClient } from '../../api/client';
 import { useTelegram } from '../../context/TelegramContext';
+import { ThumbnailReference } from '../../types';
 
 export const SettingsTab: React.FC = () => {
   const { telegramId } = useTelegram();
@@ -20,6 +21,15 @@ export const SettingsTab: React.FC = () => {
   const [selectedVoice, setSelectedVoice] = useState<string>('');
   const [savingSettings, setSavingSettings] = useState(false);
   const [savedSettings, setSavedSettings] = useState(false);
+  const [thumbnailReferences, setThumbnailReferences] = useState<ThumbnailReference[]>([]);
+  const [thumbnailFacePath, setThumbnailFacePath] = useState<string>('');
+  const [loadingThumbnailAssets, setLoadingThumbnailAssets] = useState(false);
+  const [uploadingThumbnailRef, setUploadingThumbnailRef] = useState(false);
+  const [uploadingThumbnailFace, setUploadingThumbnailFace] = useState(false);
+  const [deletingThumbnailRefId, setDeletingThumbnailRefId] = useState<number | null>(null);
+  const [deletingThumbnailFace, setDeletingThumbnailFace] = useState(false);
+  const thumbnailRefInputRef = useRef<HTMLInputElement>(null);
+  const thumbnailFaceInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const loadStyle = async () => {
@@ -31,9 +41,23 @@ export const SettingsTab: React.FC = () => {
         setTrainingSource(data.training_source || '');
         if (data.heygen_avatar_id) setSelectedAvatar(data.heygen_avatar_id);
         if (data.elevenlabs_voice_id) setSelectedVoice(data.elevenlabs_voice_id);
+        setThumbnailFacePath(data.thumbnail_face_path || '');
       } catch (error) {
       } finally {
         setLoadingStyle(false);
+      }
+    };
+
+    const loadThumbnailAssets = async () => {
+      if (!telegramId) return;
+      setLoadingThumbnailAssets(true);
+      try {
+        const refs = await apiClient.listThumbnailReferences(telegramId);
+        setThumbnailReferences(refs);
+      } catch (error) {
+        setThumbnailReferences([]);
+      } finally {
+        setLoadingThumbnailAssets(false);
       }
     };
     
@@ -90,6 +114,7 @@ export const SettingsTab: React.FC = () => {
     loadStyle();
     loadVoices();
     loadAvatars();
+    loadThumbnailAssets();
   }, [telegramId]);
 
   const trainStyle = async () => {
@@ -120,6 +145,70 @@ export const SettingsTab: React.FC = () => {
     } catch (error) {
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  const getMediaUrl = (path: string) => {
+    if (!path) return '';
+    const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+    const parts = path.split('/media/');
+    if (parts.length > 1) return `${API_BASE}/media/${parts[1]}`;
+    return '';
+  };
+
+  const handleUploadThumbnailReference = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !telegramId) return;
+    setUploadingThumbnailRef(true);
+    try {
+      const created = await apiClient.uploadThumbnailReference(telegramId, file);
+      setThumbnailReferences(prev => [created, ...prev]);
+    } catch (error) {
+      alert('Ошибка загрузки референса');
+    } finally {
+      setUploadingThumbnailRef(false);
+      if (thumbnailRefInputRef.current) thumbnailRefInputRef.current.value = '';
+    }
+  };
+
+  const handleDeleteThumbnailReference = async (referenceId: number) => {
+    if (!telegramId) return;
+    setDeletingThumbnailRefId(referenceId);
+    try {
+      await apiClient.deleteThumbnailReference(telegramId, referenceId);
+      setThumbnailReferences(prev => prev.filter(item => item.id !== referenceId));
+    } catch (error) {
+      alert('Не удалось удалить референс');
+    } finally {
+      setDeletingThumbnailRefId(null);
+    }
+  };
+
+  const handleUploadThumbnailFace = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !telegramId) return;
+    setUploadingThumbnailFace(true);
+    try {
+      const result = await apiClient.uploadThumbnailFace(telegramId, file);
+      setThumbnailFacePath(result.file_path || '');
+    } catch (error) {
+      alert('Ошибка загрузки фото лица');
+    } finally {
+      setUploadingThumbnailFace(false);
+      if (thumbnailFaceInputRef.current) thumbnailFaceInputRef.current.value = '';
+    }
+  };
+
+  const handleDeleteThumbnailFace = async () => {
+    if (!telegramId) return;
+    setDeletingThumbnailFace(true);
+    try {
+      await apiClient.deleteThumbnailFace(telegramId);
+      setThumbnailFacePath('');
+    } catch (error) {
+      alert('Не удалось удалить фото лица');
+    } finally {
+      setDeletingThumbnailFace(false);
     }
   };
 
@@ -155,6 +244,101 @@ export const SettingsTab: React.FC = () => {
           {savingSettings ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
           {savedSettings ? 'Сохранено' : 'Сохранить'}
         </button>
+      </div>
+
+      <input
+        ref={thumbnailRefInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        className="hidden"
+        onChange={handleUploadThumbnailReference}
+      />
+      <input
+        ref={thumbnailFaceInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        className="hidden"
+        onChange={handleUploadThumbnailFace}
+      />
+
+      <div className="tg-card p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <ImageIcon size={18} className="text-[#24a1de]" />
+          <h3 className="text-[15px] font-bold text-slate-900">Обложки YouTube: референсы и лицо</h3>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <p className="text-xs font-bold text-slate-700 uppercase tracking-wider">Фото лица</p>
+              <button
+                onClick={() => thumbnailFaceInputRef.current?.click()}
+                disabled={uploadingThumbnailFace}
+                className="h-8 px-3 rounded-lg bg-slate-900 text-white text-xs font-bold flex items-center gap-1 disabled:opacity-50"
+              >
+                {uploadingThumbnailFace ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                Загрузить
+              </button>
+            </div>
+            {thumbnailFacePath ? (
+              <div className="relative rounded-lg overflow-hidden border border-slate-200 bg-white">
+                <img src={getMediaUrl(thumbnailFacePath)} alt="Face reference" className="w-full h-36 object-cover" />
+                <button
+                  onClick={handleDeleteThumbnailFace}
+                  disabled={deletingThumbnailFace}
+                  className="absolute top-2 right-2 h-8 w-8 rounded-lg bg-black/70 text-white flex items-center justify-center disabled:opacity-50"
+                >
+                  {deletingThumbnailFace ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                </button>
+              </div>
+            ) : (
+              <div className="h-36 rounded-lg border border-dashed border-slate-300 bg-white flex items-center justify-center text-xs text-slate-500">
+                Фото лица не загружено
+              </div>
+            )}
+          </div>
+
+          <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <p className="text-xs font-bold text-slate-700 uppercase tracking-wider">Референсы обложек</p>
+              <button
+                onClick={() => thumbnailRefInputRef.current?.click()}
+                disabled={uploadingThumbnailRef}
+                className="h-8 px-3 rounded-lg bg-[#24a1de] text-white text-xs font-bold flex items-center gap-1 disabled:opacity-50"
+              >
+                {uploadingThumbnailRef ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                Добавить
+              </button>
+            </div>
+            {loadingThumbnailAssets ? (
+              <div className="h-36 rounded-lg border border-slate-200 bg-white flex items-center justify-center text-slate-400">
+                <Loader2 size={16} className="animate-spin" />
+              </div>
+            ) : thumbnailReferences.length === 0 ? (
+              <div className="h-36 rounded-lg border border-dashed border-slate-300 bg-white flex items-center justify-center text-xs text-slate-500">
+                Референсы не загружены
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-2">
+                {thumbnailReferences.slice(0, 6).map((item) => (
+                  <div key={item.id} className="relative rounded-lg overflow-hidden border border-slate-200 bg-white">
+                    <img src={getMediaUrl(item.file_path)} alt={`Reference ${item.id}`} className="w-full h-20 object-cover" />
+                    <button
+                      onClick={() => handleDeleteThumbnailReference(item.id)}
+                      disabled={deletingThumbnailRefId === item.id}
+                      className="absolute top-1 right-1 h-6 w-6 rounded-md bg-black/70 text-white flex items-center justify-center disabled:opacity-50"
+                    >
+                      {deletingThumbnailRefId === item.id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-[11px] text-slate-500 mt-2">
+              При генерации сценария автоматически создается отдельный CTR-промт для обложки, и в генератор передаются текст + лицо + референсы.
+            </p>
+          </div>
+        </div>
       </div>
 
       <div className="tg-card p-4">

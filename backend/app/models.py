@@ -28,6 +28,7 @@ class User(Base):
     training_source = Column(String, nullable=True)       # YouTube channel link/handle
     heygen_avatar_id = Column(String, nullable=True)
     elevenlabs_voice_id = Column(String, nullable=True)
+    thumbnail_face_path = Column(String, nullable=True)
 
 class Plate(Base):
     __tablename__ = "plates"
@@ -44,6 +45,14 @@ class CTAClip(Base):
     file_path = Column(String)
     label = Column(String)
     platform = Column(String, default="universal", nullable=False)  # 'instagram', 'youtube', 'universal'
+
+
+class ThumbnailReference(Base):
+    __tablename__ = "thumbnail_references"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    file_path = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 class VideoTask(Base):
     __tablename__ = "tasks"

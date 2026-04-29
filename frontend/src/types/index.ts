@@ -9,6 +9,7 @@ export type UserSettings = {
   training_source?: string | null;
   heygen_avatar_id?: string | null;
   elevenlabs_voice_id?: string | null;
+  thumbnail_face_path?: string | null;
 };
 
 export type VideoTaskItem = {
@@ -55,6 +56,13 @@ export type EndingClip = {
   file_path: string;
   label?: string | null;
   platform: string;
+};
+
+export type ThumbnailReference = {
+  id: number;
+  user_id: number;
+  file_path: string;
+  created_at: string;
 };
 
 export type TelegramWebApp = {
