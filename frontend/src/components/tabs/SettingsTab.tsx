@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Settings, Save, Loader2, Link2, BookOpen, User, Mic, Upload, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { Settings, Save, Loader2, Link2, BookOpen, User, Mic, Upload, Image as ImageIcon, Trash2, Film } from 'lucide-react';
 import { apiClient } from '../../api/client';
 import { useTelegram } from '../../context/TelegramContext';
-import { ThumbnailReference } from '../../types';
+import { ThumbnailReference, AvatarInsertClip } from '../../types';
 
 export const SettingsTab: React.FC = () => {
   const { telegramId } = useTelegram();
@@ -30,6 +30,14 @@ export const SettingsTab: React.FC = () => {
   const [deletingThumbnailFace, setDeletingThumbnailFace] = useState(false);
   const thumbnailRefInputRef = useRef<HTMLInputElement>(null);
   const thumbnailFaceInputRef = useRef<HTMLInputElement>(null);
+  const [avatarInsertClips, setAvatarInsertClips] = useState<AvatarInsertClip[]>([]);
+  const [loadingAvatarInsertClips, setLoadingAvatarInsertClips] = useState(false);
+  const [uploadingAvatarInsertClip, setUploadingAvatarInsertClip] = useState(false);
+  const [deletingAvatarInsertClipId, setDeletingAvatarInsertClipId] = useState<number | null>(null);
+  const avatarInsertInputRef = useRef<HTMLInputElement>(null);
+  const [avatarInsertStartPercent, setAvatarInsertStartPercent] = useState<number>(50);
+  const [avatarInsertEndPercent, setAvatarInsertEndPercent] = useState<number>(95);
+  const [avatarInsertClipsCount, setAvatarInsertClipsCount] = useState<number>(2);
 
   useEffect(() => {
     const loadStyle = async () => {
@@ -42,6 +50,9 @@ export const SettingsTab: React.FC = () => {
         if (data.heygen_avatar_id) setSelectedAvatar(data.heygen_avatar_id);
         if (data.elevenlabs_voice_id) setSelectedVoice(data.elevenlabs_voice_id);
         setThumbnailFacePath(data.thumbnail_face_path || '');
+        setAvatarInsertStartPercent(data.avatar_insert_start_percent ?? 50);
+        setAvatarInsertEndPercent(data.avatar_insert_end_percent ?? 95);
+        setAvatarInsertClipsCount(data.avatar_insert_clips_count ?? 2);
       } catch (error) {
       } finally {
         setLoadingStyle(false);
@@ -58,6 +69,19 @@ export const SettingsTab: React.FC = () => {
         setThumbnailReferences([]);
       } finally {
         setLoadingThumbnailAssets(false);
+      }
+    };
+
+    const loadAvatarInsertClips = async () => {
+      if (!telegramId) return;
+      setLoadingAvatarInsertClips(true);
+      try {
+        const items = await apiClient.listAvatarInsertClips(telegramId);
+        setAvatarInsertClips(items);
+      } catch (error) {
+        setAvatarInsertClips([]);
+      } finally {
+        setLoadingAvatarInsertClips(false);
       }
     };
     
@@ -115,6 +139,7 @@ export const SettingsTab: React.FC = () => {
     loadVoices();
     loadAvatars();
     loadThumbnailAssets();
+    loadAvatarInsertClips();
   }, [telegramId]);
 
   const trainStyle = async () => {
@@ -133,12 +158,19 @@ export const SettingsTab: React.FC = () => {
 
   const handleSaveSettings = async () => {
     if (!telegramId) return;
+    if (avatarInsertEndPercent <= avatarInsertStartPercent) {
+      alert('Финиш вставок должен быть больше старта.');
+      return;
+    }
     setSavingSettings(true);
     try {
       await apiClient.updateSettings(telegramId, {
         author_style_profile: styleProfile,
         heygen_avatar_id: selectedAvatar,
-        elevenlabs_voice_id: selectedVoice
+        elevenlabs_voice_id: selectedVoice,
+        avatar_insert_start_percent: avatarInsertStartPercent,
+        avatar_insert_end_percent: avatarInsertEndPercent,
+        avatar_insert_clips_count: avatarInsertClipsCount,
       });
       setSavedSettings(true);
       setTimeout(() => setSavedSettings(false), 2000);
@@ -212,6 +244,39 @@ export const SettingsTab: React.FC = () => {
     }
   };
 
+  const clampPercentValue = (value: number) => {
+    if (Number.isNaN(value)) return 0;
+    return Math.max(0, Math.min(100, Math.round(value)));
+  };
+
+  const handleUploadAvatarInsertClip = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !telegramId) return;
+    setUploadingAvatarInsertClip(true);
+    try {
+      const created = await apiClient.uploadAvatarInsertClip(telegramId, file);
+      setAvatarInsertClips((prev) => [created, ...prev]);
+    } catch (error) {
+      alert('Ошибка загрузки видео-вставки');
+    } finally {
+      setUploadingAvatarInsertClip(false);
+      if (avatarInsertInputRef.current) avatarInsertInputRef.current.value = '';
+    }
+  };
+
+  const handleDeleteAvatarInsertClip = async (clipId: number) => {
+    if (!telegramId) return;
+    setDeletingAvatarInsertClipId(clipId);
+    try {
+      await apiClient.deleteAvatarInsertClip(telegramId, clipId);
+      setAvatarInsertClips((prev) => prev.filter((item) => item.id !== clipId));
+    } catch (error) {
+      alert('Не удалось удалить видео-вставку');
+    } finally {
+      setDeletingAvatarInsertClipId(null);
+    }
+  };
+
   const avatars = [
     { id: 'Wayne_20240711', name: 'Wayne', desc: 'Строгий, деловой', img: 'https://cdn2.heygen.ai/avatar/v3/Wayne_20240711/preview.jpg' },
     { id: 'Joshua_20240711', name: 'Joshua', desc: 'Харизматичный', img: 'https://cdn2.heygen.ai/avatar/v3/Joshua_20240711/preview.jpg' },
@@ -259,6 +324,13 @@ export const SettingsTab: React.FC = () => {
         accept="image/png,image/jpeg,image/webp"
         className="hidden"
         onChange={handleUploadThumbnailFace}
+      />
+      <input
+        ref={avatarInsertInputRef}
+        type="file"
+        accept="video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-m4v"
+        className="hidden"
+        onChange={handleUploadAvatarInsertClip}
       />
 
       <div className="tg-card p-4">
@@ -338,6 +410,101 @@ export const SettingsTab: React.FC = () => {
               При генерации сценария автоматически создается отдельный CTR-промт для обложки, и в генератор передаются текст + лицо + референсы.
             </p>
           </div>
+        </div>
+      </div>
+
+      <div className="tg-card p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Film size={18} className="text-[#24a1de]" />
+          <h3 className="text-[15px] font-bold text-slate-900">Видео-вставки для avatar_youtube</h3>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+          <div>
+            <label className="text-[11px] text-slate-600 font-semibold">Старт вставок (%)</label>
+            <input
+              type="number"
+              min={0}
+              max={99}
+              value={avatarInsertStartPercent}
+              onChange={(e) => {
+                const next = clampPercentValue(Number(e.target.value));
+                setAvatarInsertStartPercent(Math.min(99, next));
+              }}
+              className="input-field w-full h-10 mt-1"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] text-slate-600 font-semibold">Финиш вставок (%)</label>
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={avatarInsertEndPercent}
+              onChange={(e) => {
+                const next = clampPercentValue(Number(e.target.value));
+                setAvatarInsertEndPercent(Math.max(1, next));
+              }}
+              className="input-field w-full h-10 mt-1"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] text-slate-600 font-semibold">Сколько вставок</label>
+            <input
+              type="number"
+              min={0}
+              max={20}
+              value={avatarInsertClipsCount}
+              onChange={(e) => {
+                const value = Number(e.target.value);
+                if (Number.isNaN(value)) return;
+                setAvatarInsertClipsCount(Math.max(0, Math.min(20, Math.round(value))));
+              }}
+              className="input-field w-full h-10 mt-1"
+            />
+          </div>
+        </div>
+
+        <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-bold text-slate-700 uppercase tracking-wider">Файлы для вставок</p>
+            <button
+              onClick={() => avatarInsertInputRef.current?.click()}
+              disabled={uploadingAvatarInsertClip}
+              className="h-8 px-3 rounded-lg bg-[#24a1de] text-white text-xs font-bold flex items-center gap-1 disabled:opacity-50"
+            >
+              {uploadingAvatarInsertClip ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+              Добавить видео
+            </button>
+          </div>
+
+          {loadingAvatarInsertClips ? (
+            <div className="h-32 rounded-lg border border-slate-200 bg-white flex items-center justify-center text-slate-400">
+              <Loader2 size={16} className="animate-spin" />
+            </div>
+          ) : avatarInsertClips.length === 0 ? (
+            <div className="h-32 rounded-lg border border-dashed border-slate-300 bg-white flex items-center justify-center text-xs text-slate-500">
+              Видео-вставки не загружены
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {avatarInsertClips.slice(0, 9).map((clip) => (
+                <div key={clip.id} className="relative rounded-lg overflow-hidden border border-slate-200 bg-white">
+                  <video src={getMediaUrl(clip.file_path)} className="w-full h-24 object-cover" muted />
+                  <button
+                    onClick={() => handleDeleteAvatarInsertClip(clip.id)}
+                    disabled={deletingAvatarInsertClipId === clip.id}
+                    className="absolute top-1 right-1 h-6 w-6 rounded-md bg-black/70 text-white flex items-center justify-center disabled:opacity-50"
+                  >
+                    {deletingAvatarInsertClipId === clip.id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-[11px] text-slate-500 mt-2">
+            Вставки размещаются автоматически после Remotion: максимально равномерно и с максимальной дистанцией между ними в выбранном диапазоне.
+          </p>
         </div>
       </div>
 

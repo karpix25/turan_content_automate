@@ -191,6 +191,60 @@ def process_content_task(task_id: int):
     input_videos: List[str] = []
     input_video_titles: List[str | None] = []
 
+    def _apply_avatar_insert_montage(base_video_path: str) -> tuple[str, dict]:
+        start_percent = int(getattr(user, "avatar_insert_start_percent", 50) or 50)
+        end_percent = int(getattr(user, "avatar_insert_end_percent", 95) or 95)
+        clips_count = int(getattr(user, "avatar_insert_clips_count", 0) or 0)
+        insert_rows = (
+            db.query(models.AvatarInsertClip)
+            .filter(models.AvatarInsertClip.user_id == user.id)
+            .order_by(models.AvatarInsertClip.created_at.desc(), models.AvatarInsertClip.id.desc())
+            .all()
+        )
+        insert_paths = []
+        for row in insert_rows:
+            resolved = _resolve_media_file_path(row.file_path, media_kind="avatar-inserts")
+            if resolved:
+                insert_paths.append(resolved)
+
+        if clips_count <= 0 or not insert_paths:
+            return base_video_path, {
+                "status": "skipped",
+                "reason": "no_clips_or_count_zero",
+                "requested_count": clips_count,
+                "available_clips": len(insert_paths),
+            }
+
+        update_task_status_message(
+            db,
+            task,
+            stage="Монтаж",
+            detail="Встраиваю дополнительные видео-вставки в финальный ролик.",
+        )
+        montage_output = os.path.join(
+            os.getenv("OUTPUT_DIR", "./output").strip(),
+            f"avatar_inserted_{task_id}.mp4",
+        )
+        max_insert_seconds = float(os.getenv("AVATAR_INSERT_CLIP_MAX_SECONDS", "7"))
+        inserted_path, insert_meta = processor.apply_avatar_insert_clips(
+            input_path=base_video_path,
+            insert_paths=insert_paths,
+            start_percent=start_percent,
+            end_percent=end_percent,
+            clips_count=clips_count,
+            output_path=montage_output,
+            seed=task_id,
+            max_insert_seconds=max_insert_seconds,
+        )
+        if inserted_path:
+            if base_video_path != inserted_path and os.path.isfile(base_video_path):
+                try:
+                    os.remove(base_video_path)
+                except OSError:
+                    logging.warning("Failed to remove intermediate avatar file after inserts: %s", base_video_path)
+            return inserted_path, insert_meta or {"status": "applied"}
+        return base_video_path, insert_meta or {"status": "failed", "reason": "unknown"}
+
     try:
         source_url_raw = (task.source_url or "").strip()
         if not source_url_raw:
@@ -252,6 +306,12 @@ def process_content_task(task_id: int):
                     "Remotion rendering failed for avatar_youtube task. "
                     "Raw HeyGen fallback is disabled by policy."
                 )
+
+            local_avatar_video, insert_meta = _apply_avatar_insert_montage(local_avatar_video)
+            existing_meta = dict(task.script_meta or {})
+            existing_meta["avatar_insert_montage"] = insert_meta
+            task.script_meta = existing_meta
+            db.commit()
 
             input_videos.append(local_avatar_video)
             input_video_titles.append(task.source_title or f"Avatar Video {task_id}")
@@ -488,6 +548,12 @@ def process_content_task(task_id: int):
                     "Remotion rendering failed for avatar_youtube task. "
                     "Raw HeyGen fallback is disabled by policy."
                 )
+
+            local_avatar_video, insert_meta = _apply_avatar_insert_montage(local_avatar_video)
+            current_meta = dict(task.script_meta or {})
+            current_meta["avatar_insert_montage"] = insert_meta
+            task.script_meta = current_meta
+            db.commit()
                 
             # --- Final Post-Processing (Plates/Endings) ---
             # We treat this video as the 'source' for the final step

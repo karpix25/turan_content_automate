@@ -27,6 +27,21 @@ def _validate_thumbnail_file(file: UploadFile) -> str:
         raise HTTPException(status_code=400, detail="Unsupported image type. Use JPG, PNG, or WEBP.")
     return safe_name
 
+
+def _avatar_inserts_dir() -> str:
+    target = (os.getenv("AVATAR_INSERTS_DIR") or "/app/database/media/avatar-inserts").strip()
+    os.makedirs(target, exist_ok=True)
+    return target
+
+
+def _validate_avatar_insert_video(file: UploadFile) -> str:
+    safe_name = _build_safe_upload_filename(file.filename, fallback_extension=".mp4")
+    extension = os.path.splitext(safe_name)[1].lower()
+    allowed_extensions = {".mp4", ".mov", ".mkv", ".webm", ".m4v"}
+    if extension not in allowed_extensions:
+        raise HTTPException(status_code=400, detail="Unsupported video type for avatar inserts")
+    return safe_name
+
 @router.post("/upload/test-video/{telegram_id}")
 async def upload_test_video(
     telegram_id: str,
@@ -300,3 +315,63 @@ def delete_thumbnail_face(telegram_id: str, db: Session = Depends(get_db)):
             logging.warning("Failed to remove thumbnail face file: %s", previous_path)
 
     return {"status": "deleted"}
+
+
+@router.post("/upload/avatar-insert/{telegram_id}", response_model=schemas.AvatarInsertClipOut)
+async def upload_avatar_insert_clip(
+    telegram_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    safe_name = _validate_avatar_insert_video(file)
+    target_dir = _avatar_inserts_dir()
+    unique_name = f"ins_{telegram_id}_{datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}_{safe_name}"
+    file_path = os.path.join(target_dir, unique_name)
+
+    with open(file_path, "wb") as target:
+        target.write(await file.read())
+
+    clip = models.AvatarInsertClip(user_id=user.id, file_path=file_path)
+    db.add(clip)
+    db.commit()
+    db.refresh(clip)
+    return clip
+
+
+@router.get("/avatar-inserts/{telegram_id}", response_model=list[schemas.AvatarInsertClipOut])
+def list_avatar_insert_clips(telegram_id: str, db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    return (
+        db.query(models.AvatarInsertClip)
+        .filter(models.AvatarInsertClip.user_id == user.id)
+        .order_by(models.AvatarInsertClip.created_at.desc(), models.AvatarInsertClip.id.desc())
+        .all()
+    )
+
+
+@router.delete("/avatar-inserts/{telegram_id}/{clip_id}")
+def delete_avatar_insert_clip(telegram_id: str, clip_id: int, db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    clip = (
+        db.query(models.AvatarInsertClip)
+        .filter(models.AvatarInsertClip.id == clip_id, models.AvatarInsertClip.user_id == user.id)
+        .first()
+    )
+    if not clip:
+        raise HTTPException(status_code=404, detail="Avatar insert clip not found")
+
+    file_path = clip.file_path
+    db.delete(clip)
+    db.commit()
+
+    if file_path and os.path.isfile(file_path):
+        try:
+            os.remove(file_path)
+        except OSError:
+            logging.warning("Failed to remove avatar insert clip file: %s", file_path)
+
+    return {"status": "deleted", "clip_id": clip_id}

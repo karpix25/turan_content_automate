@@ -44,6 +44,31 @@ def update_settings(telegram_id: str, settings: schemas.UserSettingsUpdate, db: 
             field_name="plate_start_percent",
         )
 
+    start_percent = update_data.get("avatar_insert_start_percent", user.avatar_insert_start_percent)
+    end_percent = update_data.get("avatar_insert_end_percent", user.avatar_insert_end_percent)
+    clips_count = update_data.get("avatar_insert_clips_count", user.avatar_insert_clips_count)
+    if start_percent is not None:
+        start_percent = normalize_percent(start_percent, field_name="avatar_insert_start_percent")
+        if start_percent >= 100:
+            raise HTTPException(status_code=400, detail="avatar_insert_start_percent must be below 100")
+        update_data["avatar_insert_start_percent"] = start_percent
+    if end_percent is not None:
+        end_percent = normalize_percent(end_percent, field_name="avatar_insert_end_percent")
+        if end_percent <= 0:
+            raise HTTPException(status_code=400, detail="avatar_insert_end_percent must be above 0")
+        update_data["avatar_insert_end_percent"] = end_percent
+    if start_percent is not None and end_percent is not None and end_percent <= start_percent:
+        raise HTTPException(status_code=400, detail="avatar_insert_end_percent must be greater than avatar_insert_start_percent")
+
+    if clips_count is not None:
+        try:
+            clips_value = int(clips_count)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="avatar_insert_clips_count must be an integer")
+        if clips_value < 0 or clips_value > 20:
+            raise HTTPException(status_code=400, detail="avatar_insert_clips_count must be between 0 and 20")
+        update_data["avatar_insert_clips_count"] = clips_value
+
     for key, value in update_data.items():
         setattr(user, key, value)
     db.commit()
@@ -59,6 +84,9 @@ async def get_style_settings(telegram_id: str, db: Session = Depends(get_db)):
         "heygen_avatar_id": user.heygen_avatar_id,
         "elevenlabs_voice_id": user.elevenlabs_voice_id,
         "thumbnail_face_path": user.thumbnail_face_path,
+        "avatar_insert_start_percent": user.avatar_insert_start_percent,
+        "avatar_insert_end_percent": user.avatar_insert_end_percent,
+        "avatar_insert_clips_count": user.avatar_insert_clips_count,
     }
 
 @router.post("/train-style/{telegram_id}")

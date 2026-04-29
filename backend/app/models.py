@@ -29,6 +29,9 @@ class User(Base):
     heygen_avatar_id = Column(String, nullable=True)
     elevenlabs_voice_id = Column(String, nullable=True)
     thumbnail_face_path = Column(String, nullable=True)
+    avatar_insert_start_percent = Column(Integer, default=50, nullable=False)
+    avatar_insert_end_percent = Column(Integer, default=95, nullable=False)
+    avatar_insert_clips_count = Column(Integer, default=2, nullable=False)
 
 class Plate(Base):
     __tablename__ = "plates"
@@ -49,6 +52,14 @@ class CTAClip(Base):
 
 class ThumbnailReference(Base):
     __tablename__ = "thumbnail_references"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    file_path = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class AvatarInsertClip(Base):
+    __tablename__ = "avatar_insert_clips"
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
     file_path = Column(String, nullable=False)

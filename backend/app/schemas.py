@@ -16,6 +16,9 @@ class UserSettingsUpdate(BaseModel):
     heygen_avatar_id: Optional[str] = None
     elevenlabs_voice_id: Optional[str] = None
     thumbnail_face_path: Optional[str] = None
+    avatar_insert_start_percent: Optional[int] = None
+    avatar_insert_end_percent: Optional[int] = None
+    avatar_insert_clips_count: Optional[int] = None
 
     telegram_chat_id: Optional[str] = None
     telegram_status_message_id: Optional[str] = None
@@ -115,6 +118,16 @@ class ThumbnailReferenceOut(BaseModel):
     class Config:
         from_attributes = True
 
+
+class AvatarInsertClipOut(BaseModel):
+    id: int
+    user_id: int
+    file_path: str
+    created_at: datetime.datetime
+
+    class Config:
+        from_attributes = True
+
 class UserSettings(BaseModel):
     id: int
     telegram_id: str
@@ -133,6 +146,9 @@ class UserSettings(BaseModel):
     heygen_avatar_id: Optional[str] = None
     elevenlabs_voice_id: Optional[str] = None
     thumbnail_face_path: Optional[str] = None
+    avatar_insert_start_percent: int
+    avatar_insert_end_percent: int
+    avatar_insert_clips_count: int
 
     class Config:
         from_attributes = True

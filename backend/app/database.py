@@ -74,6 +74,21 @@ def init_database() -> None:
             )
         )
         conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_insert_start_percent INTEGER DEFAULT 50"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_insert_end_percent INTEGER DEFAULT 95"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_insert_clips_count INTEGER DEFAULT 2"
+            )
+        )
+        conn.execute(
             text("UPDATE users SET auto_schedule_enabled = FALSE WHERE auto_schedule_enabled IS NULL")
         )
         conn.execute(
@@ -87,6 +102,39 @@ def init_database() -> None:
         )
         conn.execute(
             text("UPDATE users SET plate_start_percent = 0 WHERE plate_start_percent IS NULL")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_insert_start_percent = 50 WHERE avatar_insert_start_percent IS NULL")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_insert_end_percent = 95 WHERE avatar_insert_end_percent IS NULL")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_insert_clips_count = 2 WHERE avatar_insert_clips_count IS NULL")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_insert_start_percent = 0 WHERE avatar_insert_start_percent < 0")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_insert_start_percent = 99 WHERE avatar_insert_start_percent > 99")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_insert_end_percent = 1 WHERE avatar_insert_end_percent < 1")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_insert_end_percent = 100 WHERE avatar_insert_end_percent > 100")
+        )
+        conn.execute(
+            text(
+                "UPDATE users SET avatar_insert_end_percent = avatar_insert_start_percent + 1 "
+                "WHERE avatar_insert_end_percent <= avatar_insert_start_percent"
+            )
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_insert_clips_count = 0 WHERE avatar_insert_clips_count < 0")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_insert_clips_count = 20 WHERE avatar_insert_clips_count > 20")
         )
         conn.execute(
             text("UPDATE users SET plate_start_percent = 0 WHERE plate_start_percent < 0")
@@ -165,6 +213,16 @@ def init_database() -> None:
         conn.execute(
             text(
                 "ALTER TABLE user_publish_channels ADD COLUMN IF NOT EXISTS publication_description TEXT"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS avatar_insert_clips ("
+                "id SERIAL PRIMARY KEY, "
+                "user_id INTEGER NOT NULL REFERENCES users(id), "
+                "file_path TEXT NOT NULL, "
+                "created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()"
+                ")"
             )
         )
         conn.execute(

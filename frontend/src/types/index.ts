@@ -10,6 +10,9 @@ export type UserSettings = {
   heygen_avatar_id?: string | null;
   elevenlabs_voice_id?: string | null;
   thumbnail_face_path?: string | null;
+  avatar_insert_start_percent?: number;
+  avatar_insert_end_percent?: number;
+  avatar_insert_clips_count?: number;
 };
 
 export type VideoTaskItem = {
@@ -59,6 +62,13 @@ export type EndingClip = {
 };
 
 export type ThumbnailReference = {
+  id: number;
+  user_id: number;
+  file_path: string;
+  created_at: string;
+};
+
+export type AvatarInsertClip = {
   id: number;
   user_id: number;
   file_path: string;

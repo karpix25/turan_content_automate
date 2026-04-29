@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { UserSettings, VideoTaskItem, PublishAccount, EndingClip, ThumbnailReference } from '../types';
+import { UserSettings, VideoTaskItem, PublishAccount, EndingClip, ThumbnailReference, AvatarInsertClip } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
@@ -16,6 +16,9 @@ export const apiClient = {
       heygen_avatar_id: string | null;
       elevenlabs_voice_id: string | null;
       thumbnail_face_path: string | null;
+      avatar_insert_start_percent: number;
+      avatar_insert_end_percent: number;
+      avatar_insert_clips_count: number;
     }>(`${API_BASE}/settings/style/${telegramId}`);
     return res.data;
   },
@@ -112,6 +115,20 @@ export const apiClient = {
   },
   deleteThumbnailFace: async (telegramId: string) => {
     const res = await axios.delete(`${API_BASE}/thumbnail-face/${telegramId}`);
+    return res.data;
+  },
+  listAvatarInsertClips: async (telegramId: string) => {
+    const res = await axios.get<AvatarInsertClip[]>(`${API_BASE}/avatar-inserts/${telegramId}`);
+    return res.data;
+  },
+  uploadAvatarInsertClip: async (telegramId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await axios.post<AvatarInsertClip>(`${API_BASE}/upload/avatar-insert/${telegramId}`, formData);
+    return res.data;
+  },
+  deleteAvatarInsertClip: async (telegramId: string, clipId: number) => {
+    const res = await axios.delete(`${API_BASE}/avatar-inserts/${telegramId}/${clipId}`);
     return res.data;
   },
 };

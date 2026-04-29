@@ -3,7 +3,7 @@ import logging
 import random
 import uuid
 import ffmpeg
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,221 @@ class VideoProcessor:
             f="lavfi",
             t=safe_duration,
         ).audio
+
+    def _safe_duration(self, value: float, minimum: float = 0.2) -> float:
+        return max(minimum, float(value))
+
+    def apply_avatar_insert_clips(
+        self,
+        *,
+        input_path: str,
+        insert_paths: List[str],
+        start_percent: int,
+        end_percent: int,
+        clips_count: int,
+        output_path: str,
+        seed: Optional[int] = None,
+        max_insert_seconds: float = 7.0,
+    ) -> tuple[str | None, dict]:
+        meta: dict = {
+            "status": "skipped",
+            "reason": None,
+            "requested_count": int(max(0, clips_count)),
+            "applied_count": 0,
+            "window_percent": [int(start_percent), int(end_percent)],
+            "insertions": [],
+        }
+
+        if clips_count <= 0:
+            meta["reason"] = "clips_count_is_zero"
+            return None, meta
+
+        source_probe = self._probe_media(input_path)
+        source_video = self._get_first_stream(source_probe, "video")
+        source_audio = self._get_first_stream(source_probe, "audio")
+        if not source_video:
+            meta["reason"] = "source_video_stream_missing"
+            return None, meta
+
+        source_duration = float(source_probe.get("format", {}).get("duration") or 0.0)
+        if source_duration <= 0.5:
+            meta["reason"] = "source_duration_too_short"
+            return None, meta
+
+        target_width = int(source_video.get("width") or 720)
+        target_height = int(source_video.get("height") or 1280)
+        target_fps = self._parse_frame_rate(
+            source_video.get("avg_frame_rate") or source_video.get("r_frame_rate")
+        )
+        target_sample_rate = int((source_audio or {}).get("sample_rate") or 44100)
+        include_audio = bool(source_audio)
+
+        normalized_start = max(0, min(99, int(start_percent)))
+        normalized_end = max(1, min(100, int(end_percent)))
+        if normalized_end <= normalized_start:
+            normalized_end = min(100, normalized_start + 1)
+
+        window_start = source_duration * (normalized_start / 100.0)
+        window_end = source_duration * (normalized_end / 100.0)
+        window_length = window_end - window_start
+        if window_length <= 0.4:
+            meta["reason"] = "insert_window_too_small"
+            return None, meta
+
+        valid_candidates: List[Tuple[str, float]] = []
+        for path in insert_paths:
+            if not path or not os.path.isfile(path):
+                continue
+            try:
+                probe = self._probe_media(path)
+            except ffmpeg.Error:
+                continue
+            duration = float(probe.get("format", {}).get("duration") or 0.0)
+            if duration <= 0.15:
+                continue
+            bounded_duration = min(duration, self._safe_duration(max_insert_seconds))
+            valid_candidates.append((path, bounded_duration))
+
+        if not valid_candidates:
+            meta["reason"] = "no_valid_insert_clips"
+            return None, meta
+
+        rnd = random.Random(seed if seed is not None else random.randint(1, 9999999))
+        rnd.shuffle(valid_candidates)
+        selected = valid_candidates[: min(clips_count, len(valid_candidates))]
+        if not selected:
+            meta["reason"] = "no_selected_clips"
+            return None, meta
+
+        # If selected clips do not fit into the allowed window, reduce count from the tail.
+        while selected and sum(item[1] for item in selected) >= window_length * 0.95:
+            selected.pop()
+        if not selected:
+            meta["reason"] = "selected_clips_too_long_for_window"
+            return None, meta
+
+        total_insert_duration = sum(item[1] for item in selected)
+        slack = max(0.0, window_length - total_insert_duration)
+        gap = slack / (len(selected) + 1)
+
+        schedule: List[Tuple[str, float, float]] = []
+        cursor = window_start + gap
+        for path, duration in selected:
+            start_time = cursor
+            schedule.append((path, start_time, duration))
+            cursor = start_time + duration + gap
+
+        segment_inputs: List[Tuple[str, float, float]] = []
+        timeline_cursor = 0.0
+        for _path, start_time, duration in schedule:
+            if start_time > timeline_cursor + 0.05:
+                segment_inputs.append(("main", timeline_cursor, start_time - timeline_cursor))
+            segment_inputs.append(("insert", start_time, duration))
+            timeline_cursor = start_time + duration
+        if source_duration > timeline_cursor + 0.05:
+            segment_inputs.append(("main", timeline_cursor, source_duration - timeline_cursor))
+
+        if not segment_inputs:
+            meta["reason"] = "empty_timeline_after_planning"
+            return None, meta
+
+        streams: List[ffmpeg.nodes.FilterableStream] = []
+        for seg_type, start_value, duration_value in segment_inputs:
+            safe_duration = self._safe_duration(duration_value)
+            if seg_type == "main":
+                main_input = ffmpeg.input(input_path, ss=max(0.0, start_value), t=safe_duration)
+                main_v = main_input.video.filter("scale", target_width, target_height, force_original_aspect_ratio="cover")
+                main_v = main_v.filter("crop", target_width, target_height).filter("setsar", "1")
+                if target_fps:
+                    main_v = main_v.filter("fps", fps=target_fps)
+                streams.append(main_v)
+                if include_audio:
+                    if source_audio:
+                        main_a = main_input.audio.filter("aresample", target_sample_rate)
+                    else:
+                        main_a = self._build_silent_audio(safe_duration, target_sample_rate)
+                    streams.append(main_a)
+                continue
+
+            insert_index = len(meta["insertions"])
+            insert_path = schedule[insert_index][0]
+            insert_input = ffmpeg.input(insert_path, ss=0, t=safe_duration)
+            insert_v = insert_input.video.filter("scale", target_width, target_height, force_original_aspect_ratio="cover")
+            insert_v = insert_v.filter("crop", target_width, target_height).filter("setsar", "1")
+            if target_fps:
+                insert_v = insert_v.filter("fps", fps=target_fps)
+            streams.append(insert_v)
+            if include_audio:
+                try:
+                    insert_probe = self._probe_media(insert_path)
+                    insert_audio_stream = self._get_first_stream(insert_probe, "audio")
+                except ffmpeg.Error:
+                    insert_audio_stream = None
+                if insert_audio_stream:
+                    insert_a = insert_input.audio.filter("aresample", target_sample_rate)
+                else:
+                    insert_a = self._build_silent_audio(safe_duration, target_sample_rate)
+                streams.append(insert_a)
+
+            meta["insertions"].append(
+                {
+                    "source_path": insert_path,
+                    "start_sec": round(schedule[insert_index][1], 3),
+                    "duration_sec": round(safe_duration, 3),
+                }
+            )
+
+        try:
+            if include_audio:
+                joined = ffmpeg.concat(*streams, v=1, a=1).node
+                out_v = joined[0]
+                out_a = joined[1]
+                (
+                    ffmpeg
+                    .output(
+                        out_v,
+                        out_a,
+                        output_path,
+                        vcodec="libx264",
+                        acodec="aac",
+                        pix_fmt="yuv420p",
+                        movflags="+faststart",
+                        map_metadata="-1",
+                    )
+                    .overwrite_output()
+                    .run(capture_stdout=True, capture_stderr=True)
+                )
+            else:
+                joined = ffmpeg.concat(*streams, v=1, a=0).node
+                out_v = joined[0]
+                (
+                    ffmpeg
+                    .output(
+                        out_v,
+                        output_path,
+                        vcodec="libx264",
+                        pix_fmt="yuv420p",
+                        movflags="+faststart",
+                        map_metadata="-1",
+                    )
+                    .overwrite_output()
+                    .run(capture_stdout=True, capture_stderr=True)
+                )
+        except ffmpeg.Error as exc:
+            stderr = exc.stderr.decode("utf-8", errors="ignore") if getattr(exc, "stderr", None) else ""
+            logger.error("Avatar insert montage failed for %s: %s", output_path, stderr)
+            meta["status"] = "failed"
+            meta["reason"] = "ffmpeg_failed"
+            return None, meta
+
+        if not os.path.isfile(output_path):
+            meta["status"] = "failed"
+            meta["reason"] = "output_missing_after_concat"
+            return None, meta
+
+        meta["status"] = "applied"
+        meta["applied_count"] = len(meta["insertions"])
+        return output_path, meta
 
     def transcribe(self, video_path: str) -> List[Dict]:
         """
