@@ -246,7 +246,12 @@ class LLMClient:
         except:
             return {"is_faithful": True, "hallucinations": [], "error": "Parsing failed"}
 
-    def generate_youtube_thumbnail_prompt(self, factual_outline: str, script: str) -> Optional[str]:
+    def generate_youtube_thumbnail_prompt(
+        self,
+        factual_outline: str,
+        script: str,
+        video_title: Optional[str] = None,
+    ) -> Optional[str]:
         """
         Builds a concise high-CTR Russian prompt for thumbnail generation.
         """
@@ -269,6 +274,7 @@ class LLMClient:
             "- Верни только финальный промт."
         )
         user_prompt = (
+            f"Заголовок видео:\n{(video_title or '').strip() or 'Без заголовка'}\n\n"
             "Суть видео и факты:\n"
             f"{source_outline[:5000]}\n\n"
             "Фрагмент сценария:\n"

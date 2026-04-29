@@ -127,6 +127,12 @@ export const apiClient = {
     const res = await axios.post<AvatarInsertClip>(`${API_BASE}/upload/avatar-insert/${telegramId}`, formData);
     return res.data;
   },
+  uploadAvatarInsertClips: async (telegramId: string, files: File[]) => {
+    const formData = new FormData();
+    files.forEach((file) => formData.append('files', file));
+    const res = await axios.post<AvatarInsertClip[]>(`${API_BASE}/upload/avatar-inserts/${telegramId}`, formData);
+    return res.data;
+  },
   deleteAvatarInsertClip: async (telegramId: string, clipId: number) => {
     const res = await axios.delete(`${API_BASE}/avatar-inserts/${telegramId}/${clipId}`);
     return res.data;

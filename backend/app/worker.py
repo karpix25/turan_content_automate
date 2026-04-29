@@ -16,7 +16,7 @@ from .integrations.postmypost import PostMyPostClient
 from .processor import VideoProcessor
 from .database import SessionLocal, init_database
 from .publish_planner import plan_next_publish_times
-from .telegram_progress import update_task_status_message, send_avatar_audio_to_telegram
+from .telegram_progress import update_task_status_message, send_avatar_audio_to_telegram, send_thumbnail_to_telegram
 from .integrations.elevenlabs_client import ElevenLabsClient
 from .integrations.heygen_client import HeyGenClient
 from .integrations.thumbnail_generator import ThumbnailGeneratorClient
@@ -320,6 +320,10 @@ def process_content_task(task_id: int):
             update_task_status_message(db, task, stage="Сценарий", detail="Получаю транскрипт видео.")
             t_data = scraper.get_youtube_transcript(source_url)
             transcript = t_data.get("transcript_only_text") if t_data else None
+            source_title = (t_data.get("title") if t_data else None) or task.source_title
+            if source_title and not task.source_title:
+                task.source_title = str(source_title).strip()
+                db.commit()
             
             if not transcript:
                 raise Exception("Failed to retrieve transcript for Avatar task")
@@ -410,7 +414,11 @@ def process_content_task(task_id: int):
             update_task_status_message(db, task, stage="Сценарий", detail="Проверяю сценарий на соответствие фактам.")
             validation = llm.verify_faithfulness(outline, script)
             estimated_minutes = _estimate_script_minutes(script, AVATAR_SCRIPT_WPM)
-            thumbnail_prompt = llm.generate_youtube_thumbnail_prompt(outline, script)
+            thumbnail_prompt = llm.generate_youtube_thumbnail_prompt(
+                outline,
+                script,
+                video_title=(task.source_title or ""),
+            )
             thumbnail_meta: dict = {
                 "status": "skipped",
                 "reason": "thumbnail_prompt_empty",
@@ -450,6 +458,13 @@ def process_content_task(task_id: int):
                         "used_reference_count": len(reference_paths[:5]),
                         "face_path": user.thumbnail_face_path,
                     }
+                    update_task_status_message(
+                        db,
+                        task,
+                        stage="Telegram",
+                        detail="Отправляю готовую обложку в Telegram.",
+                    )
+                    send_thumbnail_to_telegram(task, generated_thumbnail)
                 else:
                     thumbnail_meta = {
                         "status": "failed",

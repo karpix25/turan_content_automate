@@ -250,12 +250,12 @@ export const SettingsTab: React.FC = () => {
   };
 
   const handleUploadAvatarInsertClip = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !telegramId) return;
+    const files = Array.from(e.target.files || []);
+    if (!files.length || !telegramId) return;
     setUploadingAvatarInsertClip(true);
     try {
-      const created = await apiClient.uploadAvatarInsertClip(telegramId, file);
-      setAvatarInsertClips((prev) => [created, ...prev]);
+      const created = await apiClient.uploadAvatarInsertClips(telegramId, files);
+      setAvatarInsertClips((prev) => [...created, ...prev]);
     } catch (error) {
       alert('Ошибка загрузки видео-вставки');
     } finally {
@@ -329,6 +329,7 @@ export const SettingsTab: React.FC = () => {
         ref={avatarInsertInputRef}
         type="file"
         accept="video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-m4v"
+        multiple
         className="hidden"
         onChange={handleUploadAvatarInsertClip}
       />

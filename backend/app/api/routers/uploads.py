@@ -2,6 +2,7 @@ import os
 import uuid
 import logging
 import datetime
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from ... import models, schemas
@@ -338,6 +339,37 @@ async def upload_avatar_insert_clip(
     db.commit()
     db.refresh(clip)
     return clip
+
+
+@router.post("/upload/avatar-inserts/{telegram_id}", response_model=list[schemas.AvatarInsertClipOut])
+async def upload_avatar_insert_clips(
+    telegram_id: str,
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+    if len(files) > 20:
+        raise HTTPException(status_code=400, detail="Too many files. Maximum 20 per upload.")
+
+    target_dir = _avatar_inserts_dir()
+    created: list[models.AvatarInsertClip] = []
+    for file in files:
+        safe_name = _validate_avatar_insert_video(file)
+        unique_name = f"ins_{telegram_id}_{datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}_{safe_name}"
+        file_path = os.path.join(target_dir, unique_name)
+        with open(file_path, "wb") as target:
+            target.write(await file.read())
+        clip = models.AvatarInsertClip(user_id=user.id, file_path=file_path)
+        db.add(clip)
+        created.append(clip)
+
+    db.commit()
+    for clip in created:
+        db.refresh(clip)
+    return created
 
 
 @router.get("/avatar-inserts/{telegram_id}", response_model=list[schemas.AvatarInsertClipOut])
