@@ -732,7 +732,7 @@ def build_fallback_scene_plan(
 
     scenes = [build_scene_from_semantic_block(block, i) for i, block in enumerate(source_blocks)]
 
-    return normalize_scene_plan({"scenes": scenes}, duration)
+    return normalize_scene_plan({"scenes": scenes, "_utterances": utterances}, duration)
 
 
 def build_llm_prompt_payload(
@@ -987,10 +987,97 @@ def _norm_bars(raw_bars: Any) -> list[dict[str, Any]]:
     return out
 
 
+GENERIC_SCENE_TEXTS = {
+    "смысловой блок",
+    "ключевая мысль",
+    "важный момент",
+    "тема",
+    "хук",
+    "контекст",
+    "анализ",
+    "итог",
+    "фокус",
+    "hook",
+    "context",
+    "analysis",
+}
+
+
+def _is_generic_scene_text(value: str) -> bool:
+    text = normalize_plain_text(value).lower()
+    if not text:
+        return True
+    compact = re.sub(r"[^a-zа-яё0-9]+", " ", text).strip()
+    if compact in GENERIC_SCENE_TEXTS:
+        return True
+    if "смыслов" in compact and "блок" in compact:
+        return True
+    return False
+
+
+def _scene_window_text(utterances: list[dict[str, Any]], start: float, end: float) -> str:
+    if not utterances:
+        return ""
+    parts: list[str] = []
+    for utt in utterances:
+        try:
+            u_start = float(utt.get("start", 0.0))
+            u_end = float(utt.get("end", u_start))
+        except (TypeError, ValueError):
+            continue
+        if u_end <= start or u_start >= end:
+            continue
+        text = normalize_plain_text(str(utt.get("text") or ""))
+        if text:
+            parts.append(text)
+    return normalize_plain_text(" ".join(parts))
+
+
+def _build_semantic_fallback(window_text: str, block_name: str) -> dict[str, Any]:
+    source = normalize_plain_text(window_text)
+    if not source:
+        source = f"{block_name} ключевой тезис и практический вывод"
+    sentences = split_sentences(source) or [source]
+    keywords = extract_keywords(source, 4)
+    keyword_text = " ".join(keywords[:2]) if keywords else phrase_from_sentence(sentences[0], 3)
+
+    title = normalize_scene_text(phrase_from_sentence(sentences[0], 6), 40, 6)
+    subtitle_src = sentences[1] if len(sentences) > 1 else block_name
+    subtitle = normalize_scene_text(phrase_from_sentence(subtitle_src, 6), 60, 8)
+    insight = normalize_scene_text(" ".join(sentences[:2]), TEXT_LIMITS["insight"], WORD_LIMITS["insight"])
+    cta = normalize_scene_text(phrase_from_sentence(sentences[-1], 8), TEXT_LIMITS["cta"], WORD_LIMITS["cta"])
+    keyword = normalize_scene_text(keyword_text, TEXT_LIMITS["keyword"], WORD_LIMITS["keyword"])
+
+    steps_raw = sentences[:3]
+    while len(steps_raw) < 3:
+        steps_raw.append(sentences[-1])
+    steps = [
+        normalize_scene_text(phrase_from_sentence(step, 8), TEXT_LIMITS["step"], WORD_LIMITS["step"])
+        for step in steps_raw[:3]
+    ]
+    facts = [
+        normalize_scene_text(phrase_from_sentence(step, 10), 80, 12)
+        for step in steps_raw[:3]
+    ]
+    return {
+        "title": title,
+        "subtitle": subtitle,
+        "insight": insight,
+        "cta": cta,
+        "keyword": keyword,
+        "steps": steps,
+        "facts": facts,
+    }
+
+
 def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str, Any]]:
     raw_scenes = raw.get("scenes")
     if not isinstance(raw_scenes, list):
         raw_scenes = []
+
+    utterances_for_norm = raw.get("_utterances")
+    if not isinstance(utterances_for_norm, list):
+        utterances_for_norm = []
 
     norm: list[dict[str, Any]] = []
     for i, item in enumerate(raw_scenes):
@@ -1035,7 +1122,9 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
                     return utt_start
             return target_time
 
-        start = find_best_start(start, raw.get("_utterances", []))
+        start = find_best_start(start, utterances_for_norm)
+        window_text = _scene_window_text(utterances_for_norm, start, end)
+        semantic_fallback = _build_semantic_fallback(window_text, block_name)
         
         # ГАРАНТИРОВАННЫЙ БУФЕР: Первый слайд не раньше 4-й секунды
         if not norm:
@@ -1046,19 +1135,23 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
             if start < prev_end + 8.0:
                 start = prev_end + 8.0
 
-        # FALLBACK ДАННЫХ: Если LLM не заполнила новые поля, берем из старых
-        title = str(item.get("title") or "").strip()
-        if not title or title == "Смысловой блок":
+        # FALLBACK ДАННЫХ: если LLM вернула шаблон, берём осмысленный текст из окна utterances.
+        title_from_raw = str(item.get("title") or "").strip()
+        title = title_from_raw
+        if _is_generic_scene_text(title):
             t_lines = item.get("titleLines") or []
             if t_lines and isinstance(t_lines, list):
                 title = " ".join([str(x) for x in t_lines if str(x) != "Смысловой блок"]).strip()
-        
-        if not title:
-            title = str(item.get("keyword") or "ВАЖНЫЙ МОМЕНТ")
+        if _is_generic_scene_text(title):
+            title = str(item.get("keyword") or "").strip()
+        if _is_generic_scene_text(title):
+            title = semantic_fallback["title"]
 
         subtitle = str(item.get("subtitle") or "").strip()
-        if not subtitle or subtitle == "АНАЛИЗ":
-            subtitle = str(item.get("blockName") or "КОНТЕКСТ")
+        if _is_generic_scene_text(subtitle):
+            subtitle = str(item.get("blockName") or "").strip()
+        if _is_generic_scene_text(subtitle):
+            subtitle = semantic_fallback["subtitle"]
 
         if start >= duration:
             continue
@@ -1082,14 +1175,8 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
         ][:3]
 
         # Extract new schema fields
-        title = normalize_scene_text(
-            str(item.get("title") or item.get("keyword") or ""),
-            40, 5,
-        )
-        subtitle = normalize_scene_text(
-            str(item.get("subtitle") or item.get("blockName") or ""),
-            60, 8,
-        )
+        title = normalize_scene_text(title, 40, 6)
+        subtitle = normalize_scene_text(subtitle, 60, 8)
         # Primary numeric value for BIG_NUMBER
         raw_value = item.get("value")
         try:
@@ -1107,33 +1194,47 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
             for f in raw_facts
             if str(f).strip()
         ][:3]
+        if not facts:
+            facts = semantic_fallback["facts"][:2]
 
         insight = normalize_scene_text(
             str(item.get("insight") or ""), TEXT_LIMITS["insight"], WORD_LIMITS["insight"]
         )
+        if _is_generic_scene_text(insight):
+            insight = semantic_fallback["insight"]
         cta = normalize_scene_text(
             str(item.get("cta") or ""), TEXT_LIMITS["cta"], WORD_LIMITS["cta"]
         )
+        if _is_generic_scene_text(cta):
+            cta = semantic_fallback["cta"]
         keyword = normalize_scene_text(
             str(item.get("keyword") or title or ""), TEXT_LIMITS["keyword"], WORD_LIMITS["keyword"]
         )
+        if _is_generic_scene_text(keyword):
+            keyword = semantic_fallback["keyword"]
 
         # Legacy fields — kept for backward compatibility
         title_lines = item.get("titleLines") if isinstance(item.get("titleLines"), list) else []
         title_lines = [
             normalize_scene_text(str(x), TEXT_LIMITS["title_line"], WORD_LIMITS["title_line"])
             for x in title_lines
+            if not _is_generic_scene_text(str(x))
         ][:2] or [title, subtitle]
 
         steps = item.get("steps") if isinstance(item.get("steps"), list) else []
         steps = [
             normalize_scene_text(str(x), TEXT_LIMITS["step"], WORD_LIMITS["step"])
             for x in steps
-            if str(x).strip() and "Уточнить" not in str(x) and "Объяснить" not in str(x)
+            if str(x).strip()
+            and "Уточнить" not in str(x)
+            and "Объяснить" not in str(x)
+            and not _is_generic_scene_text(str(x))
         ][:3]
         # Supplement steps from facts if empty
         if not steps and facts:
             steps = facts[:2]
+        if not steps:
+            steps = semantic_fallback["steps"][:2]
 
         scene = {
             "start": round(start, 2),
@@ -1151,8 +1252,8 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
             "titleLines": title_lines,
             "steps": steps,
             "insight": insight,
-            "cta": cta or "Сверить цифры",
-            "keyword": keyword or "Ключевая мысль",
+            "cta": cta or semantic_fallback["cta"],
+            "keyword": keyword or semantic_fallback["keyword"],
             "bars": _norm_bars(item.get("bars")),
             "_i": i,
         }
@@ -1218,9 +1319,6 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
 
     fixed[0]["start"] = 0.0
     fixed[-1]["end"] = round(duration, 2)
-    fixed[0]["mode"] = "full"
-    fixed[-1]["mode"] = "full"
-
     return fixed
 
 
@@ -1416,6 +1514,8 @@ def main() -> int:
                 llm_model=args.llm_model,
                 timeout_sec=args.timeout,
             )
+            if isinstance(raw_plan, dict):
+                raw_plan["_utterances"] = utterances
             scenes = normalize_scene_plan(raw_plan, duration)
         except Exception as err:
             if args.strict_llm:

@@ -19,6 +19,7 @@ import {
   getMontageRules,
 } from './montage/youtube-rules';
 import {FullSlide} from './montage/components/FullSlide';
+import {MiniAccent} from './montage/components/MiniAccent';
 
 type LoadedData = {
   scenes: ScenePlanItem[];
@@ -119,6 +120,12 @@ export const AutoMontage: React.FC<AutoMontageProps> = ({
 
   // Per-scene accent color
   const accentColor = theme.accent;
+  const mode = String(activeScene?.mode || 'full').toLowerCase();
+  const isMiniMode =
+    mode === 'mini' ||
+    mode === 'lower-third' ||
+    mode === 'lower_third' ||
+    mode === 'side';
 
   return (
     <AbsoluteFill style={{backgroundColor: '#000'}}>
@@ -133,7 +140,11 @@ export const AutoMontage: React.FC<AutoMontageProps> = ({
       {/* FULL: typography overlay */}
       {showOverlay && (
         <AbsoluteFill>
-          <FullSlide scene={activeScene} />
+          {isMiniMode ? (
+            <MiniAccent scene={activeScene} accentColor={accentColor} />
+          ) : (
+            <FullSlide scene={activeScene} />
+          )}
         </AbsoluteFill>
       )}
     </AbsoluteFill>
