@@ -245,6 +245,83 @@ def process_content_task(task_id: int):
             return inserted_path, insert_meta or {"status": "applied"}
         return base_video_path, insert_meta or {"status": "failed", "reason": "unknown"}
 
+    def _generate_avatar_thumbnail(
+        factual_outline: str,
+        script_text: str,
+        detail_text: str = "Генерирую обложку YouTube по сценарию и референсам.",
+    ) -> tuple[str | None, dict]:
+        thumbnail_prompt = None
+        thumbnail_meta: dict = {
+            "status": "skipped",
+            "reason": "thumbnail_prompt_empty",
+            "output_path": None,
+            "used_reference_count": 0,
+            "face_path": user.thumbnail_face_path,
+        }
+        try:
+            thumbnail_prompt = llm.generate_youtube_thumbnail_prompt(
+                factual_outline or "",
+                script_text or "",
+                video_title=(task.source_title or ""),
+            )
+        except Exception as e:
+            logging.exception("Task %s: failed to generate thumbnail prompt: %s", task_id, e)
+            thumbnail_meta = {
+                **thumbnail_meta,
+                "status": "failed",
+                "reason": "thumbnail_prompt_generation_failed",
+            }
+            return None, thumbnail_meta
+
+        if thumbnail_prompt:
+            references = (
+                db.query(models.ThumbnailReference)
+                .filter(models.ThumbnailReference.user_id == user.id)
+                .order_by(models.ThumbnailReference.created_at.desc(), models.ThumbnailReference.id.desc())
+                .all()
+            )
+            reference_paths = [item.file_path for item in references if item and item.file_path]
+            thumbnail_output_path = os.path.join(
+                os.getenv("OUTPUT_DIR", "./output").strip(),
+                f"thumbnail_{task_id}.png",
+            )
+            update_task_status_message(
+                db,
+                task,
+                stage="Обложка",
+                detail=detail_text,
+            )
+            generated_thumbnail = thumbnail_generator.generate_thumbnail(
+                prompt=thumbnail_prompt,
+                face_path=user.thumbnail_face_path,
+                reference_paths=reference_paths,
+                output_path=thumbnail_output_path,
+            )
+            if generated_thumbnail:
+                thumbnail_meta = {
+                    "status": "generated",
+                    "reason": None,
+                    "output_path": generated_thumbnail,
+                    "used_reference_count": len(reference_paths[:5]),
+                    "face_path": user.thumbnail_face_path,
+                }
+                update_task_status_message(
+                    db,
+                    task,
+                    stage="Telegram",
+                    detail="Отправляю готовую обложку в Telegram.",
+                )
+                send_thumbnail_to_telegram(task, generated_thumbnail)
+            else:
+                thumbnail_meta = {
+                    "status": "failed",
+                    "reason": "generator_failed_or_unconfigured",
+                    "output_path": None,
+                    "used_reference_count": len(reference_paths[:5]),
+                    "face_path": user.thumbnail_face_path,
+                }
+        return thumbnail_prompt, thumbnail_meta
+
     try:
         source_url_raw = (task.source_url or "").strip()
         if not source_url_raw:
@@ -296,6 +373,14 @@ def process_content_task(task_id: int):
             if not local_avatar_video:
                 raise Exception("Failed to download existing HeyGen video")
 
+            thumbnail_outline = (task.factual_outline or task.source_title or "").strip()
+            thumbnail_script = (task.script_text or task.source_title or "").strip()
+            thumbnail_prompt, thumbnail_meta = _generate_avatar_thumbnail(
+                factual_outline=thumbnail_outline,
+                script_text=thumbnail_script,
+                detail_text="Генерирую обложку YouTube по теме готового HeyGen-видео.",
+            )
+
             update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Remotion (AI)...")
             remotion_output = _run_remotion_pipeline(task_id, local_avatar_video, "")
             if remotion_output:
@@ -310,6 +395,8 @@ def process_content_task(task_id: int):
             local_avatar_video, insert_meta = _apply_avatar_insert_montage(local_avatar_video)
             existing_meta = dict(task.script_meta or {})
             existing_meta["avatar_insert_montage"] = insert_meta
+            existing_meta["thumbnail_prompt"] = thumbnail_prompt
+            existing_meta["thumbnail"] = thumbnail_meta
             task.script_meta = existing_meta
             db.commit()
 
@@ -414,65 +501,10 @@ def process_content_task(task_id: int):
             update_task_status_message(db, task, stage="Сценарий", detail="Проверяю сценарий на соответствие фактам.")
             validation = llm.verify_faithfulness(outline, script)
             estimated_minutes = _estimate_script_minutes(script, AVATAR_SCRIPT_WPM)
-            thumbnail_prompt = llm.generate_youtube_thumbnail_prompt(
-                outline,
-                script,
-                video_title=(task.source_title or ""),
+            thumbnail_prompt, thumbnail_meta = _generate_avatar_thumbnail(
+                factual_outline=outline,
+                script_text=script,
             )
-            thumbnail_meta: dict = {
-                "status": "skipped",
-                "reason": "thumbnail_prompt_empty",
-                "output_path": None,
-                "used_reference_count": 0,
-                "face_path": user.thumbnail_face_path,
-            }
-            if thumbnail_prompt:
-                references = (
-                    db.query(models.ThumbnailReference)
-                    .filter(models.ThumbnailReference.user_id == user.id)
-                    .order_by(models.ThumbnailReference.created_at.desc(), models.ThumbnailReference.id.desc())
-                    .all()
-                )
-                reference_paths = [item.file_path for item in references if item and item.file_path]
-                thumbnail_output_path = os.path.join(
-                    os.getenv("OUTPUT_DIR", "./output").strip(),
-                    f"thumbnail_{task_id}.png",
-                )
-                update_task_status_message(
-                    db,
-                    task,
-                    stage="Обложка",
-                    detail="Генерирую обложку YouTube по сценарию и референсам.",
-                )
-                generated_thumbnail = thumbnail_generator.generate_thumbnail(
-                    prompt=thumbnail_prompt,
-                    face_path=user.thumbnail_face_path,
-                    reference_paths=reference_paths,
-                    output_path=thumbnail_output_path,
-                )
-                if generated_thumbnail:
-                    thumbnail_meta = {
-                        "status": "generated",
-                        "reason": None,
-                        "output_path": generated_thumbnail,
-                        "used_reference_count": len(reference_paths[:5]),
-                        "face_path": user.thumbnail_face_path,
-                    }
-                    update_task_status_message(
-                        db,
-                        task,
-                        stage="Telegram",
-                        detail="Отправляю готовую обложку в Telegram.",
-                    )
-                    send_thumbnail_to_telegram(task, generated_thumbnail)
-                else:
-                    thumbnail_meta = {
-                        "status": "failed",
-                        "reason": "generator_failed_or_unconfigured",
-                        "output_path": None,
-                        "used_reference_count": len(reference_paths[:5]),
-                        "face_path": user.thumbnail_face_path,
-                    }
             task.script_text = script
             task.script_meta = {
                 **(validation or {}),
