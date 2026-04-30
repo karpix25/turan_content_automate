@@ -2,6 +2,7 @@ import os
 import logging
 import random
 import uuid
+import math
 import ffmpeg
 from typing import List, Dict, Optional, Tuple
 
@@ -49,6 +50,28 @@ class VideoProcessor:
 
     def _safe_duration(self, value: float, minimum: float = 0.2) -> float:
         return max(minimum, float(value))
+
+    def _fit_with_padding(
+        self,
+        stream: ffmpeg.nodes.FilterableStream,
+        *,
+        target_width: int,
+        target_height: int,
+    ) -> ffmpeg.nodes.FilterableStream:
+        fitted = stream.filter(
+            "scale",
+            target_width,
+            target_height,
+            force_original_aspect_ratio="decrease",
+        )
+        return fitted.filter(
+            "pad",
+            target_width,
+            target_height,
+            "(ow-iw)/2",
+            "(oh-ih)/2",
+            color="black",
+        ).filter("setsar", "1")
 
     def apply_avatar_insert_clips(
         self,
@@ -118,7 +141,11 @@ class VideoProcessor:
             duration = float(probe.get("format", {}).get("duration") or 0.0)
             if duration <= 0.15:
                 continue
-            bounded_duration = min(duration, self._safe_duration(max_insert_seconds))
+            max_insert_limit = float(max_insert_seconds)
+            if max_insert_limit > 0:
+                bounded_duration = min(duration, self._safe_duration(max_insert_limit))
+            else:
+                bounded_duration = duration
             valid_candidates.append((path, bounded_duration))
 
         if not valid_candidates:
@@ -132,12 +159,49 @@ class VideoProcessor:
             meta["reason"] = "no_selected_clips"
             return None, meta
 
-        # If selected clips do not fit into the allowed window, reduce count from the tail.
-        while selected and sum(item[1] for item in selected) >= window_length * 0.95:
-            selected.pop()
-        if not selected:
-            meta["reason"] = "selected_clips_too_long_for_window"
-            return None, meta
+        max_total_insert_duration = window_length * 0.95
+        min_segment_duration = 0.2
+
+        # Keep requested insert count whenever possible and compress segment durations to fit the window.
+        if sum(item[1] for item in selected) > max_total_insert_duration:
+            per_insert_cap = max_total_insert_duration / max(1, len(selected))
+            compressed: List[Tuple[str, float]] = []
+            for path, duration in selected:
+                bounded = min(duration, per_insert_cap)
+                compressed.append((path, self._safe_duration(bounded, minimum=min_segment_duration)))
+            selected = compressed
+
+            total_after_compress = sum(item[1] for item in selected)
+            if total_after_compress > max_total_insert_duration:
+                overflow = total_after_compress - max_total_insert_duration
+                adjustable = [
+                    idx
+                    for idx, (_path, duration) in enumerate(selected)
+                    if duration > min_segment_duration + 1e-6
+                ]
+                while overflow > 1e-6 and adjustable:
+                    step = overflow / len(adjustable)
+                    next_adjustable: List[int] = []
+                    for idx in adjustable:
+                        path, duration = selected[idx]
+                        room = max(0.0, duration - min_segment_duration)
+                        delta = min(room, step)
+                        duration -= delta
+                        selected[idx] = (path, duration)
+                        overflow -= delta
+                        if duration > min_segment_duration + 1e-6:
+                            next_adjustable.append(idx)
+                    adjustable = next_adjustable
+
+            if sum(item[1] for item in selected) > max_total_insert_duration + 1e-6:
+                max_feasible_count = int(math.floor(max_total_insert_duration / min_segment_duration))
+                if max_feasible_count <= 0:
+                    meta["reason"] = "insert_window_too_small_for_min_duration"
+                    return None, meta
+                selected = selected[:max_feasible_count]
+                if not selected:
+                    meta["reason"] = "selected_clips_too_long_for_window"
+                    return None, meta
 
         total_insert_duration = sum(item[1] for item in selected)
         slack = max(0.0, window_length - total_insert_duration)
@@ -169,9 +233,11 @@ class VideoProcessor:
             safe_duration = self._safe_duration(duration_value)
             if seg_type == "main":
                 main_input = ffmpeg.input(input_path, ss=max(0.0, start_value), t=safe_duration)
-                # ffmpeg supports only "disable|decrease|increase" here; use "increase" then crop for cover behavior.
-                main_v = main_input.video.filter("scale", target_width, target_height, force_original_aspect_ratio="increase")
-                main_v = main_v.filter("crop", target_width, target_height).filter("setsar", "1")
+                main_v = self._fit_with_padding(
+                    main_input.video,
+                    target_width=target_width,
+                    target_height=target_height,
+                )
                 if target_fps:
                     main_v = main_v.filter("fps", fps=target_fps)
                 streams.append(main_v)
@@ -186,9 +252,11 @@ class VideoProcessor:
             insert_index = len(meta["insertions"])
             insert_path = schedule[insert_index][0]
             insert_input = ffmpeg.input(insert_path, ss=0, t=safe_duration)
-            # ffmpeg supports only "disable|decrease|increase" here; use "increase" then crop for cover behavior.
-            insert_v = insert_input.video.filter("scale", target_width, target_height, force_original_aspect_ratio="increase")
-            insert_v = insert_v.filter("crop", target_width, target_height).filter("setsar", "1")
+            insert_v = self._fit_with_padding(
+                insert_input.video,
+                target_width=target_width,
+                target_height=target_height,
+            )
             if target_fps:
                 insert_v = insert_v.filter("fps", fps=target_fps)
             streams.append(insert_v)

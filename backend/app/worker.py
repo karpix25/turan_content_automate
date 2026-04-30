@@ -232,7 +232,7 @@ def process_content_task(task_id: int):
             os.getenv("OUTPUT_DIR", "./output").strip(),
             f"avatar_inserted_{task_id}.mp4",
         )
-        max_insert_seconds = float(os.getenv("AVATAR_INSERT_CLIP_MAX_SECONDS", "7"))
+        max_insert_seconds = float(os.getenv("AVATAR_INSERT_CLIP_MAX_SECONDS", "0"))
         inserted_path, insert_meta = processor.apply_avatar_insert_clips(
             input_path=base_video_path,
             insert_paths=insert_paths,
