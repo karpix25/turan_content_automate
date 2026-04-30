@@ -113,10 +113,10 @@ class LLMClient:
         narrative_rules = (
             "Follow the 2026 YouTube Master Narrative & Retention Framework:\n"
             "1. THE 8-SECOND HOOK: Start instantly with 'productive discomfort', a contrarian truth, or the core conflict. ZERO 'Welcome back' or 'In this video' greetings.\n"
-            "2. THE RETENTION ANCHOR: Establish one massive 'Aha!' realization or core goal. Tease it early, but delay the full explanation to maintain narrative tension.\n"
-            "3. SEGMENTED NARRATIVE: Break the body into 3-4 distinct 'chapters'. Every chapter must start with a micro-hook and deliver progressive value, pulling the viewer deeper into the story.\n"
+            "2. STRUCTURE THE ORIGINAL LOGIC: If the source is chaotic or non-linear, reorder it into a clean sequence of key meanings. First extract the core тезисы, then expand each тезис in its own chapter with clear cause/effect links.\n"
+            "3. SEGMENTED NARRATIVE: Break the body into 3-4 distinct 'chapters'. Every chapter must start with a micro-hook and then раскрыть тезис по пунктам: тезис -> объяснение -> пример/следствие.\n"
             "4. WRITE FOR THE EAR: Use ultra-conversational language. Keep sentences punchy (under 20 words). No corporate or academic fluff.\n"
-            "5. SEAMLESS CTA: Weave the Call to Action (subscribe/like) naturally into the middle of a high-value point or at the emotional climax. Do not make it feel like a forced ad.\n"
+            "5. NO CTA / NO ADS: Completely ignore calls to action (subscribe/like/comment), sponsor mentions, self-promo and ad insertions from the source. Do not include any CTA in the final script.\n"
             "6. ABRUPT OUTRO: End powerfully and concisely after the final value is delivered. Do not drag out the ending with long goodbyes."
         )
         
@@ -136,6 +136,10 @@ class LLMClient:
             "- Avoid template transitions and AI clichés.\n"
             "- Avoid bureaucratic language and over-formal wording.\n"
             "- Avoid meta-commentary about the script itself.\n\n"
+            "CONTENT FILTER REQUIREMENTS:\n"
+            "- Ignore and remove all ad integrations, sponsor fragments, and promotional inserts from source material.\n"
+            "- Ignore and remove all CTA fragments (subscribe/like/comment/follow).\n"
+            "- Keep only the informational/analytical core and practical meaning.\n\n"
             f"LENGTH REQUIREMENTS:\n"
             f"- Target spoken duration: {min_minutes}-{max_minutes} minutes.\n"
             f"- Keep output between {min_words} and {max_words} words.\n"

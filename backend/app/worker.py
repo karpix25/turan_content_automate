@@ -91,6 +91,13 @@ if AVATAR_SCRIPT_WPM < 80:
     AVATAR_SCRIPT_WPM = 80
 
 
+def _is_truthy(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+ENABLE_REMOTION_STAGE = _is_truthy(os.getenv("ENABLE_REMOTION_STAGE", "0"))
+
+
 def _extract_heygen_video_id(value: str | None) -> str | None:
     raw = (value or "").strip()
     if not raw:
@@ -373,23 +380,43 @@ def process_content_task(task_id: int):
             if not local_avatar_video:
                 raise Exception("Failed to download existing HeyGen video")
 
-            thumbnail_outline = (task.factual_outline or task.source_title or "").strip()
-            thumbnail_script = (task.script_text or task.source_title or "").strip()
+            thumbnail_outline = (
+                task.factual_outline
+                or task.source_title
+                or f"YouTube-ролик с аватаром по теме бизнеса и финансов (HeyGen ID: {heygen_video_id})"
+            ).strip()
+            thumbnail_script = (
+                task.script_text
+                or task.source_title
+                or f"Сделай триггерную обложку под видео с аватаром. Опора на тему: {thumbnail_outline}"
+            ).strip()
             thumbnail_prompt, thumbnail_meta = _generate_avatar_thumbnail(
                 factual_outline=thumbnail_outline,
                 script_text=thumbnail_script,
                 detail_text="Генерирую обложку YouTube по теме готового HeyGen-видео.",
             )
 
-            update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Remotion (AI)...")
-            remotion_output = _run_remotion_pipeline(task_id, local_avatar_video, "")
-            if remotion_output:
-                local_avatar_video = remotion_output
-                logging.info(f"Task {task_id}: Successfully replaced raw video with Remotion output.")
+            if ENABLE_REMOTION_STAGE:
+                update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Remotion (AI)...")
+                remotion_output = _run_remotion_pipeline(task_id, local_avatar_video, "")
+                if remotion_output:
+                    local_avatar_video = remotion_output
+                    logging.info(f"Task {task_id}: Successfully replaced raw video with Remotion output.")
+                else:
+                    raise Exception(
+                        "Remotion rendering failed for avatar_youtube task. "
+                        "Raw HeyGen fallback is disabled by policy."
+                    )
             else:
-                raise Exception(
-                    "Remotion rendering failed for avatar_youtube task. "
-                    "Raw HeyGen fallback is disabled by policy."
+                update_task_status_message(
+                    db,
+                    task,
+                    stage="Монтаж",
+                    detail="Remotion временно отключен. Пропускаю графический рендер.",
+                )
+                logging.info(
+                    "Task %s: Remotion stage skipped for avatar_youtube existing HeyGen flow (ENABLE_REMOTION_STAGE=0).",
+                    task_id,
                 )
 
             local_avatar_video, insert_meta = _apply_avatar_insert_montage(local_avatar_video)
@@ -434,8 +461,14 @@ def process_content_task(task_id: int):
             min_words = AVATAR_SCRIPT_MIN_MINUTES * AVATAR_SCRIPT_WPM
             max_words = AVATAR_SCRIPT_MAX_MINUTES * AVATAR_SCRIPT_WPM
 
+            structured_source = (
+                "FACTUAL OUTLINE (ключевые смыслы):\n"
+                f"{outline}\n\n"
+                "RAW TRANSCRIPT (оригинальный поток речи, может быть не по порядку):\n"
+                f"{transcript}"
+            )
             script = llm.rewrite_to_script(
-                transcript,
+                structured_source,
                 style_profile,
                 min_minutes=AVATAR_SCRIPT_MIN_MINUTES,
                 max_minutes=AVATAR_SCRIPT_MAX_MINUTES,
@@ -585,15 +618,27 @@ def process_content_task(task_id: int):
                 raise Exception("Failed to download final video from HeyGen")
                 
             # --- Remotion AI Rendering ---
-            update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Remotion (AI)...")
-            remotion_output = _run_remotion_pipeline(task_id, local_avatar_video, script)
-            if remotion_output:
-                local_avatar_video = remotion_output
-                logging.info(f"Task {task_id}: Successfully replaced raw video with Remotion output.")
+            if ENABLE_REMOTION_STAGE:
+                update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Remotion (AI)...")
+                remotion_output = _run_remotion_pipeline(task_id, local_avatar_video, script)
+                if remotion_output:
+                    local_avatar_video = remotion_output
+                    logging.info(f"Task {task_id}: Successfully replaced raw video with Remotion output.")
+                else:
+                    raise Exception(
+                        "Remotion rendering failed for avatar_youtube task. "
+                        "Raw HeyGen fallback is disabled by policy."
+                    )
             else:
-                raise Exception(
-                    "Remotion rendering failed for avatar_youtube task. "
-                    "Raw HeyGen fallback is disabled by policy."
+                update_task_status_message(
+                    db,
+                    task,
+                    stage="Монтаж",
+                    detail="Remotion временно отключен. Пропускаю графический рендер.",
+                )
+                logging.info(
+                    "Task %s: Remotion stage skipped for avatar_youtube full flow (ENABLE_REMOTION_STAGE=0).",
+                    task_id,
                 )
 
             local_avatar_video, insert_meta = _apply_avatar_insert_montage(local_avatar_video)
