@@ -169,7 +169,8 @@ class VideoProcessor:
             safe_duration = self._safe_duration(duration_value)
             if seg_type == "main":
                 main_input = ffmpeg.input(input_path, ss=max(0.0, start_value), t=safe_duration)
-                main_v = main_input.video.filter("scale", target_width, target_height, force_original_aspect_ratio="cover")
+                # ffmpeg supports only "disable|decrease|increase" here; use "increase" then crop for cover behavior.
+                main_v = main_input.video.filter("scale", target_width, target_height, force_original_aspect_ratio="increase")
                 main_v = main_v.filter("crop", target_width, target_height).filter("setsar", "1")
                 if target_fps:
                     main_v = main_v.filter("fps", fps=target_fps)
@@ -185,7 +186,8 @@ class VideoProcessor:
             insert_index = len(meta["insertions"])
             insert_path = schedule[insert_index][0]
             insert_input = ffmpeg.input(insert_path, ss=0, t=safe_duration)
-            insert_v = insert_input.video.filter("scale", target_width, target_height, force_original_aspect_ratio="cover")
+            # ffmpeg supports only "disable|decrease|increase" here; use "increase" then crop for cover behavior.
+            insert_v = insert_input.video.filter("scale", target_width, target_height, force_original_aspect_ratio="increase")
             insert_v = insert_v.filter("crop", target_width, target_height).filter("setsar", "1")
             if target_fps:
                 insert_v = insert_v.filter("fps", fps=target_fps)
