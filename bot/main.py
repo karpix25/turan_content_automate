@@ -144,7 +144,13 @@ def is_youtube_shorts_url(url: str) -> bool:
     return "youtube.com" in host and len(path_parts) >= 2 and path_parts[0] == "shorts"
 
 
-async def create_task_in_backend(user_id: str, url: str, task_type: str, status_message: types.Message):
+async def create_task_in_backend(
+    user_id: str,
+    url: str,
+    task_type: str,
+    status_message: types.Message,
+    source_title: str | None = None,
+):
     """
     Helper to trigger task creation in backend and update status message.
     """
@@ -155,6 +161,7 @@ async def create_task_in_backend(user_id: str, url: str, task_type: str, status_
                 json={
                     "source_url": url,
                     "type": task_type,
+                    "source_title": (source_title or "").strip() or None,
                     "telegram_chat_id": str(status_message.chat.id),
                     "telegram_status_message_id": str(status_message.message_id),
                 },
@@ -214,7 +221,7 @@ async def send_welcome(message: types.Message):
         "Welcome to the Content Processor Bot!\n\n"
         "1. Open Settings to upload your logo and choose subtitle styles.\n"
         "2. Send me a link to a YouTube video or Instagram Reel.\n"
-        "   Or send HeyGen video id: heygen:<video_id>.\n"
+        "   Or send HeyGen video id: heygen:<video_id> | <тема ролика>.\n"
         "3. I will process it and send you the result!",
         reply_markup=kb
     )
@@ -224,17 +231,29 @@ async def send_user_id(message: types.Message):
     await message.reply(f"Ваш Telegram ID: `{message.from_user.id}`", parse_mode="Markdown")
 
 
-@dp.message_handler(regexp=r'^(?:heygen:)?[0-9a-fA-F]{32}$')
+@dp.message_handler(regexp=r'^(?:heygen:)?[0-9a-fA-F]{32}(?:\s*[\|\-:—]\s*.+)?$')
 async def handle_heygen_video_id(message: types.Message):
     raw_text = (message.text or "").strip()
-    heygen_video_id = extract_heygen_video_id(raw_text)
+    match = re.match(r'^(?:heygen:)?([0-9a-fA-F]{32})(.*)$', raw_text, flags=re.IGNORECASE)
+    heygen_video_id = match.group(1) if match else None
     if not heygen_video_id:
         await message.reply("❌ Некорректный HeyGen video id.")
         return
 
+    source_title = None
+    tail = (match.group(2) if match else "").strip()
+    if tail:
+        source_title = re.sub(r'^[\|\-:—\s]+', '', tail).strip() or None
+
     user_id = str(message.from_user.id)
     status_message = await message.reply("⏳ Получил HeyGen ID\nЭтап: создаю задачу avatar_youtube.")
-    await create_task_in_backend(user_id, f"heygen:{heygen_video_id}", "avatar_youtube", status_message)
+    await create_task_in_backend(
+        user_id,
+        f"heygen:{heygen_video_id}",
+        "avatar_youtube",
+        status_message,
+        source_title=source_title,
+    )
 
 @dp.message_handler(regexp=r'(https?://)?(www\.)?(youtube\.com|youtu\.be|instagram\.com|vizard\.ai)/.+')
 async def handle_link(message: types.Message):

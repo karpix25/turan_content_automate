@@ -382,13 +382,15 @@ def process_content_task(task_id: int):
 
             thumbnail_outline = (
                 task.factual_outline
+                or task.script_text
                 or task.source_title
-                or f"YouTube-ролик с аватаром по теме бизнеса и финансов (HeyGen ID: {heygen_video_id})"
+                or "Главная тема и конфликт видео."
             ).strip()
             thumbnail_script = (
                 task.script_text
+                or task.factual_outline
                 or task.source_title
-                or f"Сделай триггерную обложку под видео с аватаром. Опора на тему: {thumbnail_outline}"
+                or thumbnail_outline
             ).strip()
             thumbnail_prompt, thumbnail_meta = _generate_avatar_thumbnail(
                 factual_outline=thumbnail_outline,

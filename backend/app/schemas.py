@@ -35,6 +35,7 @@ class StyleTrainingRequest(BaseModel):
 class VideoTaskCreate(BaseModel):
     source_url: str
     type: str
+    source_title: Optional[str] = None
     publish_at: Optional[datetime.datetime] = None
     telegram_chat_id: Optional[str] = None
     telegram_status_message_id: Optional[str] = None

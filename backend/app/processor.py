@@ -205,14 +205,22 @@ class VideoProcessor:
 
         total_insert_duration = sum(item[1] for item in selected)
         slack = max(0.0, window_length - total_insert_duration)
-        gap = slack / (len(selected) + 1)
 
         schedule: List[Tuple[str, float, float]] = []
-        cursor = window_start + gap
-        for path, duration in selected:
-            start_time = cursor
-            schedule.append((path, start_time, duration))
-            cursor = start_time + duration + gap
+        if len(selected) == 1:
+            # Single insert: keep it centered in the user-selected window.
+            only_path, only_duration = selected[0]
+            start_time = window_start + (slack / 2.0)
+            schedule.append((only_path, start_time, only_duration))
+        else:
+            # Max-distance strategy: place first at window start and last near window end.
+            # Remaining inserts are spaced uniformly between them.
+            inter_gap = slack / (len(selected) - 1)
+            cursor = window_start
+            for path, duration in selected:
+                start_time = cursor
+                schedule.append((path, start_time, duration))
+                cursor = start_time + duration + inter_gap
 
         segment_inputs: List[Tuple[str, float, float]] = []
         timeline_cursor = 0.0

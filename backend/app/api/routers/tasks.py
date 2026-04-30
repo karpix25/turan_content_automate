@@ -24,6 +24,7 @@ def create_task(telegram_id: str, payload: schemas.VideoTaskCreate, db: Session 
         user_id=user.id,
         source_url=source_url,
         type=payload.type,
+        source_title=(payload.source_title or "").strip() or None,
         status="pending",
         publish_at=publish_at,
         publishing_status="scheduled" if publish_at else "not_published",
