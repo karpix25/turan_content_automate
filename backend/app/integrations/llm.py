@@ -282,6 +282,33 @@ class LLMClient:
                 if len(intro_fragment) > 420:
                     intro_fragment = intro_fragment[:420].rsplit(" ", 1)[0].strip()
 
+        hook_text = ""
+        hook_source = source_script or intro_fragment
+        if hook_source:
+            normalized_hook = re.sub(r"\s+", " ", hook_source).strip()
+            if normalized_hook:
+                hook_sentences = re.split(r"(?<=[.!?…])\s+", normalized_hook)
+                first_sentence = (hook_sentences[0] if hook_sentences else normalized_hook).strip()
+                first_sentence = first_sentence.strip(" \"'«».,:;!?…")
+                if first_sentence:
+                    hook_words = first_sentence.split()
+                    if len(hook_words) > 10:
+                        first_sentence = " ".join(hook_words[:10]).strip()
+                    if len(first_sentence) > 70:
+                        first_sentence = first_sentence[:70].rsplit(" ", 1)[0].strip()
+                    hook_text = first_sentence
+
+        hook_scene = ""
+        scene_source = intro_fragment or source_script or source_outline
+        if scene_source:
+            normalized_scene = re.sub(r"\s+", " ", scene_source).strip()
+            if normalized_scene:
+                scene_sentences = re.split(r"(?<=[.!?…])\s+", normalized_scene)
+                scene_first = (scene_sentences[0] if scene_sentences else normalized_scene).strip()
+                if len(scene_first) > 180:
+                    scene_first = scene_first[:180].rsplit(" ", 1)[0].strip()
+                hook_scene = scene_first
+
         system_prompt = (
             "Ты креативный директор YouTube-обложек. "
             "Сделай промт для генератора изображения, который даст высокий CTR.\n"
@@ -291,6 +318,9 @@ class LLMClient:
             "- Смысл обложки должен в первую очередь отражать то, что говорится в первых ~10 секундах видео (интро/хук).\n"
             "- Если есть конфликт между общей темой и интро, приоритет у интро первых 10 секунд.\n"
             "- Не выноси на обложку тезис, которого нет в первых ~10 секундах.\n"
+            "- Текст на обложке должен дословно совпадать с обязательным хуком из сценария (без перефраза).\n"
+            "- Композиция кадра должна буквально визуализировать хук из первых 10 секунд: главный герой, действие и конфликт в центре кадра.\n"
+            "- Если визуальная идея не совпадает с хуком, измени композицию под хук, а не наоборот.\n"
             "- Четко передай главный конфликт/обещание видео.\n"
             "- Визуал: крупный план, сильная эмоция, контрастный фон, чистая композиция.\n"
             "- Добавляй 1-3 тематических визуальных маркера по теме ролика: узнаваемые логотипы, иконки, интерфейсные элементы, предметы или символы ниши.\n"
@@ -300,7 +330,8 @@ class LLMClient:
             "- Не перегружай кадр: один главный герой и ограниченное число вторичных элементов.\n"
             "- Запрещено уводить обложку в мета-темы (аватар, анонс, нейросеть, процесс создания), если это не является основной темой исходного контента.\n"
             "- Должен быть триггер и интрига без кликбейта-обмана.\n"
-            "- Если релевантно, укажи короткий текст на обложке (до 4 слов).\n"
+            "- В финальном промте обязательно явно укажи: Текст на обложке: \"...\".\n"
+            "- В финальном промте обязательно явно укажи: Композиция: ...\n"
             "- Не добавляй технические параметры типа 16:9, 4k, lens, seed.\n"
             "- Верни только финальный промт."
         )
@@ -308,6 +339,10 @@ class LLMClient:
             f"Заголовок видео:\n{(video_title or '').strip() or 'Без заголовка'}\n\n"
             "Текст первых ~10 секунд (интро/хук):\n"
             f"{intro_fragment[:700] or 'Нет данных'}\n\n"
+            "Обязательный текст на обложке (дословно из сценария):\n"
+            f"\"{hook_text or 'Нет данных'}\"\n\n"
+            "Обязательная композиция (из хука первых 10 секунд):\n"
+            f"{hook_scene[:400] or 'Нет данных'}\n\n"
             "Суть видео и факты:\n"
             f"{source_outline[:5000]}\n\n"
             "Фрагмент сценария:\n"
@@ -317,4 +352,23 @@ class LLMClient:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
-        return self._complete(messages, temperature=0.85)
+        prompt = self._complete(messages, temperature=0.85)
+        if not prompt:
+            return None
+
+        final_prompt = prompt.strip()
+        normalized_final = re.sub(r"\s+", " ", final_prompt).lower()
+        if hook_text:
+            required_line = f'Текст на обложке: "{hook_text}".'
+            normalized_hook = re.sub(r"\s+", " ", hook_text).lower()
+            if normalized_hook not in normalized_final:
+                if final_prompt and not final_prompt.endswith((".", "!", "?")):
+                    final_prompt = f"{final_prompt}."
+                final_prompt = f'{final_prompt} {required_line}'
+                normalized_final = re.sub(r"\s+", " ", final_prompt).lower()
+        if hook_scene and "композиц" not in normalized_final:
+            required_scene_line = f'Композиция: {hook_scene}.'
+            if final_prompt and not final_prompt.endswith((".", "!", "?")):
+                final_prompt = f"{final_prompt}."
+            final_prompt = f"{final_prompt} {required_scene_line}"
+        return final_prompt
