@@ -270,12 +270,27 @@ class LLMClient:
         if not source_outline and not source_script:
             return None
 
+        intro_source = source_script or source_outline
+        intro_fragment = ""
+        if intro_source:
+            normalized_intro = re.sub(r"\s+", " ", intro_source).strip()
+            if normalized_intro:
+                intro_sentences = re.split(r"(?<=[.!?…])\s+", normalized_intro)
+                intro_fragment = " ".join(intro_sentences[:2]).strip()
+                if len(intro_fragment) < 90 and len(intro_sentences) > 2:
+                    intro_fragment = " ".join(intro_sentences[:3]).strip()
+                if len(intro_fragment) > 420:
+                    intro_fragment = intro_fragment[:420].rsplit(" ", 1)[0].strip()
+
         system_prompt = (
             "Ты креативный директор YouTube-обложек. "
             "Сделай промт для генератора изображения, который даст высокий CTR.\n"
             "Требования:\n"
             "- Язык: русский.\n"
             "- 1-3 коротких предложения, без списков.\n"
+            "- Смысл обложки должен в первую очередь отражать то, что говорится в первых ~10 секундах видео (интро/хук).\n"
+            "- Если есть конфликт между общей темой и интро, приоритет у интро первых 10 секунд.\n"
+            "- Не выноси на обложку тезис, которого нет в первых ~10 секундах.\n"
             "- Четко передай главный конфликт/обещание видео.\n"
             "- Визуал: крупный план, сильная эмоция, контрастный фон, чистая композиция.\n"
             "- Добавляй 1-3 тематических визуальных маркера по теме ролика: узнаваемые логотипы, иконки, интерфейсные элементы, предметы или символы ниши.\n"
@@ -291,6 +306,8 @@ class LLMClient:
         )
         user_prompt = (
             f"Заголовок видео:\n{(video_title or '').strip() or 'Без заголовка'}\n\n"
+            "Текст первых ~10 секунд (интро/хук):\n"
+            f"{intro_fragment[:700] or 'Нет данных'}\n\n"
             "Суть видео и факты:\n"
             f"{source_outline[:5000]}\n\n"
             "Фрагмент сценария:\n"

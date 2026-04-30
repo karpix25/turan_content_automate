@@ -1,4 +1,5 @@
 import os
+import time
 from urllib.parse import quote
 
 import httpx
@@ -10,6 +11,12 @@ class YandexDiskClient:
     def __init__(self, token: str):
         self.token = (token or "").strip()
         self.timeout_seconds = float(os.getenv("YANDEX_DISK_TIMEOUT_SECONDS", "120"))
+        self.upload_timeout_seconds = float(os.getenv("YANDEX_DISK_UPLOAD_TIMEOUT_SECONDS", "600"))
+        self.upload_retries = max(0, int(os.getenv("YANDEX_DISK_UPLOAD_RETRIES", "2")))
+        self.upload_retry_backoff_seconds = max(
+            0.0,
+            float(os.getenv("YANDEX_DISK_UPLOAD_RETRY_BACKOFF_SECONDS", "2")),
+        )
 
     @property
     def is_configured(self) -> bool:
@@ -60,6 +67,8 @@ class YandexDiskClient:
             response = self._request("PUT", f"/resources?path={encoded}")
             if response.status_code in {201, 409}:
                 continue
+            if response.status_code == 401:
+                raise RuntimeError("Yandex.Disk authorization failed (401). Check YANDEX_DISK_TOKEN.")
             raise RuntimeError(
                 f"Failed to create Yandex.Disk folder '{current}': "
                 f"{response.status_code} {response.text[:300]}"
@@ -80,6 +89,8 @@ class YandexDiskClient:
             f"/resources/upload?path={encoded_path}&overwrite={encoded_overwrite}",
         )
         if get_href_response.status_code != 200:
+            if get_href_response.status_code == 401:
+                raise RuntimeError("Yandex.Disk authorization failed (401). Check YANDEX_DISK_TOKEN.")
             raise RuntimeError(
                 f"Failed to get Yandex.Disk upload URL for '{normalized_remote}': "
                 f"{get_href_response.status_code} {get_href_response.text[:300]}"
@@ -89,8 +100,33 @@ class YandexDiskClient:
         if not href:
             raise RuntimeError(f"Yandex.Disk upload URL is missing for '{normalized_remote}'")
 
-        with open(local_path, "rb") as fh, httpx.Client(timeout=self.timeout_seconds) as client:
-            upload_response = client.put(href, content=fh)
+        upload_timeout = httpx.Timeout(
+            connect=min(self.timeout_seconds, 30.0),
+            read=self.upload_timeout_seconds,
+            write=self.upload_timeout_seconds,
+            pool=self.timeout_seconds,
+        )
+        last_timeout_error: Exception | None = None
+        upload_response: httpx.Response | None = None
+        for attempt in range(1, self.upload_retries + 2):
+            try:
+                with open(local_path, "rb") as fh, httpx.Client(timeout=upload_timeout) as client:
+                    upload_response = client.put(href, content=fh)
+                last_timeout_error = None
+                break
+            except (httpx.ReadTimeout, httpx.WriteTimeout, httpx.ConnectTimeout) as exc:
+                last_timeout_error = exc
+                if attempt >= self.upload_retries + 1:
+                    break
+                time.sleep(self.upload_retry_backoff_seconds * attempt)
+
+        if last_timeout_error is not None:
+            raise RuntimeError(
+                f"Yandex.Disk upload timed out for '{normalized_remote}' after {self.upload_retries + 1} attempts"
+            ) from last_timeout_error
+        if upload_response is None:
+            raise RuntimeError(f"Yandex.Disk upload failed for '{normalized_remote}' with unknown transport state")
+
         if upload_response.status_code not in {201, 202}:
             raise RuntimeError(
                 f"Failed to upload '{normalized_remote}' to Yandex.Disk: "
@@ -107,6 +143,8 @@ class YandexDiskClient:
 
         publish_response = self._request("PUT", f"/resources/publish?path={encoded_path}")
         if publish_response.status_code not in {200, 201, 202, 409}:
+            if publish_response.status_code == 401:
+                raise RuntimeError("Yandex.Disk authorization failed (401). Check YANDEX_DISK_TOKEN.")
             raise RuntimeError(
                 f"Failed to publish '{normalized_remote}' on Yandex.Disk: "
                 f"{publish_response.status_code} {publish_response.text[:300]}"
@@ -114,6 +152,8 @@ class YandexDiskClient:
 
         metadata_response = self._request("GET", f"/resources?path={encoded_path}&fields=public_url")
         if metadata_response.status_code != 200:
+            if metadata_response.status_code == 401:
+                raise RuntimeError("Yandex.Disk authorization failed (401). Check YANDEX_DISK_TOKEN.")
             raise RuntimeError(
                 f"Failed to read public URL for '{normalized_remote}': "
                 f"{metadata_response.status_code} {metadata_response.text[:300]}"

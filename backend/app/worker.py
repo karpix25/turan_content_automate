@@ -1041,7 +1041,23 @@ def process_content_task(task_id: int):
         if not rendered_outputs:
             raise Exception("No rendered outputs were produced")
 
-        yandex_uploads_meta = _upload_to_yandex_disk_if_needed(rendered_outputs)
+        yandex_uploads_meta: List[dict] = []
+        yandex_upload_error: str | None = None
+        try:
+            yandex_uploads_meta = _upload_to_yandex_disk_if_needed(rendered_outputs)
+        except Exception as upload_error:
+            yandex_upload_error = str(upload_error).strip() or "unknown_error"
+            logging.exception(
+                "Task %s: Yandex.Disk upload failed, task will continue without remote upload: %s",
+                task_id,
+                yandex_upload_error,
+            )
+            update_task_status_message(
+                db,
+                task,
+                stage="Выгрузка",
+                detail=f"Не удалось выгрузить в Яндекс.Диск: {yandex_upload_error[:220]}. Продолжаю без выгрузки.",
+            )
 
         primary_output = rendered_outputs[0]
         task.output_path = primary_output["output_path"]
@@ -1058,6 +1074,8 @@ def process_content_task(task_id: int):
         if task.type == "avatar_youtube":
             current_meta = dict(task.script_meta or {})
             current_meta["yandex_disk_uploads"] = yandex_uploads_meta
+            if yandex_upload_error:
+                current_meta["yandex_disk_upload_error"] = yandex_upload_error
             task.script_meta = current_meta
         db.commit()
         db.refresh(task)
