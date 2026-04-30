@@ -249,15 +249,48 @@ export const SettingsTab: React.FC = () => {
     return Math.max(0, Math.min(100, Math.round(value)));
   };
 
+  const extractApiErrorMessage = (error: unknown, fallback: string) => {
+    const err = error as any;
+    const status = err?.response?.status;
+    const detail = err?.response?.data?.detail;
+    if (status === 413) {
+      return `${fallback}: файл слишком большой для загрузки на сервер`;
+    }
+    if (Array.isArray(detail)) {
+      const messages = detail.map((item) => item?.msg).filter(Boolean);
+      if (messages.length) return `${fallback}: ${messages.join('; ')}`;
+    }
+    if (typeof detail === 'string' && detail.trim()) {
+      return `${fallback}: ${detail}`;
+    }
+    if (typeof err?.message === 'string' && err.message.trim()) {
+      return `${fallback}: ${err.message}`;
+    }
+    return fallback;
+  };
+
   const handleUploadAvatarInsertClip = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (!files.length || !telegramId) return;
+    const allowedExtensions = new Set(['mp4', 'mov', 'mkv', 'webm', 'm4v']);
+    const invalidFiles = files
+      .filter((file) => {
+        const ext = file.name.split('.').pop()?.toLowerCase() || '';
+        return !allowedExtensions.has(ext);
+      })
+      .map((file) => file.name);
+    if (invalidFiles.length > 0) {
+      alert(`Неподдерживаемый формат видео: ${invalidFiles.join(', ')}. Разрешены: mp4, mov, mkv, webm, m4v`);
+      if (avatarInsertInputRef.current) avatarInsertInputRef.current.value = '';
+      return;
+    }
     setUploadingAvatarInsertClip(true);
     try {
       const created = await apiClient.uploadAvatarInsertClips(telegramId, files);
       setAvatarInsertClips((prev) => [...created, ...prev]);
     } catch (error) {
-      alert('Ошибка загрузки видео-вставки');
+      console.error('Avatar insert upload failed:', error);
+      alert(extractApiErrorMessage(error, 'Ошибка загрузки видео-вставки'));
     } finally {
       setUploadingAvatarInsertClip(false);
       if (avatarInsertInputRef.current) avatarInsertInputRef.current.value = '';
