@@ -90,6 +90,12 @@ def update_task_schedule(
     user = get_or_create_user(db, telegram_id)
     task = get_user_task_or_404(db, user.id, task_id)
 
+    if task.type == "avatar_youtube":
+        raise HTTPException(
+            status_code=400,
+            detail="avatar_youtube does not use PostMyPost scheduling; file is uploaded to Yandex.Disk automatically",
+        )
+
     if task.publishing_status == "published":
         raise HTTPException(status_code=400, detail="Cannot reschedule already published task")
 
@@ -114,6 +120,12 @@ def publish_task_now(telegram_id: str, task_id: int, db: Session = Depends(get_d
     ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
     task = get_user_task_or_404(db, user.id, task_id)
+
+    if task.type == "avatar_youtube":
+        raise HTTPException(
+            status_code=400,
+            detail="avatar_youtube is not published via PostMyPost; check Yandex.Disk folder disk/Heygen",
+        )
 
     if task.status != "completed":
         raise HTTPException(status_code=400, detail="Task is not processed yet")

@@ -382,3 +382,26 @@ def send_thumbnail_to_telegram(task, image_path: str, caption: str | None = None
             )
     except Exception as exc:
         logger.warning("Failed to send Telegram thumbnail: %s", exc)
+
+
+def send_yandex_disk_links_to_telegram(task, uploads: list[dict]) -> None:
+    token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+    chat_id = (getattr(task, "telegram_chat_id", None) or "").strip()
+    if not token or not chat_id:
+        return
+    if not uploads:
+        return
+
+    lines = [f"✅ Видео #{getattr(task, 'id', '-')}: файл сохранен в Яндекс.Диск."]
+    for idx, item in enumerate(uploads, start=1):
+        file_name = os.path.basename((item.get("remote_path") or "").strip()) or f"Файл {idx}"
+        public_url = (item.get("public_url") or "").strip()
+        if public_url:
+            lines.append(f"{idx}. {file_name}: {public_url}")
+        else:
+            remote_path = (item.get("remote_path") or "").strip()
+            lines.append(f"{idx}. {file_name}: {remote_path}")
+
+    text = "\n".join(lines)
+    for chunk in _split_message_chunks(text):
+        _send_telegram_message(token, chat_id, chunk)

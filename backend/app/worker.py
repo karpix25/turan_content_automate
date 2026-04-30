@@ -4,6 +4,7 @@ import random
 import logging
 import re
 import shutil
+import datetime
 from typing import List
 from urllib.parse import urlparse, parse_qs
 from celery import Celery
@@ -16,10 +17,16 @@ from .integrations.postmypost import PostMyPostClient
 from .processor import VideoProcessor
 from .database import SessionLocal, init_database
 from .publish_planner import plan_next_publish_times
-from .telegram_progress import update_task_status_message, send_avatar_audio_to_telegram, send_thumbnail_to_telegram
+from .telegram_progress import (
+    update_task_status_message,
+    send_avatar_audio_to_telegram,
+    send_thumbnail_to_telegram,
+    send_yandex_disk_links_to_telegram,
+)
 from .integrations.elevenlabs_client import ElevenLabsClient
 from .integrations.heygen_client import HeyGenClient
 from .integrations.thumbnail_generator import ThumbnailGeneratorClient
+from .integrations.yandex_disk import YandexDiskClient
 
 # Utilities
 from .utils.platform_utils import (
@@ -70,6 +77,14 @@ llm = LLMClient(api_key=(os.getenv("OPENROUTER_API_KEY") or "").strip())
 elevenlabs_client = ElevenLabsClient(api_key=(os.getenv("ELEVENLABS_API_KEY") or "").strip())
 heygen_client = HeyGenClient(api_key=(os.getenv("HEYGEN_API_KEY") or "").strip())
 thumbnail_generator = ThumbnailGeneratorClient()
+yandex_disk = YandexDiskClient(
+    token=(
+        os.getenv("YANDEX_DISK_TOKEN")
+        or os.getenv("YADISK_TOKEN")
+        or os.getenv("YANDEX_TOKEN")
+        or ""
+    ).strip()
+)
 rapidapi_yt = RapidAPIYoutubeClient(
     api_key=os.getenv("RAPIDAPI_KEY", ""),
     host=os.getenv("YOUTUBE_DOWNLOAD_RAPIDAPI_HOST", "youtube-mp4-mp3-downloader.p.rapidapi.com"),
@@ -328,6 +343,59 @@ def process_content_task(task_id: int):
                     "face_path": user.thumbnail_face_path,
                 }
         return thumbnail_prompt, thumbnail_meta
+
+    def _upload_to_yandex_disk_if_needed(rendered_items: List[dict]) -> List[dict]:
+        if task.type != "avatar_youtube":
+            return []
+        if not yandex_disk.is_configured:
+            raise Exception("YANDEX_DISK_TOKEN is not configured for avatar_youtube upload")
+
+        created_at = getattr(task, "created_at", None)
+        if isinstance(created_at, datetime.datetime):
+            date_folder = created_at.strftime("%d.%m.%Y")
+        else:
+            date_folder = datetime.datetime.utcnow().strftime("%d.%m.%Y")
+
+        update_task_status_message(
+            db,
+            task,
+            stage="Выгрузка",
+            detail=f"Сохраняю видео и обложку в Яндекс.Диск (disk/Heygen/{date_folder}).",
+        )
+        target_root = (os.getenv("YANDEX_DISK_AVATAR_DIR") or "disk:/Heygen").strip()
+        target_dir = f"{target_root.rstrip('/')}/{date_folder}"
+        ensured_dir = yandex_disk.ensure_directory(target_dir)
+
+        thumbnail_path = ""
+        try:
+            thumbnail_path = (
+                ((task.script_meta or {}).get("thumbnail") or {}).get("output_path")
+                or ""
+            ).strip()
+        except Exception:
+            thumbnail_path = ""
+
+        file_paths: List[str] = []
+        for item in rendered_items:
+            local_output = (item.get("output_path") or "").strip()
+            if local_output and os.path.isfile(local_output):
+                file_paths.append(local_output)
+        if thumbnail_path and os.path.isfile(thumbnail_path):
+            file_paths.append(thumbnail_path)
+
+        uploaded: List[dict] = []
+        for local_path in file_paths:
+            remote_path = f"{ensured_dir.rstrip('/')}/{os.path.basename(local_path)}"
+            remote_saved_path = yandex_disk.upload_file(local_path=local_path, remote_path=remote_path, overwrite=True)
+            public_url = yandex_disk.publish_and_get_public_url(remote_saved_path)
+            uploaded.append(
+                {
+                    "local_output_path": local_path,
+                    "remote_path": remote_saved_path,
+                    "public_url": public_url,
+                }
+            )
+        return uploaded
 
     try:
         source_url_raw = (task.source_url or "").strip()
@@ -745,36 +813,24 @@ def process_content_task(task_id: int):
         subtitles_enabled = False
         ass_path = None
         target_account_ids = [] if task.type == "local_upload" else _get_target_account_ids(db, user.id)
+        if task.type == "avatar_youtube":
+            target_account_ids = []
         if task.type in {"instagram", "youtube"} and not target_account_ids and not process_all_clips:
             raise Exception(
                 "No PostMyPost accounts configured/enabled for this user. "
                 "Enable channels in UI or set POSTMYPOST_CHANNEL_IDS."
             )
 
-        if not target_account_ids and task.target_account_id:
-            target_account_ids = [int(task.target_account_id)]
-        elif task.target_account_id and int(task.target_account_id) not in target_account_ids:
-            target_account_ids = [int(task.target_account_id)] + target_account_ids
+        if task.type != "avatar_youtube":
+            if not target_account_ids and task.target_account_id:
+                target_account_ids = [int(task.target_account_id)]
+            elif task.target_account_id and int(task.target_account_id) not in target_account_ids:
+                target_account_ids = [int(task.target_account_id)] + target_account_ids
         target_account_ids = list(dict.fromkeys(target_account_ids))
 
         account_platform_map = _get_account_platform_map(target_account_ids)
         if task.type == "avatar_youtube":
-            youtube_only_accounts = [
-                account_id
-                for account_id in target_account_ids
-                if _normalize_platform_code(account_platform_map.get(account_id)) == "youtube"
-            ]
-            if not youtube_only_accounts:
-                raise Exception(
-                    "No YouTube target accounts configured/enabled for avatar_youtube task. "
-                    "Enable at least one YouTube channel in PostMyPost settings."
-                )
-            target_account_ids = youtube_only_accounts
-            logging.info(
-                "Task %s: avatar_youtube restricted publication targets to YouTube accounts: %s",
-                task_id,
-                target_account_ids,
-            )
+            logging.info("Task %s: avatar_youtube skips PostMyPost publication and account fan-out", task_id)
 
         variants_count, account_variant_index = _build_account_variant_plan(
             account_ids=target_account_ids,
@@ -924,6 +980,22 @@ def process_content_task(task_id: int):
                     )
             else:
                 base_output = f"{video_root}_final.mp4"
+                if task.type == "avatar_youtube":
+                    shutil.copy2(video_path, base_output)
+                    rendered_outputs.append(
+                        {
+                            "output_path": base_output,
+                            "publish_at": None,
+                            "target_account_id": None,
+                            "target_platform": "youtube",
+                            "source_title": clip_title,
+                            "source_label": _build_source_label(
+                                base_source,
+                                clip_index=clip_index if process_all_clips else None,
+                            ),
+                        }
+                    )
+                    continue
                 plate_path, plate_start_percent = _get_channel_plate_config(db, user, None)
                 logging.info(
                     "Task %s: clip=%s account=%s platform=%s plate_path=%s plate_start_percent=%s",
@@ -969,6 +1041,8 @@ def process_content_task(task_id: int):
         if not rendered_outputs:
             raise Exception("No rendered outputs were produced")
 
+        yandex_uploads_meta = _upload_to_yandex_disk_if_needed(rendered_outputs)
+
         primary_output = rendered_outputs[0]
         task.output_path = primary_output["output_path"]
         task.target_account_id = primary_output["target_account_id"]
@@ -981,8 +1055,14 @@ def process_content_task(task_id: int):
         task.postmypost_file_id = None
         task.preview_url = None
         task.publishing_status = _resolve_publishing_status(primary_output["publish_at"], should_sync=should_sync_outputs)
+        if task.type == "avatar_youtube":
+            current_meta = dict(task.script_meta or {})
+            current_meta["yandex_disk_uploads"] = yandex_uploads_meta
+            task.script_meta = current_meta
         db.commit()
         db.refresh(task)
+        if task.type == "avatar_youtube":
+            send_yandex_disk_links_to_telegram(task, yandex_uploads_meta)
         if should_sync_outputs:
             update_task_status_message(
                 db,
@@ -1009,7 +1089,7 @@ def process_content_task(task_id: int):
             )
             celery_app.send_task("sync_publication_task", args=[task.id])
 
-        # avatar_youtube публикуется через PostMyPost; Telegram delivery для финального видео отключен.
+        # avatar_youtube не публикуется через PostMyPost; файл сохраняется в Яндекс.Диск.
 
         for derived_output in rendered_outputs[1:]:
             derived_task = _upsert_processed_task(
