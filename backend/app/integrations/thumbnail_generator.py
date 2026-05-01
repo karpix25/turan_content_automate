@@ -27,6 +27,18 @@ class ThumbnailGeneratorClient:
         self.cloudinary_api_secret = (os.getenv("CLOUDINARY_API_SECRET") or "").strip()
         self.cloudinary_upload_preset = (os.getenv("CLOUDINARY_UPLOAD_PRESET") or "").strip()
         self.cloudinary_folder = (os.getenv("CLOUDINARY_FOLDER") or "turan/thumbnails").strip().strip("/")
+        self.strict_topic_mode = (os.getenv("THUMBNAIL_STRICT_TOPIC_MODE") or "1").strip() not in {"0", "false", "False"}
+        self.max_style_references = max(0, int((os.getenv("THUMBNAIL_MAX_STYLE_REFERENCES") or "4").strip() or "4"))
+
+    @staticmethod
+    def _is_surveillance_topic(prompt: str) -> bool:
+        text = (prompt or "").lower()
+        markers = (
+            "vpn", "впн", "фсб", "слеж", "контрол", "роскомнадзор",
+            "яндекс", "сбер", "ozon", "озон", "vk", "вконтакте", "avito", "авито",
+            "утечк", "трекер", "ip-адрес", "айпи",
+        )
+        return any(marker in text for marker in markers)
 
     def _download_to_file(self, image_url: str, output_path: str) -> str | None:
         try:
@@ -188,10 +200,12 @@ class ThumbnailGeneratorClient:
         if not clean_prompt:
             return None
 
+        topic_requires_strict_refs = self.strict_topic_mode and self._is_surveillance_topic(clean_prompt)
         refs = [p for p in reference_paths if p and (os.path.isfile(p) or p.startswith("http://") or p.startswith("https://"))]
         face_url = self._ensure_public_url(face_path, prefix="face")
         ref_urls = []
-        for index, path in enumerate(refs[:6], start=1):
+        effective_ref_limit = 0 if topic_requires_strict_refs else self.max_style_references
+        for index, path in enumerate(refs[:effective_ref_limit], start=1):
             maybe_url = self._ensure_public_url(path, prefix=f"ref{index}")
             if maybe_url:
                 ref_urls.append(maybe_url)
@@ -211,7 +225,15 @@ class ThumbnailGeneratorClient:
             clean_prompt
             + "\nВажно: первый референс в input_urls — лицо автора. "
             + "Сохрани идентичность этого лица (черты, пропорции, узнаваемость), без подмены человека."
+            + "\nВажно: не копируй сюжет/композицию/текст/цифры/логотипы/интерфейсы с референсов буквально."
+            + "\nРеференсы можно использовать только как стиль (свет, цвет, контраст), но смысл и композицию бери из сценарного хука."
         )
+        if topic_requires_strict_refs:
+            augmented_prompt += (
+                "\nКритично: тема про слежку/контроль/VPN. Игнорируй любые финансовые и маркетинговые паттерны."
+            )
+            logger.info("Thumbnail strict-topic mode enabled: style references disabled for this prompt.")
+
         request_payload: dict[str, Any] = {
             "model": self.model_id,
             "input": {
