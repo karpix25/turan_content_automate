@@ -9,13 +9,11 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from 'remotion';
-import type {AutoMontageProps, ScenePlanItem, WordCue} from './montage/types';
-import {BottomCaption} from './montage/components/BottomCaption';
+import type {AutoMontageProps, ScenePlanItem} from './montage/types';
 import {BlockOpener} from './montage/components/BlockOpener';
 
 type LoadedData = {
   scenes: ScenePlanItem[];
-  wordCueGroups: WordCue[][];
 };
 
 type ActiveSceneMatch = {
@@ -44,30 +42,6 @@ const pickSceneOpener = (scene: ScenePlanItem | undefined): string => {
     : `${shortened}.`;
 };
 
-const normalizeCaptionText = (value: string): string =>
-  value
-    .replace(/\s+([,.:;!?])/g, '$1')
-    .replace(/[“”"]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-const buildBottomCaption = (cueWords: WordCue[], timeSec: number): string => {
-  if (!cueWords || cueWords.length === 0) return '';
-  const currentIndex = cueWords.findIndex((item) => item.time > timeSec + 0.02);
-  const startIndex = currentIndex <= 0 ? 0 : Math.max(0, currentIndex - 1);
-  const slice = cueWords.slice(startIndex, Math.min(cueWords.length, startIndex + 8));
-  if (slice.length === 0) return '';
-  const sentenceWords: string[] = [];
-  for (const cue of slice) {
-    const token = String(cue.text || '').trim();
-    if (!token) continue;
-    sentenceWords.push(token);
-    if (/[.!?…]$/.test(token)) break;
-  }
-  const normalized = normalizeCaptionText(sentenceWords.join(' '));
-  return normalized;
-};
-
 const getSceneAtTime = (scenes: ScenePlanItem[], timeSec: number): ActiveSceneMatch | null => {
   if (scenes.length === 0) return null;
   const foundIndex = scenes.findIndex((s) => timeSec >= s.start && timeSec < s.end);
@@ -83,17 +57,12 @@ const useLoadedData = (scenePlanFile: string, wordCuesFile: string): LoadedData 
     let canceled = false;
     const load = async () => {
       try {
-        const [sceneRes, cuesRes] = await Promise.all([
-          fetch(staticFile(scenePlanFile)),
-          fetch(staticFile(wordCuesFile)),
-        ]);
+        const [sceneRes] = await Promise.all([fetch(staticFile(scenePlanFile))]);
         if (!sceneRes.ok) throw new Error(`Cannot read scene plan: ${scenePlanFile}`);
-        if (!cuesRes.ok) throw new Error(`Cannot read word cues: ${wordCuesFile}`);
 
         const scenes = (await sceneRes.json()) as ScenePlanItem[];
-        const wordCueGroups = (await cuesRes.json()) as WordCue[][];
         if (canceled) return;
-        setData({scenes, wordCueGroups});
+        setData({scenes});
         continueRender(handle);
       } catch (error) {
         cancelRender(error);
@@ -103,9 +72,9 @@ const useLoadedData = (scenePlanFile: string, wordCuesFile: string): LoadedData 
     return () => {
       canceled = true;
     };
-  }, [scenePlanFile, wordCuesFile, handle]);
+  }, [scenePlanFile, handle]);
 
-  if (!data) return {scenes: [], wordCueGroups: []};
+  if (!data) return {scenes: []};
   return data;
 };
 
@@ -120,7 +89,7 @@ export const AutoMontage: React.FC<AutoMontageProps> = ({
   const {fps} = useVideoConfig();
   const timeSec = frame / fps;
 
-  const {scenes, wordCueGroups} = useLoadedData(scenePlanFile, wordCuesFile);
+  const {scenes} = useLoadedData(scenePlanFile, wordCuesFile);
   const activeMatch = useMemo(() => getSceneAtTime(scenes, timeSec), [scenes, timeSec]);
 
   const showOverlay = activeMatch !== null;
@@ -131,8 +100,6 @@ export const AutoMontage: React.FC<AutoMontageProps> = ({
 
   const sceneStartFrame = activeScene?.start ? Math.floor(activeScene.start * fps) : 0;
   const inSceneFrame = Math.max(0, frame - sceneStartFrame);
-  const cueWords = wordCueGroups[activeSceneIndex] || [];
-  const bottomCaptionText = buildBottomCaption(cueWords, timeSec);
   const openerText = pickSceneOpener(activeScene);
   const openerFrames = Math.floor(3 * fps);
 
@@ -150,7 +117,6 @@ export const AutoMontage: React.FC<AutoMontageProps> = ({
       {showOverlay && (
         <>
           <BlockOpener text={openerText} visibleFrames={openerFrames} />
-          <BottomCaption text={bottomCaptionText} />
         </>
       )}
     </AbsoluteFill>
