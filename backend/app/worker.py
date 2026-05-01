@@ -27,6 +27,7 @@ from .integrations.elevenlabs_client import ElevenLabsClient
 from .integrations.heygen_client import HeyGenClient
 from .integrations.thumbnail_generator import ThumbnailGeneratorClient
 from .integrations.yandex_disk import YandexDiskClient
+from .integrations.deepgram_client import DeepgramClient
 
 # Utilities
 from .utils.platform_utils import (
@@ -77,6 +78,7 @@ llm = LLMClient(api_key=(os.getenv("OPENROUTER_API_KEY") or "").strip())
 elevenlabs_client = ElevenLabsClient(api_key=(os.getenv("ELEVENLABS_API_KEY") or "").strip())
 heygen_client = HeyGenClient(api_key=(os.getenv("HEYGEN_API_KEY") or "").strip())
 thumbnail_generator = ThumbnailGeneratorClient()
+deepgram_client = DeepgramClient(api_key=(os.getenv("DEEPGRAM_API_KEY") or "").strip())
 yandex_disk = YandexDiskClient(
     token=(
         os.getenv("YANDEX_DISK_TOKEN")
@@ -111,6 +113,7 @@ def _is_truthy(value: str | None) -> bool:
 
 
 ENABLE_REMOTION_STAGE = _is_truthy(os.getenv("ENABLE_REMOTION_STAGE", "0"))
+ENABLE_HEYGEN_READY_TRANSCRIBE = _is_truthy(os.getenv("AVATAR_HEYGEN_READY_TRANSCRIBE", "1"))
 
 
 def _extract_heygen_video_id(value: str | None) -> str | None:
@@ -127,6 +130,57 @@ def _extract_heygen_video_id(value: str | None) -> str | None:
         if re.fullmatch(r"[0-9a-fA-F]{32}", video_id):
             return video_id
     return None
+
+
+def _extract_hook_from_text(value: str | None) -> str:
+    text = re.sub(r"\s+", " ", (value or "")).strip()
+    if not text:
+        return ""
+    sentences = re.split(r"(?<=[.!?…])\s+", text)
+    first_sentence = (sentences[0] if sentences else text).strip()
+    first_sentence = first_sentence.strip(" \"'«».,:;!?…")
+    if not first_sentence:
+        return ""
+    words = first_sentence.split()
+    if len(words) > 14:
+        first_sentence = " ".join(words[:14]).strip()
+    if len(first_sentence) > 95:
+        first_sentence = first_sentence[:95].rsplit(" ", 1)[0].strip()
+    return first_sentence
+
+
+def _build_cta_from_hook(hook_text: str) -> str:
+    hook = (hook_text or "").strip().rstrip(".!?…")
+    if hook:
+        return f"Смотри до конца: {hook}."
+    return "Смотри до конца — в видео главный разбор по теме."
+
+
+def _build_avatar_description_text(
+    *,
+    script_text: str,
+    factual_outline: str,
+    source_title: str | None,
+    description_template: str | None,
+) -> tuple[str, str, str]:
+    base_for_hook = (script_text or factual_outline or source_title or "").strip()
+    hook_text = _extract_hook_from_text(base_for_hook)
+    cta_text = _build_cta_from_hook(hook_text)
+    template = (description_template or "").strip()
+    final_text = f"{cta_text}\n\n{template}".strip()
+    return hook_text, cta_text, final_text
+
+
+def _write_avatar_description_file(task_id: int, description_text: str) -> str | None:
+    content = (description_text or "").strip()
+    if not content:
+        return None
+    output_dir = os.getenv("OUTPUT_DIR", "./output").strip()
+    os.makedirs(output_dir, exist_ok=True)
+    path = os.path.join(output_dir, f"youtube_description_{task_id}.txt")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(content + "\n")
+    return path
 
 
 def _run_remotion_pipeline(task_id: int, input_video: str, script: str) -> str | None:
@@ -367,13 +421,19 @@ def process_content_task(task_id: int):
         ensured_dir = yandex_disk.ensure_directory(target_dir)
 
         thumbnail_path = ""
+        description_txt_path = ""
         try:
             thumbnail_path = (
                 ((task.script_meta or {}).get("thumbnail") or {}).get("output_path")
                 or ""
             ).strip()
+            description_txt_path = (
+                ((task.script_meta or {}).get("youtube_description") or {}).get("txt_path")
+                or ""
+            ).strip()
         except Exception:
             thumbnail_path = ""
+            description_txt_path = ""
 
         file_paths: List[str] = []
         for item in rendered_items:
@@ -382,6 +442,8 @@ def process_content_task(task_id: int):
                 file_paths.append(local_output)
         if thumbnail_path and os.path.isfile(thumbnail_path):
             file_paths.append(thumbnail_path)
+        if description_txt_path and os.path.isfile(description_txt_path):
+            file_paths.append(description_txt_path)
 
         uploaded: List[dict] = []
         for local_path in file_paths:
@@ -448,13 +510,52 @@ def process_content_task(task_id: int):
             if not local_avatar_video:
                 raise Exception("Failed to download existing HeyGen video")
 
+            transcribed_text = ""
+            inferred_outline = ""
+            if ENABLE_HEYGEN_READY_TRANSCRIBE and deepgram_client.is_configured:
+                update_task_status_message(
+                    db,
+                    task,
+                    stage="Сценарий",
+                    detail="Транскрибирую готовое видео через Deepgram для точного хука и темы обложки.",
+                )
+                try:
+                    transcribed_text = (deepgram_client.transcribe_media_text(local_avatar_video) or "").strip()
+                except Exception as transcribe_error:
+                    logging.warning(
+                        "Task %s: Deepgram transcription failed for existing HeyGen video: %s",
+                        task_id,
+                        transcribe_error,
+                    )
+                    transcribed_text = ""
+                if transcribed_text:
+                    try:
+                        inferred_outline = (llm.generate_factual_outline(transcribed_text) or "").strip()
+                    except Exception as outline_error:
+                        logging.warning(
+                            "Task %s: factual outline generation from Deepgram transcript failed: %s",
+                            task_id,
+                            outline_error,
+                        )
+                        inferred_outline = ""
+                    if not (task.script_text or "").strip():
+                        task.script_text = transcribed_text
+                    if inferred_outline and not (task.factual_outline or "").strip():
+                        task.factual_outline = inferred_outline
+                    db.commit()
+
             thumbnail_outline = (
+                inferred_outline
+                or transcribed_text
+                or
                 task.factual_outline
                 or task.script_text
                 or task.source_title
                 or "Главная тема и конфликт видео."
             ).strip()
             thumbnail_script = (
+                transcribed_text
+                or
                 task.script_text
                 or task.factual_outline
                 or task.source_title
@@ -465,6 +566,14 @@ def process_content_task(task_id: int):
                 script_text=thumbnail_script,
                 detail_text="Генерирую обложку YouTube по теме готового HeyGen-видео.",
             )
+
+            hook_text, cta_text, final_description_text = _build_avatar_description_text(
+                script_text=thumbnail_script,
+                factual_outline=thumbnail_outline,
+                source_title=task.source_title,
+                description_template=user.youtube_description_template,
+            )
+            description_txt_path = _write_avatar_description_file(task_id, final_description_text)
 
             if ENABLE_REMOTION_STAGE:
                 update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Remotion (AI)...")
@@ -494,6 +603,13 @@ def process_content_task(task_id: int):
             existing_meta["avatar_insert_montage"] = insert_meta
             existing_meta["thumbnail_prompt"] = thumbnail_prompt
             existing_meta["thumbnail"] = thumbnail_meta
+            existing_meta["youtube_description"] = {
+                "hook_text": hook_text,
+                "cta_text": cta_text,
+                "template": (user.youtube_description_template or "").strip(),
+                "final_text": final_description_text,
+                "txt_path": description_txt_path,
+            }
             task.script_meta = existing_meta
             db.commit()
 
@@ -608,6 +724,13 @@ def process_content_task(task_id: int):
                 factual_outline=outline,
                 script_text=script,
             )
+            hook_text, cta_text, final_description_text = _build_avatar_description_text(
+                script_text=script,
+                factual_outline=outline,
+                source_title=task.source_title,
+                description_template=user.youtube_description_template,
+            )
+            description_txt_path = _write_avatar_description_file(task_id, final_description_text)
             task.script_text = script
             task.script_meta = {
                 **(validation or {}),
@@ -617,6 +740,13 @@ def process_content_task(task_id: int):
                 "estimated_minutes": estimated_minutes,
                 "thumbnail_prompt": thumbnail_prompt,
                 "thumbnail": thumbnail_meta,
+                "youtube_description": {
+                    "hook_text": hook_text,
+                    "cta_text": cta_text,
+                    "template": (user.youtube_description_template or "").strip(),
+                    "final_text": final_description_text,
+                    "txt_path": description_txt_path,
+                },
             }
             db.commit()
 

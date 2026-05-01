@@ -32,6 +32,7 @@ class User(Base):
     avatar_insert_start_percent = Column(Integer, default=50, nullable=False)
     avatar_insert_end_percent = Column(Integer, default=95, nullable=False)
     avatar_insert_clips_count = Column(Integer, default=2, nullable=False)
+    youtube_description_template = Column(String, nullable=True)
 
 class Plate(Base):
     __tablename__ = "plates"

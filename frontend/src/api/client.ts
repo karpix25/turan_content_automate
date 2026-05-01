@@ -19,6 +19,7 @@ export const apiClient = {
       avatar_insert_start_percent: number;
       avatar_insert_end_percent: number;
       avatar_insert_clips_count: number;
+      youtube_description_template: string | null;
     }>(`${API_BASE}/settings/style/${telegramId}`);
     return res.data;
   },

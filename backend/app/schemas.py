@@ -19,6 +19,7 @@ class UserSettingsUpdate(BaseModel):
     avatar_insert_start_percent: Optional[int] = None
     avatar_insert_end_percent: Optional[int] = None
     avatar_insert_clips_count: Optional[int] = None
+    youtube_description_template: Optional[str] = None
 
     telegram_chat_id: Optional[str] = None
     telegram_status_message_id: Optional[str] = None
@@ -150,6 +151,7 @@ class UserSettings(BaseModel):
     avatar_insert_start_percent: int
     avatar_insert_end_percent: int
     avatar_insert_clips_count: int
+    youtube_description_template: Optional[str] = None
 
     class Config:
         from_attributes = True

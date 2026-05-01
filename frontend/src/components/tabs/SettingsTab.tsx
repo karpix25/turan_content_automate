@@ -38,6 +38,7 @@ export const SettingsTab: React.FC = () => {
   const [avatarInsertStartPercent, setAvatarInsertStartPercent] = useState<number>(50);
   const [avatarInsertEndPercent, setAvatarInsertEndPercent] = useState<number>(95);
   const [avatarInsertClipsCount, setAvatarInsertClipsCount] = useState<number>(2);
+  const [youtubeDescriptionTemplate, setYoutubeDescriptionTemplate] = useState<string>('');
 
   useEffect(() => {
     const loadStyle = async () => {
@@ -53,6 +54,7 @@ export const SettingsTab: React.FC = () => {
         setAvatarInsertStartPercent(data.avatar_insert_start_percent ?? 50);
         setAvatarInsertEndPercent(data.avatar_insert_end_percent ?? 95);
         setAvatarInsertClipsCount(data.avatar_insert_clips_count ?? 2);
+        setYoutubeDescriptionTemplate(data.youtube_description_template || '');
       } catch (error) {
       } finally {
         setLoadingStyle(false);
@@ -171,6 +173,7 @@ export const SettingsTab: React.FC = () => {
         avatar_insert_start_percent: avatarInsertStartPercent,
         avatar_insert_end_percent: avatarInsertEndPercent,
         avatar_insert_clips_count: avatarInsertClipsCount,
+        youtube_description_template: youtubeDescriptionTemplate,
       });
       setSavedSettings(true);
       setTimeout(() => setSavedSettings(false), 2000);
@@ -366,6 +369,25 @@ export const SettingsTab: React.FC = () => {
         className="hidden"
         onChange={handleUploadAvatarInsertClip}
       />
+
+      <div className="tg-card p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <BookOpen size={18} className="text-[#24a1de]" />
+          <h3 className="text-[15px] font-bold text-slate-900">YouTube описание (avatar)</h3>
+        </div>
+        <label className="text-xs font-bold text-[#707579] uppercase tracking-wider mb-2 block">
+          Шаблон описания
+        </label>
+        <textarea
+          value={youtubeDescriptionTemplate}
+          onChange={(e) => setYoutubeDescriptionTemplate(e.target.value)}
+          placeholder="Ваш базовый шаблон описания. Перед ним автоматически добавится CTA из хука видео."
+          className="input-field text-xs min-h-[120px] leading-relaxed resize-y bg-slate-50"
+        />
+        <p className="text-[11px] text-slate-500 mt-2">
+          Шаблон сохраняется как есть. Перед шаблоном система добавляет призыв к действию, сформированный из хука ролика.
+        </p>
+      </div>
 
       <div className="tg-card p-4">
         <div className="flex items-center gap-2 mb-3">

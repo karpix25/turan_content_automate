@@ -13,6 +13,7 @@ export type UserSettings = {
   avatar_insert_start_percent?: number;
   avatar_insert_end_percent?: number;
   avatar_insert_clips_count?: number;
+  youtube_description_template?: string | null;
 };
 
 export type VideoTaskItem = {

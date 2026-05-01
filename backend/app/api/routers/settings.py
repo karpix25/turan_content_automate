@@ -87,6 +87,7 @@ async def get_style_settings(telegram_id: str, db: Session = Depends(get_db)):
         "avatar_insert_start_percent": user.avatar_insert_start_percent,
         "avatar_insert_end_percent": user.avatar_insert_end_percent,
         "avatar_insert_clips_count": user.avatar_insert_clips_count,
+        "youtube_description_template": user.youtube_description_template,
     }
 
 @router.post("/train-style/{telegram_id}")
