@@ -298,6 +298,43 @@ class LLMClient:
                         first_sentence = first_sentence[:70].rsplit(" ", 1)[0].strip()
                     hook_text = first_sentence
 
+        thumbnail_hook = hook_text
+        if hook_text:
+            hook_system_prompt = (
+                "Ты CTR-копирайтер YouTube-обложек. "
+                "Преобразуй исходный хук в короткий текст для обложки с высоким CTR.\n"
+                "Правила:\n"
+                "- Сохраняй исходный смысл и конфликт, не выдумывай новую тему.\n"
+                "- 2-6 слов, максимум 45 символов.\n"
+                "- Разрешен сильный эмоциональный тон, но без кликбейт-обмана.\n"
+                "- Никаких кавычек, пояснений и второго варианта.\n"
+                "- Верни только одну финальную фразу."
+            )
+            hook_user_prompt = (
+                "Исходный хук из первых секунд:\n"
+                f"{hook_text}\n\n"
+                "Контекст первых ~10 секунд:\n"
+                f"{intro_fragment[:700] or hook_text}"
+            )
+            adapted_hook = self._complete(
+                [
+                    {"role": "system", "content": hook_system_prompt},
+                    {"role": "user", "content": hook_user_prompt},
+                ],
+                temperature=0.55,
+            )
+            clean_adapted_hook = re.sub(r"\s+", " ", (adapted_hook or "")).strip().strip("\"'«»")
+            if clean_adapted_hook:
+                if len(clean_adapted_hook) > 45:
+                    clean_adapted_hook = clean_adapted_hook[:45].rsplit(" ", 1)[0].strip()
+                hook_words = clean_adapted_hook.split()
+                if len(hook_words) > 6:
+                    clean_adapted_hook = " ".join(hook_words[:6]).strip()
+                thumbnail_hook = clean_adapted_hook
+            elif hook_text:
+                fallback_words = hook_text.split()
+                thumbnail_hook = " ".join(fallback_words[:6]).strip()
+
         hook_scene = ""
         scene_source = intro_fragment or source_script or source_outline
         if scene_source:
@@ -326,7 +363,7 @@ class LLMClient:
             "- Смысл обложки должен в первую очередь отражать то, что говорится в первых ~10 секундах видео (интро/хук).\n"
             "- Если есть конфликт между общей темой и интро, приоритет у интро первых 10 секунд.\n"
             "- Не выноси на обложку тезис, которого нет в первых ~10 секундах.\n"
-            "- Текст на обложке должен дословно совпадать с обязательным хуком из сценария (без перефраза).\n"
+            "- Текст на обложке должен быть CTR-адаптацией хука из первых 10 секунд (перефраз допустим, смена темы запрещена).\n"
             "- Композиция кадра должна буквально визуализировать хук из первых 10 секунд: главный герой, действие и конфликт в центре кадра.\n"
             "- Если визуальная идея не совпадает с хуком, измени композицию под хук, а не наоборот.\n"
             "- Четко передай главный конфликт/обещание видео.\n"
@@ -347,8 +384,8 @@ class LLMClient:
             f"Заголовок видео:\n{(video_title or '').strip() or 'Без заголовка'}\n\n"
             "Текст первых ~10 секунд (интро/хук):\n"
             f"{intro_fragment[:700] or 'Нет данных'}\n\n"
-            "Обязательный текст на обложке (дословно из сценария):\n"
-            f"\"{hook_text or 'Нет данных'}\"\n\n"
+            "Целевой текст на обложке (CTR-адаптация хука):\n"
+            f"\"{thumbnail_hook or hook_text or 'Нет данных'}\"\n\n"
             "Обязательная композиция (из хука первых 10 секунд):\n"
             f"{hook_scene[:400] or 'Нет данных'}\n\n"
             "Суть видео и факты:\n"
@@ -366,9 +403,9 @@ class LLMClient:
 
         final_prompt = prompt.strip()
         normalized_final = re.sub(r"\s+", " ", final_prompt).lower()
-        if hook_text:
-            required_line = f'Текст на обложке: "{hook_text}".'
-            normalized_hook = re.sub(r"\s+", " ", hook_text).lower()
+        if thumbnail_hook:
+            required_line = f'Текст на обложке: "{thumbnail_hook}".'
+            normalized_hook = re.sub(r"\s+", " ", thumbnail_hook).lower()
             if normalized_hook not in normalized_final:
                 if final_prompt and not final_prompt.endswith((".", "!", "?")):
                     final_prompt = f"{final_prompt}."
@@ -392,7 +429,7 @@ class LLMClient:
                     hook_scene
                     or "крупный план тревожного лица, смартфон с VPN-иконкой, предупреждение о слежке, логотипы сервисов"
                 )
-                safe_text = hook_text or "Тотальный контроль"
+                safe_text = thumbnail_hook or hook_text or "Тотальный контроль"
                 final_prompt = (
                     "Драматичная YouTube-обложка про цифровую слежку и контроль: "
                     "крупный план лица с тревогой, смартфон с включенным VPN, красный warning-интерфейс, "
