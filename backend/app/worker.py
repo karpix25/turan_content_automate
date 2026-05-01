@@ -137,16 +137,68 @@ def _extract_hook_from_text(value: str | None) -> str:
     if not text:
         return ""
     sentences = re.split(r"(?<=[.!?…])\s+", text)
-    first_sentence = (sentences[0] if sentences else text).strip()
-    first_sentence = first_sentence.strip(" \"'«».,:;!?…")
-    if not first_sentence:
+    selected_sentences = []
+    for sentence in sentences[:2]:
+        clean_sentence = sentence.strip()
+        if clean_sentence:
+            selected_sentences.append(clean_sentence)
+        if len(" ".join(selected_sentences)) >= 120:
+            break
+    hook = " ".join(selected_sentences).strip() if selected_sentences else text
+    hook = hook.strip(" \"'«»")
+    if not hook:
         return ""
-    words = first_sentence.split()
-    if len(words) > 14:
-        first_sentence = " ".join(words[:14]).strip()
-    if len(first_sentence) > 95:
-        first_sentence = first_sentence[:95].rsplit(" ", 1)[0].strip()
-    return first_sentence
+    words = hook.split()
+    if len(words) > 24:
+        hook = " ".join(words[:24]).strip()
+    if len(hook) > 170:
+        hook = hook[:170].rsplit(" ", 1)[0].strip()
+    if hook and hook[-1] not in ".!?…":
+        hook = f"{hook}."
+    return hook
+
+
+def _adapt_hook_for_cta(hook_text: str, context_text: str) -> str:
+    source_hook = (hook_text or "").strip()
+    if not source_hook:
+        return ""
+    try:
+        adapted = llm._complete(
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Ты редактор YouTube-описаний. "
+                        "Адаптируй хук под CTA для описания, сохраняя смысл первых 10 секунд.\n"
+                        "Требования:\n"
+                        "- Не копируй исходную фразу дословно, перефразируй.\n"
+                        "- Не добавляй новых фактов.\n"
+                        "- 8-18 слов, 1 предложение, русский язык.\n"
+                        "- Без эмодзи, без кавычек, без списков.\n"
+                        "- Верни только финальную фразу."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Исходный хук:\n{source_hook}\n\n"
+                        f"Контекст:\n{(context_text or source_hook)[:1200]}"
+                    ),
+                },
+            ],
+            temperature=0.45,
+        )
+    except Exception:
+        adapted = None
+
+    clean = re.sub(r"\s+", " ", (adapted or "")).strip().strip("\"'«»")
+    if not clean:
+        return source_hook
+    if len(clean) > 170:
+        clean = clean[:170].rsplit(" ", 1)[0].strip()
+    if clean and clean[-1] not in ".!?…":
+        clean = f"{clean}."
+    return clean
 
 
 def _build_cta_from_hook(hook_text: str) -> str:
@@ -164,11 +216,12 @@ def _build_avatar_description_text(
     description_template: str | None,
 ) -> tuple[str, str, str]:
     base_for_hook = (script_text or factual_outline or source_title or "").strip()
-    hook_text = _extract_hook_from_text(base_for_hook)
-    cta_text = _build_cta_from_hook(hook_text)
+    raw_hook_text = _extract_hook_from_text(base_for_hook)
+    adapted_hook_text = _adapt_hook_for_cta(raw_hook_text, base_for_hook)
+    cta_text = _build_cta_from_hook(adapted_hook_text)
     template = (description_template or "").strip()
     final_text = f"{cta_text}\n\n{template}".strip()
-    return hook_text, cta_text, final_text
+    return adapted_hook_text, cta_text, final_text
 
 
 def _write_avatar_description_file(task_id: int, description_text: str) -> str | None:
