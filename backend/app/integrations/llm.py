@@ -309,6 +309,14 @@ class LLMClient:
                     scene_first = scene_first[:180].rsplit(" ", 1)[0].strip()
                 hook_scene = scene_first
 
+        source_lower = f"{intro_fragment} {source_outline} {source_script}".lower()
+        surveillance_markers = [
+            "vpn", "впн", "фсб", "слеж", "контрол", "роскомнадзор",
+            "яндекс", "сбер", "ozon", "озон", "vk", "вконтакте", "avito", "авито",
+            "утечк", "трекер", "ip-адрес", "айпи",
+        ]
+        is_surveillance_topic = any(marker in source_lower for marker in surveillance_markers)
+
         system_prompt = (
             "Ты креативный директор YouTube-обложек. "
             "Сделай промт для генератора изображения, который даст высокий CTR.\n"
@@ -371,4 +379,25 @@ class LLMClient:
             if final_prompt and not final_prompt.endswith((".", "!", "?")):
                 final_prompt = f"{final_prompt}."
             final_prompt = f"{final_prompt} {required_scene_line}"
+
+        # Hard topic guardrail: for surveillance/VPN videos forbid generic money-trading visuals.
+        if is_surveillance_topic:
+            finance_noise = [
+                "$", "доллар", "деньги", "прибыль", "доход", "трейдинг", "инвести",
+                "из ямы", "выйти в плюс", "бирж", "финанс",
+            ]
+            normalized_final = re.sub(r"\s+", " ", final_prompt).lower()
+            if any(token in normalized_final for token in finance_noise):
+                safe_scene = (
+                    hook_scene
+                    or "крупный план тревожного лица, смартфон с VPN-иконкой, предупреждение о слежке, логотипы сервисов"
+                )
+                safe_text = hook_text or "Тотальный контроль"
+                final_prompt = (
+                    "Драматичная YouTube-обложка про цифровую слежку и контроль: "
+                    "крупный план лица с тревогой, смартфон с включенным VPN, красный warning-интерфейс, "
+                    "иконки популярных сервисов, атмосфера угрозы и наблюдения, высокий контраст. "
+                    f'Текст на обложке: "{safe_text}". '
+                    f"Композиция: {safe_scene}."
+                )
         return final_prompt
