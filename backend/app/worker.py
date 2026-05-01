@@ -112,7 +112,6 @@ def _is_truthy(value: str | None) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-ENABLE_REMOTION_STAGE = _is_truthy(os.getenv("ENABLE_REMOTION_STAGE", "0"))
 ENABLE_HEYGEN_READY_TRANSCRIBE = _is_truthy(os.getenv("AVATAR_HEYGEN_READY_TRANSCRIBE", "1"))
 
 
@@ -628,27 +627,15 @@ def process_content_task(task_id: int):
             )
             description_txt_path = _write_avatar_description_file(task_id, final_description_text)
 
-            if ENABLE_REMOTION_STAGE:
-                update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Remotion (AI)...")
-                remotion_output = _run_remotion_pipeline(task_id, local_avatar_video, "")
-                if remotion_output:
-                    local_avatar_video = remotion_output
-                    logging.info(f"Task {task_id}: Successfully replaced raw video with Remotion output.")
-                else:
-                    raise Exception(
-                        "Remotion rendering failed for avatar_youtube task. "
-                        "Raw HeyGen fallback is disabled by policy."
-                    )
+            update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Remotion (AI)...")
+            remotion_output = _run_remotion_pipeline(task_id, local_avatar_video, thumbnail_script)
+            if remotion_output:
+                local_avatar_video = remotion_output
+                logging.info(f"Task {task_id}: Successfully replaced raw video with Remotion output.")
             else:
-                update_task_status_message(
-                    db,
-                    task,
-                    stage="Монтаж",
-                    detail="Remotion временно отключен. Пропускаю графический рендер.",
-                )
-                logging.info(
-                    "Task %s: Remotion stage skipped for avatar_youtube existing HeyGen flow (ENABLE_REMOTION_STAGE=0).",
-                    task_id,
+                raise Exception(
+                    "Remotion rendering failed for avatar_youtube task. "
+                    "Raw HeyGen fallback is disabled by policy."
                 )
 
             local_avatar_video, insert_meta = _apply_avatar_insert_montage(local_avatar_video)
@@ -871,27 +858,15 @@ def process_content_task(task_id: int):
                 raise Exception("Failed to download final video from HeyGen")
                 
             # --- Remotion AI Rendering ---
-            if ENABLE_REMOTION_STAGE:
-                update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Remotion (AI)...")
-                remotion_output = _run_remotion_pipeline(task_id, local_avatar_video, script)
-                if remotion_output:
-                    local_avatar_video = remotion_output
-                    logging.info(f"Task {task_id}: Successfully replaced raw video with Remotion output.")
-                else:
-                    raise Exception(
-                        "Remotion rendering failed for avatar_youtube task. "
-                        "Raw HeyGen fallback is disabled by policy."
-                    )
+            update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Remotion (AI)...")
+            remotion_output = _run_remotion_pipeline(task_id, local_avatar_video, script)
+            if remotion_output:
+                local_avatar_video = remotion_output
+                logging.info(f"Task {task_id}: Successfully replaced raw video with Remotion output.")
             else:
-                update_task_status_message(
-                    db,
-                    task,
-                    stage="Монтаж",
-                    detail="Remotion временно отключен. Пропускаю графический рендер.",
-                )
-                logging.info(
-                    "Task %s: Remotion stage skipped for avatar_youtube full flow (ENABLE_REMOTION_STAGE=0).",
-                    task_id,
+                raise Exception(
+                    "Remotion rendering failed for avatar_youtube task. "
+                    "Raw HeyGen fallback is disabled by policy."
                 )
 
             local_avatar_video, insert_meta = _apply_avatar_insert_montage(local_avatar_video)
