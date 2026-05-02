@@ -4,40 +4,43 @@ import {AbsoluteFill, interpolate, useCurrentFrame, useVideoConfig} from 'remoti
 interface BlockOpenerProps {
   text: string;
   visibleFrames: number;
+  sceneFrame: number;
 }
 
-export const BlockOpener: React.FC<BlockOpenerProps> = ({text, visibleFrames}) => {
-  const frame = useCurrentFrame();
+export const BlockOpener: React.FC<BlockOpenerProps> = ({text, visibleFrames, sceneFrame}) => {
+  useCurrentFrame();
   const {width} = useVideoConfig();
   const safeText = String(text || '').trim();
-  if (!safeText || frame >= visibleFrames) return null;
+  if (!safeText || sceneFrame >= visibleFrames) return null;
 
   const fadeInFrames = 10;
   const fadeOutFrames = 10;
-  const opacityIn = interpolate(frame, [0, fadeInFrames], [0, 1], {extrapolateRight: 'clamp'});
+  const opacityIn = interpolate(sceneFrame, [0, fadeInFrames], [0, 1], {extrapolateRight: 'clamp'});
   const opacityOut = interpolate(
-    frame,
+    sceneFrame,
     [Math.max(0, visibleFrames - fadeOutFrames), visibleFrames],
     [1, 0],
     {extrapolateLeft: 'clamp'},
   );
   const opacity = Math.min(opacityIn, opacityOut);
-  const translateY = interpolate(frame, [0, 12], [18, 0], {extrapolateRight: 'clamp'});
+  const translateY = interpolate(sceneFrame, [0, 12], [18, 0], {extrapolateRight: 'clamp'});
 
   const fontSize = width >= 1400 ? 58 : width >= 1000 ? 50 : 42;
 
   return (
-    <AbsoluteFill style={{justifyContent: 'flex-start', alignItems: 'center', pointerEvents: 'none'}}>
+    <AbsoluteFill style={{pointerEvents: 'none'}}>
       <div
         style={{
-          marginTop: '6%',
+          position: 'absolute',
+          left: '50%',
+          bottom: '7.5%',
+          transform: `translate(-50%, ${translateY}px)`,
           maxWidth: '86%',
           padding: '18px 28px',
           borderRadius: 20,
           background: 'rgba(0,0,0,0.56)',
           border: '1px solid rgba(255,255,255,0.16)',
           opacity,
-          transform: `translateY(${translateY}px)`,
           backdropFilter: 'blur(4px)',
         }}
       >

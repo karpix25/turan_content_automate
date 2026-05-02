@@ -104,28 +104,14 @@ export const AutoMontage: React.FC<AutoMontageProps> = ({
     index: 0,
   };
 
-  const activeChapterScene = useMemo(() => {
-    if (!activeMatch) return null;
-    const current = activeMatch.scene;
-    const chapterIndex = current.chapterIndex;
-    if (!chapterIndex) return current;
-    for (let i = activeMatch.index; i >= 0; i -= 1) {
-      if ((scenes[i].chapterIndex ?? 0) !== chapterIndex) {
-        return scenes[i + 1] ?? current;
-      }
-    }
-    return scenes[0] ?? current;
-  }, [activeMatch, scenes]);
-
   const openerStartFrame = useMemo(() => {
-    const openerScene = activeChapterScene ?? activeScene;
-    const start = Number(openerScene?.start ?? 0);
+    const start = Number(activeScene?.start ?? 0);
     if (!Number.isFinite(start) || start <= 0) return 0;
     return Math.floor(start * fps);
-  }, [activeChapterScene, activeScene, fps]);
+  }, [activeScene, fps]);
 
   const inBlockFrame = Math.max(0, frame - openerStartFrame);
-  const openerText = pickSceneOpener(activeChapterScene ?? activeScene);
+  const openerText = pickSceneOpener(activeScene);
   const openerFrames = Math.floor(3 * fps);
 
   return (
