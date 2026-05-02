@@ -340,6 +340,7 @@ FILLER_PATTERNS = [
 
 TEXT_LIMITS = {
     "title_line": 45,
+    "opener": 56,
     "step": 100,
     "insight": 250,
     "cta": 100,
@@ -352,6 +353,7 @@ TEXT_LIMITS = {
 
 WORD_LIMITS = {
     "title_line": 5,
+    "opener": 6,
     "step": 10,
     "insight": 35,
     "cta": 10,
@@ -843,6 +845,7 @@ def build_llm_prompt_payload(
                     "blockName": "ХУК",
                     "reason": "Вводная часть, устанавливаем контакт (Layout: Side)",
                     "mode": "mini",
+                    "opener": "Тезис блока в 3-6 слов",
                     "titleLines": ["Заголовок 1", "Заголовок 2", "Заголовок 3", "Заголовок 4"],
                     "steps": ["Шаг 1", "Шаг 2", "Шаг 3"],
                     "insight": "Глубокая аналитическая мысль"
@@ -893,6 +896,7 @@ def generate_scene_plan_llm(
 
 ПРАВИЛА ТЕКСТА:
 - ТЕКСТ (title): Строго 3-6 слов. Это заголовок, который можно прочитать за 2 секунды. "бьет в лоб".
+- OPENER: Строго 3-6 слов. Это короткий триггер смыслового блока, переформулируй мысль, не копируй первое предложение дословно.
 - subtitle НЕ использовать вообще.
 - INSIGHT: Глубокая мысль или конкретная цифра для mini/full.
 
@@ -909,7 +913,8 @@ def generate_scene_plan_llm(
       "end": 19.0,
       "blockName": "КРИТИЧНО",
       "mode": "full",
-      "title": "ФНС ЗАКРЫВАЕТ СХЕМЫ"
+      "title": "ФНС ЗАКРЫВАЕТ СХЕМЫ",
+      "opener": "VPN БОЛЬШЕ НЕ СПАСАЕТ"
     },
     {
       "start": 35.0,
@@ -917,6 +922,7 @@ def generate_scene_plan_llm(
       "blockName": "ШТРАФЫ",
       "mode": "mini",
       "title": "ШТРАФ ДО 40%",
+      "opener": "ШТРАФЫ УЖЕ ПРИЛЕТАЮТ",
       "insight": "Доказано в 90% судов"
     }
   ]
@@ -1113,6 +1119,45 @@ def _build_chapter_meta(scene: dict[str, Any]) -> tuple[str, str]:
     return chapter_title, chapter_subtitle
 
 
+def _normalize_opener_text(value: str) -> str:
+    candidate = normalize_plain_text(value)
+    if not candidate:
+        return ""
+    candidate = re.sub(r"[\"'«»]+", "", candidate).strip()
+    opener = normalize_scene_text(candidate, TEXT_LIMITS["opener"], WORD_LIMITS["opener"])
+    if _is_generic_scene_text(opener):
+        return ""
+    return opener
+
+
+def _build_scene_opener(
+    *,
+    raw_item: dict[str, Any],
+    title: str,
+    keyword: str,
+    block_name: str,
+    semantic_fallback: dict[str, Any],
+    window_text: str,
+) -> str:
+    title_lines = raw_item.get("titleLines") if isinstance(raw_item.get("titleLines"), list) else []
+    title_lines_text = " ".join(str(x) for x in title_lines if str(x).strip())
+    window_phrase = phrase_from_sentence(window_text, WORD_LIMITS["opener"])
+    candidates = [
+        str(raw_item.get("opener") or ""),
+        title,
+        keyword,
+        title_lines_text,
+        str(semantic_fallback.get("title") or ""),
+        window_phrase,
+        _default_chapter_title(block_name),
+    ]
+    for candidate in candidates:
+        opener = _normalize_opener_text(str(candidate or ""))
+        if opener:
+            return opener
+    return _normalize_opener_text(_default_chapter_title(block_name)) or "Ключевая мысль"
+
+
 def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str, Any]]:
     raw_scenes = raw.get("scenes")
     if not isinstance(raw_scenes, list):
@@ -1241,6 +1286,14 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
         )
         if _is_generic_scene_text(keyword):
             keyword = semantic_fallback["keyword"]
+        opener = _build_scene_opener(
+            raw_item=item,
+            title=title,
+            keyword=keyword,
+            block_name=block_name,
+            semantic_fallback=semantic_fallback,
+            window_text=window_text,
+        )
 
         # Legacy fields — kept for backward compatibility
         title_lines = item.get("titleLines") if isinstance(item.get("titleLines"), list) else []
@@ -1280,6 +1333,7 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
             "insight": insight,
             "cta": cta or semantic_fallback["cta"],
             "keyword": keyword or semantic_fallback["keyword"],
+            "opener": opener,
             "bars": _norm_bars(item.get("bars")),
             "_i": i,
         }
@@ -1292,6 +1346,7 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
                 "start": 0.0,
                 "end": round(duration, 2),
                 "mode": "full",
+                "opener": "Проверка сценария",
                 "titleLines": ["Сцена пустая", "Проверьте LLM", "Проверьте модель", "Повторите запуск"],
                 "steps": ["1. Проверить ключ", "2. Проверить модель", "3. Повторить запуск"],
                 "insight": "LLM вернул пустой scene-plan.",
@@ -1329,6 +1384,7 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
                 "start": 0.0,
                 "end": round(duration, 2),
                 "mode": "full",
+                "opener": "Проверка таймингов",
                 "titleLines": ["Сцена пустая", "Проверьте JSON", "Проверьте тайминг", "Повторите запуск"],
                 "steps": ["1. Проверить JSON", "2. Проверить тайминги", "3. Повторить запуск"],
                 "insight": "После нормализации не осталось валидных сцен.",
@@ -1351,6 +1407,7 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
     active_block = ""
     active_title = ""
     active_subtitle = ""
+    active_opener = ""
     for i, scene in enumerate(fixed):
         block = normalize_plain_text(str(scene.get("blockName") or "")).upper()
         mode = normalize_plain_text(str(scene.get("mode") or "")).lower()
@@ -1365,9 +1422,14 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
             chapter_idx += 1
             active_block = block
             active_title, active_subtitle = _build_chapter_meta(scene)
+            active_opener = _normalize_opener_text(str(scene.get("opener") or active_title))
+            if not active_opener:
+                active_opener = _normalize_opener_text(active_title) or "Ключевая мысль"
         scene["chapterIndex"] = chapter_idx
         scene["chapterTitle"] = active_title
         scene["chapterSubtitle"] = active_subtitle
+        scene["opener"] = _normalize_opener_text(str(scene.get("opener") or "")) or active_opener
+        scene["chapterOpener"] = active_opener
 
     return fixed
 

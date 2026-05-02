@@ -48,6 +48,8 @@ export type ScenePlanItem = {
   chapterIndex?: number;
   chapterTitle?: string;
   chapterSubtitle?: string;
+  opener?: string;
+  chapterOpener?: string;
 };
 
 export type WordCue = {

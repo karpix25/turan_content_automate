@@ -24,22 +24,28 @@ type ActiveSceneMatch = {
 const normalizeText = (value: string | undefined | null): string =>
   String(value || '').replace(/\s+/g, ' ').trim();
 
+const trimOpener = (value: string): string => {
+  const clean = normalizeText(value).replace(/["'«»]+/g, '').trim();
+  if (!clean) return '';
+  const words = clean.split(' ');
+  return words.length > 6 ? words.slice(0, 6).join(' ') : clean;
+};
+
 const pickSceneOpener = (scene: ScenePlanItem | undefined): string => {
   if (!scene) return '';
+  const openerField = trimOpener(normalizeText(scene.chapterOpener || scene.opener));
+  if (openerField) return openerField;
   const candidates = [
-    ...((scene.titleLines || []).map(normalizeText)),
-    normalizeText(scene.insight),
+    normalizeText(scene.chapterTitle),
     normalizeText(scene.title),
     normalizeText(scene.keyword),
+    ...((scene.titleLines || []).map(normalizeText)),
+    normalizeText(scene.insight),
     normalizeText(scene.cta),
   ].filter(Boolean);
   const base = candidates[0] || '';
   if (!base) return '';
-  const words = base.split(' ');
-  const shortened = words.length > 14 ? words.slice(0, 14).join(' ') : base;
-  return shortened.endsWith('.') || shortened.endsWith('!') || shortened.endsWith('?')
-    ? shortened
-    : `${shortened}.`;
+  return trimOpener(base);
 };
 
 const getSceneAtTime = (scenes: ScenePlanItem[], timeSec: number): ActiveSceneMatch | null => {
@@ -93,14 +99,33 @@ export const AutoMontage: React.FC<AutoMontageProps> = ({
   const activeMatch = useMemo(() => getSceneAtTime(scenes, timeSec), [scenes, timeSec]);
 
   const showOverlay = activeMatch !== null;
-  const {scene: activeScene, index: activeSceneIndex} = activeMatch ?? {
+  const {scene: activeScene} = activeMatch ?? {
     scene: scenes[0] ?? ({} as ScenePlanItem),
     index: 0,
   };
 
-  const sceneStartFrame = activeScene?.start ? Math.floor(activeScene.start * fps) : 0;
-  const inSceneFrame = Math.max(0, frame - sceneStartFrame);
-  const openerText = pickSceneOpener(activeScene);
+  const activeChapterScene = useMemo(() => {
+    if (!activeMatch) return null;
+    const current = activeMatch.scene;
+    const chapterIndex = current.chapterIndex;
+    if (!chapterIndex) return current;
+    for (let i = activeMatch.index; i >= 0; i -= 1) {
+      if ((scenes[i].chapterIndex ?? 0) !== chapterIndex) {
+        return scenes[i + 1] ?? current;
+      }
+    }
+    return scenes[0] ?? current;
+  }, [activeMatch, scenes]);
+
+  const openerStartFrame = useMemo(() => {
+    const openerScene = activeChapterScene ?? activeScene;
+    const start = Number(openerScene?.start ?? 0);
+    if (!Number.isFinite(start) || start <= 0) return 0;
+    return Math.floor(start * fps);
+  }, [activeChapterScene, activeScene, fps]);
+
+  const inBlockFrame = Math.max(0, frame - openerStartFrame);
+  const openerText = pickSceneOpener(activeChapterScene ?? activeScene);
   const openerFrames = Math.floor(3 * fps);
 
   return (
@@ -116,7 +141,7 @@ export const AutoMontage: React.FC<AutoMontageProps> = ({
       {/* Minimal overlay system: opener + bottom caption */}
       {showOverlay && (
         <>
-          <BlockOpener text={openerText} visibleFrames={openerFrames} />
+          <BlockOpener text={openerText} visibleFrames={openerFrames} sceneFrame={inBlockFrame} />
         </>
       )}
     </AbsoluteFill>
