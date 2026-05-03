@@ -12,7 +12,6 @@ export const BarChart: React.FC<BarChartProps> = ({ scene, accentColor }) => {
 
   const bars = (scene.bars || []).slice(0, 5);
   const displayTitle = scene.title || scene.keyword || '';
-  const displaySubtitle = scene.subtitle || '';
 
   const fadeIn = interpolate(frame, [0, 12], [0, 1], { extrapolateRight: 'clamp' });
 
@@ -26,19 +25,6 @@ export const BarChart: React.FC<BarChartProps> = ({ scene, accentColor }) => {
     }}>
       {/* Header */}
       <div style={{ marginBottom: 56 }}>
-        {displaySubtitle && (
-          <div style={{
-            fontFamily: '"Inter", "Montserrat", sans-serif',
-            fontSize: 18,
-            fontWeight: 500,
-            color: accentColor,
-            textTransform: 'uppercase',
-            letterSpacing: 3,
-            marginBottom: 12,
-          }}>
-            {displaySubtitle}
-          </div>
-        )}
         {displayTitle && (
           <div style={{
             fontFamily: '"Inter", "Montserrat", sans-serif',

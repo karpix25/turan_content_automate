@@ -25,7 +25,7 @@ export const BigNumber: React.FC<BigNumberProps> = ({ scene, accentColor }) => {
 
   const displayUnit = scene.unit ?? (hasNumericValue ? '' : '%');
   const displayTitle = scene.title || scene.keyword || '';
-  const displaySubtitle = scene.subtitle || scene.insight || '';
+  const displayContext = scene.insight || '';
   const facts = scene.facts || scene.steps?.slice(0, 2) || [];
 
   return (
@@ -40,8 +40,8 @@ export const BigNumber: React.FC<BigNumberProps> = ({ scene, accentColor }) => {
       opacity,
       transform: `scale(${scale})`,
     }}>
-      {/* Subtitle / context above */}
-      {displaySubtitle && (
+      {/* Context above */}
+      {displayContext && (
         <div style={{
           fontFamily: '"Inter", "Montserrat", sans-serif',
           fontSize: 22,
@@ -51,7 +51,7 @@ export const BigNumber: React.FC<BigNumberProps> = ({ scene, accentColor }) => {
           letterSpacing: 4,
           marginBottom: 24,
         }}>
-          {displaySubtitle}
+          {displayContext}
         </div>
       )}
 

@@ -68,12 +68,29 @@ fs.copyFileSync(sourceVideoPath, copiedVideoPath);
 fs.copyFileSync(scenePlanPath, copiedScenePlanPath);
 fs.copyFileSync(wordCuesPath, copiedWordCuesPath);
 
+const normalizeMode = (value) => {
+  const raw = String(value || '').toLowerCase().trim();
+  if (['mini', 'lower-third', 'lower_third', 'overlay', 'side'].includes(raw)) return 'mini';
+  return 'full';
+};
+
 const scenesRaw = fs.readFileSync(copiedScenePlanPath, 'utf8');
-const scenes = JSON.parse(scenesRaw);
+const scenesParsed = JSON.parse(scenesRaw);
+const scenes = Array.isArray(scenesParsed)
+  ? scenesParsed.map((scene) => {
+      const normalized = {...scene};
+      normalized.mode = normalizeMode(scene?.mode);
+      delete normalized.chartType;
+      delete normalized.subtitle;
+      return normalized;
+    })
+  : scenesParsed;
 
 if (!Array.isArray(scenes) || scenes.length === 0) {
   throw new Error('Scene plan is empty or invalid JSON array.');
 }
+
+fs.writeFileSync(copiedScenePlanPath, `${JSON.stringify(scenes, null, 2)}\n`, 'utf8');
 
 const maxEndSec = scenes.reduce((max, scene) => {
   const end = Number(scene?.end);

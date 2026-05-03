@@ -92,12 +92,10 @@ export const KineticInsight: React.FC<KineticInsightProps> = ({ scene, accentCol
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const subtitle = cleanText(scene.subtitle || scene.blockName);
   const titleLines = toTitleLines(pickTitle(scene)).map(softenLongWords);
   const bullets = pickBullets(scene);
   const bottomLine = pickBottomLine(scene);
 
-  const subtitleEntry = spring({ fps, frame, config: { damping: 18, stiffness: 140 } });
   const titleEntry = spring({ fps, frame: frame - 4, config: { damping: 16, stiffness: 130 } });
   const bottomEntry = spring({ fps, frame: frame - 20, config: { damping: 18, stiffness: 110 } });
 
@@ -127,21 +125,6 @@ export const KineticInsight: React.FC<KineticInsightProps> = ({ scene, accentCol
           gap: 22,
         }}
       >
-      {subtitle && (
-        <div style={{
-          fontFamily: '"Inter", "Montserrat", sans-serif',
-          fontSize: 52,
-          fontWeight: 700,
-          color: accentColor,
-          letterSpacing: '0.14em',
-          textTransform: 'uppercase',
-          opacity: subtitleEntry,
-          transform: `translateY(${interpolate(subtitleEntry, [0, 1], [-10, 0])}px)`,
-        }}>
-          {subtitle}
-        </div>
-      )}
-
       <div style={{
         display: 'flex',
         flexDirection: 'column',

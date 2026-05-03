@@ -207,20 +207,67 @@ def _build_cta_from_hook(hook_text: str) -> str:
     return "Смотри до конца — в видео главный разбор по теме."
 
 
+def _build_trigger_title_from_hook(hook_text: str, context_text: str) -> str:
+    source_hook = (hook_text or "").strip()
+    fallback = "Это касается каждого"
+    if not source_hook:
+        return fallback
+    try:
+        generated = llm._complete(
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Ты YouTube-редактор. Сгенерируй триггерный заголовок ролика.\n"
+                        "Требования:\n"
+                        "- 4-9 слов.\n"
+                        "- Высокий CTR, но без обмана и выдумывания фактов.\n"
+                        "- Сохраняй тему хука и контекста.\n"
+                        "- Без эмодзи, без кавычек, без двоеточий, без точки в конце.\n"
+                        "- Верни только заголовок."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Хук:\n{source_hook}\n\n"
+                        f"Контекст:\n{(context_text or source_hook)[:1200]}"
+                    ),
+                },
+            ],
+            temperature=0.65,
+        )
+    except Exception:
+        generated = None
+
+    title = re.sub(r"\s+", " ", (generated or "")).strip().strip("\"'«»")
+    if not title:
+        title = source_hook
+    title = title.replace(":", " ").strip()
+    title = title.rstrip(".!?…")
+    words = [w for w in title.split(" ") if w]
+    if len(words) > 9:
+        title = " ".join(words[:9]).strip()
+    if len(title) > 90:
+        title = title[:90].rsplit(" ", 1)[0].strip()
+    return title or fallback
+
+
 def _build_avatar_description_text(
     *,
     script_text: str,
     factual_outline: str,
     source_title: str | None,
     description_template: str | None,
-) -> tuple[str, str, str]:
+) -> tuple[str, str, str, str]:
     base_for_hook = (script_text or factual_outline or source_title or "").strip()
     raw_hook_text = _extract_hook_from_text(base_for_hook)
     adapted_hook_text = _adapt_hook_for_cta(raw_hook_text, base_for_hook)
+    trigger_title = _build_trigger_title_from_hook(adapted_hook_text, base_for_hook)
     cta_text = _build_cta_from_hook(adapted_hook_text)
     template = (description_template or "").strip()
-    final_text = f"{cta_text}\n\n{template}".strip()
-    return adapted_hook_text, cta_text, final_text
+    final_text = f"{trigger_title}\n\n{cta_text}\n\n{template}".strip()
+    return adapted_hook_text, trigger_title, cta_text, final_text
 
 
 def _write_avatar_description_file(task_id: int, description_text: str) -> str | None:
@@ -619,7 +666,7 @@ def process_content_task(task_id: int):
                 detail_text="Генерирую обложку YouTube по теме готового HeyGen-видео.",
             )
 
-            hook_text, cta_text, final_description_text = _build_avatar_description_text(
+            hook_text, trigger_title, cta_text, final_description_text = _build_avatar_description_text(
                 script_text=thumbnail_script,
                 factual_outline=thumbnail_outline,
                 source_title=task.source_title,
@@ -645,6 +692,7 @@ def process_content_task(task_id: int):
             existing_meta["thumbnail"] = thumbnail_meta
             existing_meta["youtube_description"] = {
                 "hook_text": hook_text,
+                "trigger_title": trigger_title,
                 "cta_text": cta_text,
                 "template": (user.youtube_description_template or "").strip(),
                 "final_text": final_description_text,
@@ -764,7 +812,7 @@ def process_content_task(task_id: int):
                 factual_outline=outline,
                 script_text=script,
             )
-            hook_text, cta_text, final_description_text = _build_avatar_description_text(
+            hook_text, trigger_title, cta_text, final_description_text = _build_avatar_description_text(
                 script_text=script,
                 factual_outline=outline,
                 source_title=task.source_title,
@@ -782,6 +830,7 @@ def process_content_task(task_id: int):
                 "thumbnail": thumbnail_meta,
                 "youtube_description": {
                     "hook_text": hook_text,
+                    "trigger_title": trigger_title,
                     "cta_text": cta_text,
                     "template": (user.youtube_description_template or "").strip(),
                     "final_text": final_description_text,

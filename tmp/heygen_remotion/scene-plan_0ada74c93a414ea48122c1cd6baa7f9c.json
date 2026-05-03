@@ -1,10 +1,12 @@
 [
   {
-    "start": 0,
+    "start": 0.0,
     "end": 14.16,
     "blockName": "ХУК",
     "mode": "mini",
+    "chartType": "BIG_NUMBER",
     "title": "Налоги вверх, гайки ту же. Кажется,",
+    "subtitle": "Кажется нас малый бизнес просто загоняют",
     "value": null,
     "unit": "%",
     "facts": [
@@ -46,7 +48,9 @@
     "end": 44.34,
     "blockName": "АНАЛИЗ",
     "mode": "full",
+    "chartType": "DONUT",
     "title": "Налоговая — это ИИ! Видит каждую",
+    "subtitle": "Раньше говорили налоговая борзеет",
     "value": null,
     "unit": "%",
     "facts": [
@@ -88,7 +92,9 @@
     "end": 84.99,
     "blockName": "РИСКИ",
     "mode": "full",
+    "chartType": "BAR",
     "title": "Чиновники с миллиардами. Улетают на Кип…",
+    "subtitle": "РИСКИ",
     "value": null,
     "unit": "%",
     "facts": [
@@ -130,7 +136,9 @@
     "end": 130.12,
     "blockName": "РЕШЕНИЕ",
     "mode": "full",
+    "chartType": "COMPARISON",
     "title": "Время холодной головы. Жёсткий аудит би…",
+    "subtitle": "РЕШЕНИЕ",
     "value": null,
     "unit": "%",
     "facts": [
@@ -172,7 +180,9 @@
     "end": 196.21,
     "blockName": "ИТОГ",
     "mode": "full",
+    "chartType": "BIG_NUMBER",
     "title": "Стройте систему. Выживайте и растите.",
+    "subtitle": "Рынок сейчас завален толковыми менеджерами которых",
     "value": null,
     "unit": "%",
     "facts": [
