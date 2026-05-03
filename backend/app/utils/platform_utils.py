@@ -23,6 +23,9 @@ def _normalize_platform_code(value: str | None) -> str:
         "youtube_shorts": "youtube",
         "instagram_reels": "instagram",
         "instagram_reel": "instagram",
+        "google": "youtube",
+        "google_video": "youtube",
+        "google_shorts": "youtube",
     }
     normalized = aliases.get(normalized, normalized)
 
@@ -31,11 +34,11 @@ def _normalize_platform_code(value: str | None) -> str:
 
     # PostMyPost channel codes can vary by network/type; infer by tokens.
     tokens = set(re.split(r"[^a-z0-9]+", normalized))
-    if "instagram" in normalized or {"ig", "insta", "instagram"} & tokens:
+    if "instagram" in normalized or {"ig", "insta", "instagram", "reels", "reel"} & tokens:
         return "instagram"
-    if "youtube" in normalized or {"yt", "youtube"} & tokens:
+    if "youtube" in normalized or {"yt", "youtube", "shorts", "google"} & tokens:
         return "youtube"
-    if "tiktok" in normalized or {"tt", "tiktok"} & tokens:
+    if "tiktok" in normalized or {"tk", "tiktok"} & tokens:
         return "tiktok"
 
     return "universal"

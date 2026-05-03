@@ -207,13 +207,27 @@ def sync_publication_task(task_id: int, force_now: bool = False):
         )
         project_id = _get_project_id()
         post_at = _normalize_post_at(task.publish_at, force_now)
+        target_platform = (getattr(task, "target_platform", "") or "").lower()
 
         content = f"Auto content from Content Studio\nSource: {task.source_url}"
+        # Prepare account-specific titles
         title_by_account: dict[int, str] = {}
         vizard_title = (getattr(task, "source_title", None) or "").strip()
-        if (getattr(task, "target_platform", None) or "").strip().lower() == "youtube" and vizard_title:
+
+        # Determine publication type (1: Post, 4: Reels/Shorts/Clips)
+        # We use 4 for YouTube, Instagram, and TikTok for these clipping tasks.
+        pub_type = 1
+        if target_platform in {"youtube", "instagram", "tiktok"}:
+            pub_type = 4
+
+        # For YouTube, we MUST have a title.
+        # We populate it for any account identified as 'youtube' or if task.target_platform is 'youtube'.
+        if vizard_title:
+            account_platform_map = _get_account_platform_map(db, user.id)
             for account_id in account_ids:
-                title_by_account[account_id] = vizard_title
+                acc_platform = account_platform_map.get(account_id, "universal")
+                if acc_platform == "youtube" or target_platform == "youtube":
+                    title_by_account[account_id] = vizard_title
 
         file_id = task.postmypost_file_id
         if not file_id:
@@ -244,6 +258,7 @@ def sync_publication_task(task_id: int, force_now: bool = False):
                 content=content,
                 content_by_account=content_by_account,
                 title_by_account=title_by_account,
+                publication_type=pub_type,
             )
         else:
             response = pmp_client.create_publication(
@@ -254,6 +269,7 @@ def sync_publication_task(task_id: int, force_now: bool = False):
                 content=content,
                 content_by_account=content_by_account,
                 title_by_account=title_by_account,
+                publication_type=pub_type,
             )
 
         publication_id = response.get("id") if isinstance(response, dict) else None
