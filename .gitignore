@@ -15,3 +15,5 @@ database/media/
 node_modules/
 renders/
 *.mp4
+data/
+tmp/
