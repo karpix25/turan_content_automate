@@ -9,6 +9,7 @@ from .database import SessionLocal
 from . import models
 from .integrations.postmypost import PostMyPostClient
 from .telegram_progress import update_task_status_message
+from .utils.platform_utils import _get_account_platform_map
 from .worker import celery_app
 
 load_dotenv()
@@ -223,7 +224,7 @@ def sync_publication_task(task_id: int, force_now: bool = False):
         # For YouTube, we MUST have a title.
         # We populate it for any account identified as 'youtube' or if task.target_platform is 'youtube'.
         if vizard_title:
-            account_platform_map = _get_account_platform_map(db, user.id)
+            account_platform_map = _get_account_platform_map(account_ids)
             for account_id in account_ids:
                 acc_platform = account_platform_map.get(account_id, "universal")
                 if acc_platform == "youtube" or target_platform == "youtube":
