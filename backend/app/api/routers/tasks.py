@@ -73,6 +73,12 @@ def list_user_tasks(
         tasks = query.order_by(models.VideoTask.created_at.desc()).limit(100).all()
     return tasks
 
+@router.get("/{telegram_id}/{task_id}", response_model=schemas.VideoTaskOut)
+def get_task(telegram_id: str, task_id: int, db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    return get_user_task_or_404(db, user.id, task_id)
+
 @router.get("/{telegram_id}/{task_id}/file")
 def download_task_output(
     telegram_id: str,

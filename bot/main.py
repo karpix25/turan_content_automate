@@ -209,6 +209,42 @@ async def send_thumbnail_prompt_review_to_backend(user_id: str, task_id: int, ac
         return False
 
 
+async def fetch_task_from_backend(user_id: str, task_id: int) -> dict | None:
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.get(f"{BACKEND_API_URL}/tasks/{user_id}/{task_id}")
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        logging.error("Failed to fetch task %s: %s", task_id, e)
+        return None
+
+
+def extract_thumbnail_review_prompt(task_payload: dict | None) -> str:
+    if not isinstance(task_payload, dict):
+        return ""
+    meta = task_payload.get("script_meta") if isinstance(task_payload.get("script_meta"), dict) else {}
+    review = meta.get("thumbnail_prompt_review") if isinstance(meta.get("thumbnail_prompt_review"), dict) else {}
+    prompt = (
+        review.get("approved_prompt")
+        or review.get("prompt")
+        or meta.get("thumbnail_prompt")
+        or ""
+    )
+    return str(prompt).strip()
+
+
+def build_copyable_prompt_message(task_id: int, prompt: str) -> str:
+    safe_prompt = (prompt or "").strip()
+    if "```" in safe_prompt:
+        safe_prompt = safe_prompt.replace("```", "'''")
+    return (
+        f"✏️ Текущий prompt для обложки видео #{task_id}.\n"
+        "Скопируйте текст ниже, измените и отправьте следующим сообщением:\n\n"
+        f"```text\n{safe_prompt}\n```"
+    )
+
+
 def build_webapp_url_for_user(base_url: str, telegram_user_id: int) -> str:
     raw = (base_url or "").strip()
     if not raw:
@@ -406,11 +442,21 @@ async def process_thumbnail_prompt_review(callback_query: types.CallbackQuery):
         PENDING_THUMBNAIL_PROMPT_EDITS[user_id] = task_id
         ok = await send_thumbnail_prompt_review_to_backend(user_id, task_id, "edit")
         if ok:
+            task_payload = await fetch_task_from_backend(user_id, task_id)
+            current_prompt = extract_thumbnail_review_prompt(task_payload)
             await callback_query.answer("Отправьте новый prompt следующим сообщением")
-            await bot.send_message(
-                callback_query.message.chat.id,
-                f"✏️ Отправьте новый prompt для обложки видео #{task_id} одним сообщением."
-            )
+            if current_prompt:
+                await bot.send_message(
+                    callback_query.message.chat.id,
+                    build_copyable_prompt_message(task_id, current_prompt),
+                    parse_mode="Markdown",
+                    disable_web_page_preview=True,
+                )
+            else:
+                await bot.send_message(
+                    callback_query.message.chat.id,
+                    f"✏️ Отправьте новый prompt для обложки видео #{task_id} одним сообщением."
+                )
         else:
             await callback_query.answer("Не удалось включить режим редактирования", show_alert=True)
         return
