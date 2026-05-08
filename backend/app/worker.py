@@ -62,6 +62,11 @@ from .utils.media_utils import (
     _resolve_local_input_video_path,
     _resolve_media_file_path,
 )
+from .utils.voice_calibration import (
+    count_script_chars,
+    get_cached_voice_speed,
+    get_or_calibrate_voice_speed,
+)
 from . import models
 from dotenv import load_dotenv
 
@@ -725,11 +730,31 @@ def process_content_task(task_id: int):
             db.commit()
             
             # rewrite with style
+            voice_id = (user.elevenlabs_voice_id or os.getenv("ELEVENLABS_VOICE_ID", "nPczCjzB2oQXqZ4mU67e")).strip()
+            voice_speed = get_cached_voice_speed(user, voice_id)
+            if not voice_speed:
+                voice_speed = get_or_calibrate_voice_speed(
+                    db=db,
+                    user=user,
+                    voice_id=voice_id,
+                    elevenlabs_client=elevenlabs_client,
+                )
+            chars_per_second = float((voice_speed or {}).get("chars_per_second") or 0)
+            target_duration_minutes = int(getattr(user, "avatar_script_duration_minutes", 5) or 5)
+            target_duration_minutes = max(1, min(30, target_duration_minutes))
+            target_chars = int(round(chars_per_second * target_duration_minutes * 60)) if chars_per_second > 0 else None
+            min_chars = int(round(target_chars * 0.92)) if target_chars else None
+            max_chars = int(round(target_chars * 1.08)) if target_chars else None
+
             update_task_status_message(
                 db,
                 task,
                 stage="Сценарий",
-                detail="Пишу сценарий в вашем стиле на 4-6 минут.",
+                detail=(
+                    f"Пишу сценарий в вашем стиле на {target_duration_minutes} мин."
+                    if target_chars
+                    else "Пишу сценарий в вашем стиле на 4-6 минут."
+                ),
             )
             style_profile = user.author_style_profile
             min_words = AVATAR_SCRIPT_MIN_MINUTES * AVATAR_SCRIPT_WPM
@@ -744,15 +769,36 @@ def process_content_task(task_id: int):
             script = llm.rewrite_to_script(
                 structured_source,
                 style_profile,
-                min_minutes=AVATAR_SCRIPT_MIN_MINUTES,
-                max_minutes=AVATAR_SCRIPT_MAX_MINUTES,
+                min_minutes=target_duration_minutes if target_chars else AVATAR_SCRIPT_MIN_MINUTES,
+                max_minutes=target_duration_minutes if target_chars else AVATAR_SCRIPT_MAX_MINUTES,
                 words_per_minute=AVATAR_SCRIPT_WPM,
+                target_chars=target_chars,
+                min_chars=min_chars,
+                max_chars=max_chars,
             )
             if not script:
                 raise Exception("Failed to generate styled script for Avatar task")
 
             word_count = llm.estimate_word_count(script)
-            if word_count < min_words or word_count > max_words:
+            char_count = count_script_chars(script)
+            if target_chars and min_chars and max_chars and (char_count < min_chars or char_count > max_chars):
+                update_task_status_message(
+                    db,
+                    task,
+                    stage="Сценарий",
+                    detail=f"Подгоняю длину сценария под {target_duration_minutes} мин.",
+                )
+                adjusted_script = llm.adjust_script_length_chars(
+                    script=script,
+                    style_profile=style_profile,
+                    min_chars=min_chars,
+                    max_chars=max_chars,
+                )
+                if adjusted_script:
+                    script = adjusted_script
+                    word_count = llm.estimate_word_count(script)
+                    char_count = count_script_chars(script)
+            elif not target_chars and (word_count < min_words or word_count > max_words):
                 update_task_status_message(
                     db,
                     task,
@@ -768,6 +814,7 @@ def process_content_task(task_id: int):
                 if adjusted_script:
                     script = adjusted_script
                     word_count = llm.estimate_word_count(script)
+                    char_count = count_script_chars(script)
 
             # humanize pass (remove AI-like patterns and strengthen opening)
             update_task_status_message(
@@ -776,18 +823,44 @@ def process_content_task(task_id: int):
                 stage="Сценарий",
                 detail="Очеловечиваю текст и усиливаю начало.",
             )
-            humanized_script = llm.humanize_russian_text(
-                script=script,
-                style_profile=style_profile,
-                min_words=min_words,
-                max_words=max_words,
-            )
+            if target_chars and min_chars and max_chars:
+                humanized_script = llm.humanize_russian_text_by_chars(
+                    script=script,
+                    style_profile=style_profile,
+                    min_chars=min_chars,
+                    max_chars=max_chars,
+                )
+            else:
+                humanized_script = llm.humanize_russian_text(
+                    script=script,
+                    style_profile=style_profile,
+                    min_words=min_words,
+                    max_words=max_words,
+                )
             if humanized_script:
                 script = humanized_script
                 word_count = llm.estimate_word_count(script)
+                char_count = count_script_chars(script)
 
             # final length guard after humanization
-            if word_count < min_words or word_count > max_words:
+            if target_chars and min_chars and max_chars and (char_count < min_chars or char_count > max_chars):
+                update_task_status_message(
+                    db,
+                    task,
+                    stage="Сценарий",
+                    detail="Финально подгоняю объем после очеловечивания.",
+                )
+                adjusted_script = llm.adjust_script_length_chars(
+                    script=script,
+                    style_profile=style_profile,
+                    min_chars=min_chars,
+                    max_chars=max_chars,
+                )
+                if adjusted_script:
+                    script = adjusted_script
+                    word_count = llm.estimate_word_count(script)
+                    char_count = count_script_chars(script)
+            elif not target_chars and (word_count < min_words or word_count > max_words):
                 update_task_status_message(
                     db,
                     task,
@@ -803,11 +876,16 @@ def process_content_task(task_id: int):
                 if adjusted_script:
                     script = adjusted_script
                     word_count = llm.estimate_word_count(script)
+                    char_count = count_script_chars(script)
 
             # faithfulness check
             update_task_status_message(db, task, stage="Сценарий", detail="Проверяю сценарий на соответствие фактам.")
             validation = llm.verify_faithfulness(outline, script)
-            estimated_minutes = _estimate_script_minutes(script, AVATAR_SCRIPT_WPM)
+            estimated_minutes = (
+                round(count_script_chars(script) / chars_per_second / 60, 2)
+                if chars_per_second > 0
+                else _estimate_script_minutes(script, AVATAR_SCRIPT_WPM)
+            )
             thumbnail_prompt, thumbnail_meta = _generate_avatar_thumbnail(
                 factual_outline=outline,
                 script_text=script,
@@ -822,9 +900,14 @@ def process_content_task(task_id: int):
             task.script_text = script
             task.script_meta = {
                 **(validation or {}),
-                "target_minutes": [AVATAR_SCRIPT_MIN_MINUTES, AVATAR_SCRIPT_MAX_MINUTES],
+                "target_minutes": target_duration_minutes,
+                "target_chars": target_chars,
+                "target_chars_range": [min_chars, max_chars] if min_chars and max_chars else None,
+                "voice_id": voice_id,
+                "voice_chars_per_second": chars_per_second or None,
                 "words_per_minute_assumption": AVATAR_SCRIPT_WPM,
                 "word_count": word_count,
+                "char_count": count_script_chars(script),
                 "estimated_minutes": estimated_minutes,
                 "thumbnail_prompt": thumbnail_prompt,
                 "thumbnail": thumbnail_meta,
@@ -854,8 +937,6 @@ def process_content_task(task_id: int):
             
             os.makedirs(os.path.dirname(audio_output_path), exist_ok=True)
             
-            # Determine voice ID (User setting -> ENV -> Default Brian)
-            voice_id = (user.elevenlabs_voice_id or os.getenv("ELEVENLABS_VOICE_ID", "nPczCjzB2oQXqZ4mU67e")).strip()
             logging.info(f"Generating audio for task {task_id} using voice_id: {voice_id}")
 
             generated_audio = elevenlabs_client.generate_audio(

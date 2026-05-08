@@ -5,6 +5,18 @@ import { apiClient } from '../../api/client';
 import { useTelegram } from '../../context/TelegramContext';
 import { ThumbnailReference, AvatarInsertClip } from '../../types';
 
+type VoiceSpeed = {
+  chars_per_second?: number;
+  demo_char_count?: number;
+  demo_duration_seconds?: number;
+};
+
+type ElevenLabsVoice = {
+  id: string;
+  name: string;
+  speed?: VoiceSpeed | null;
+};
+
 export const SettingsTab: React.FC = () => {
   const { telegramId } = useTelegram();
   const [styleProfile, setStyleProfile] = useState('');
@@ -13,7 +25,7 @@ export const SettingsTab: React.FC = () => {
   const [trainingStatus, setTrainingStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [loadingStyle, setLoadingStyle] = useState(false);
   
-  const [clonedVoices, setClonedVoices] = useState<{id: string, name: string}[]>([]);
+  const [clonedVoices, setClonedVoices] = useState<ElevenLabsVoice[]>([]);
   const [loadingVoices, setLoadingVoices] = useState(false);
   const [heygenAvatars, setHeygenAvatars] = useState<{id: string, name: string, preview: string}[]>([]);
   const [loadingAvatars, setLoadingAvatars] = useState(false);
@@ -39,6 +51,7 @@ export const SettingsTab: React.FC = () => {
   const [avatarInsertEndPercent, setAvatarInsertEndPercent] = useState<number>(95);
   const [avatarInsertClipsCount, setAvatarInsertClipsCount] = useState<number>(2);
   const [youtubeDescriptionTemplate, setYoutubeDescriptionTemplate] = useState<string>('');
+  const [avatarScriptDurationMinutes, setAvatarScriptDurationMinutes] = useState<number>(5);
 
   useEffect(() => {
     const loadStyle = async () => {
@@ -51,6 +64,7 @@ export const SettingsTab: React.FC = () => {
         if (data.heygen_avatar_id) setSelectedAvatar(data.heygen_avatar_id);
         if (data.elevenlabs_voice_id) setSelectedVoice(data.elevenlabs_voice_id);
         setThumbnailFacePath(data.thumbnail_face_path || '');
+        setAvatarScriptDurationMinutes(data.avatar_script_duration_minutes ?? 5);
         setAvatarInsertStartPercent(data.avatar_insert_start_percent ?? 50);
         setAvatarInsertEndPercent(data.avatar_insert_end_percent ?? 95);
         setAvatarInsertClipsCount(data.avatar_insert_clips_count ?? 2);
@@ -95,7 +109,8 @@ export const SettingsTab: React.FC = () => {
         if (response && response.voices) {
           const fetchedVoices = response.voices.map((v: any) => ({
             id: v.voice_id,
-            name: v.name
+            name: v.name,
+            speed: v.voice_speed || null
           }));
           setClonedVoices(fetchedVoices);
           
@@ -173,6 +188,7 @@ export const SettingsTab: React.FC = () => {
         avatar_insert_start_percent: avatarInsertStartPercent,
         avatar_insert_end_percent: avatarInsertEndPercent,
         avatar_insert_clips_count: avatarInsertClipsCount,
+        avatar_script_duration_minutes: avatarScriptDurationMinutes,
         youtube_description_template: youtubeDescriptionTemplate,
       });
       setSavedSettings(true);
@@ -318,6 +334,12 @@ export const SettingsTab: React.FC = () => {
     { id: 'Joshua_20240711', name: 'Joshua', desc: 'Харизматичный', img: 'https://cdn2.heygen.ai/avatar/v3/Joshua_20240711/preview.jpg' },
     { id: 'Bella_20240711', name: 'Bella', desc: 'Дружелюбная', img: 'https://cdn2.heygen.ai/avatar/v3/Bella_20240711/preview.jpg' }
   ];
+
+  const formatVoiceSpeed = (speed?: VoiceSpeed | null) => {
+    const cps = speed?.chars_per_second;
+    if (!cps) return 'Скорость ещё не рассчитана';
+    return `${cps.toFixed(2)} симв/сек`;
+  };
 
   if (loadingStyle) {
     return (
@@ -614,25 +636,69 @@ export const SettingsTab: React.FC = () => {
           <Mic size={18} className="text-[#24a1de]" />
           <h3 className="text-[15px] font-bold text-slate-900">Голос диктора (ElevenLabs)</h3>
         </div>
-        <select
-          value={selectedVoice}
-          onChange={(e) => setSelectedVoice(e.target.value)}
-          disabled={loadingVoices}
-          className="input-field w-full h-12 text-[15px] font-medium appearance-none bg-slate-50 disabled:opacity-50"
-          style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'24\' height=\'24\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%2394a3b8\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '16px' }}
-        >
-          {loadingVoices ? (
-            <option value="">Загрузка голосов...</option>
-          ) : clonedVoices.length === 0 ? (
-            <option value="">Нет склонированных голосов</option>
-          ) : (
-            clonedVoices.map(voice => (
-              <option key={voice.id} value={voice.id}>{voice.name}</option>
-            ))
-          )}
-        </select>
+        {loadingVoices ? (
+          <div className="h-20 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400">
+            <Loader2 size={16} className="animate-spin mr-2" />
+            <span className="text-sm">Загрузка и калибровка голосов...</span>
+          </div>
+        ) : clonedVoices.length === 0 ? (
+          <div className="h-20 rounded-xl border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center text-xs text-slate-500">
+            Нет склонированных голосов
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {clonedVoices.map(voice => (
+              <button
+                key={voice.id}
+                type="button"
+                onClick={() => setSelectedVoice(voice.id)}
+                className={`w-full min-h-[64px] rounded-xl border px-3 py-2 text-left transition-all flex items-center justify-between gap-3 ${
+                  selectedVoice === voice.id
+                    ? 'border-[#24a1de] bg-sky-50 shadow-sm'
+                    : 'border-slate-200 bg-slate-50 hover:bg-white'
+                }`}
+              >
+                <span className="min-w-0">
+                  <span className="block text-sm font-bold text-slate-900 truncate">{voice.name}</span>
+                  <span className="block text-[11px] text-slate-500 mt-0.5">{formatVoiceSpeed(voice.speed)}</span>
+                </span>
+                <span className={`h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                  selectedVoice === voice.id ? 'border-[#24a1de]' : 'border-slate-300'
+                }`}>
+                  {selectedVoice === voice.id && <span className="h-2.5 w-2.5 rounded-full bg-[#24a1de]" />}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
         <p className="text-[11px] text-slate-500 mt-2">
-          Этот голос будет использоваться при генерации новых ИИ-видео.
+          Скорость считается один раз на голос по демо-озвучке и дальше используется для расчёта длины сценария.
+        </p>
+      </div>
+
+      <div className="tg-card p-4">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="flex items-center gap-2">
+            <Film size={18} className="text-[#24a1de]" />
+            <h3 className="text-[15px] font-bold text-slate-900">Длина long YouTube сценария</h3>
+          </div>
+          <span className="text-sm font-black text-slate-900 whitespace-nowrap">{avatarScriptDurationMinutes} мин</span>
+        </div>
+        <input
+          type="range"
+          min="1"
+          max="30"
+          step="1"
+          value={avatarScriptDurationMinutes}
+          onChange={(e) => setAvatarScriptDurationMinutes(parseInt(e.target.value) || 5)}
+          className="w-full"
+        />
+        <div className="flex justify-between text-[10px] font-bold text-slate-400 mt-1">
+          <span>1 мин</span>
+          <span>30 мин</span>
+        </div>
+        <p className="text-[11px] text-slate-500 mt-2">
+          Минуты переводятся в символы по скорости выбранного голоса ElevenLabs.
         </p>
       </div>
 

@@ -70,7 +70,17 @@ def init_database() -> None:
         )
         conn.execute(
             text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS elevenlabs_voice_speeds JSONB"
+            )
+        )
+        conn.execute(
+            text(
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS thumbnail_face_path TEXT"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_script_duration_minutes INTEGER DEFAULT 5"
             )
         )
         conn.execute(
@@ -116,6 +126,18 @@ def init_database() -> None:
         )
         conn.execute(
             text("UPDATE users SET avatar_insert_clips_count = 2 WHERE avatar_insert_clips_count IS NULL")
+        )
+        conn.execute(
+            text("UPDATE users SET elevenlabs_voice_speeds = '{}'::jsonb WHERE elevenlabs_voice_speeds IS NULL")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_script_duration_minutes = 5 WHERE avatar_script_duration_minutes IS NULL")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_script_duration_minutes = 1 WHERE avatar_script_duration_minutes < 1")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_script_duration_minutes = 30 WHERE avatar_script_duration_minutes > 30")
         )
         conn.execute(
             text("UPDATE users SET avatar_insert_start_percent = 0 WHERE avatar_insert_start_percent < 0")

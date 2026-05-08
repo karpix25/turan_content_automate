@@ -4,14 +4,18 @@ import requests
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from ...core.config import ELEVENLABS_API_KEY
-from ..deps import get_db, ensure_admin_access
+from ...integrations.elevenlabs_client import ElevenLabsClient
+from ...utils.voice_calibration import get_cached_voice_speed, get_or_calibrate_voice_speed
+from ..deps import get_db, ensure_admin_access, get_or_create_user
 
 router = APIRouter(tags=["external"])
 
 @router.get("/elevenlabs/voices")
 def get_elevenlabs_voices(telegram_id: str = None, db: Session = Depends(get_db)):
+    user = None
     if telegram_id:
         ensure_admin_access(telegram_id)
+        user = get_or_create_user(db, telegram_id)
     
     api_key = ELEVENLABS_API_KEY.strip()
     if not api_key:
@@ -33,6 +37,19 @@ def get_elevenlabs_voices(telegram_id: str = None, db: Session = Depends(get_db)
                 v for v in data["voices"] 
                 if v.get("category") in ("cloned", "professional")
             ]
+            if user:
+                elevenlabs_client = ElevenLabsClient(api_key=api_key)
+                for voice in data["voices"]:
+                    voice_id = (voice.get("voice_id") or "").strip()
+                    speed = get_cached_voice_speed(user, voice_id)
+                    if not speed:
+                        speed = get_or_calibrate_voice_speed(
+                            db=db,
+                            user=user,
+                            voice_id=voice_id,
+                            elevenlabs_client=elevenlabs_client,
+                        )
+                    voice["voice_speed"] = speed
         return data
     except Exception as e:
         logging.error(f"Failed to fetch ElevenLabs voices: {e}")
@@ -61,4 +78,3 @@ def get_heygen_avatars(telegram_id: str = None, db: Session = Depends(get_db)):
     except Exception as e:
         logging.error(f"Failed to fetch HeyGen avatars: {e}")
         raise HTTPException(status_code=502, detail="Failed to fetch avatars from HeyGen")
-

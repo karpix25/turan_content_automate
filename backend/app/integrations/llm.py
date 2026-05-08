@@ -94,6 +94,10 @@ class LLMClient:
             return 0
         return len(re.findall(r"\b[\w'-]+\b", content, flags=re.UNICODE))
 
+    @staticmethod
+    def estimate_char_count(text: str | None) -> int:
+        return len((text or "").strip())
+
     def rewrite_to_script(
         self,
         source_text: str,
@@ -101,14 +105,34 @@ class LLMClient:
         min_minutes: int = 10,
         max_minutes: int = 15,
         words_per_minute: int = 130,
+        target_chars: Optional[int] = None,
+        min_chars: Optional[int] = None,
+        max_chars: Optional[int] = None,
     ) -> Optional[str]:
         """
         Rewrites source transcript/facts into a high-retention YouTube script.
-        Target duration is controlled by min/max minutes.
+        Target duration is controlled by min/max minutes or calibrated character count.
         """
         min_words = max(200, int(min_minutes * words_per_minute))
         max_words = max(min_words + 150, int(max_minutes * words_per_minute))
         target_words = int((min_words + max_words) / 2)
+        if target_chars:
+            min_chars_value = int(min_chars or max(300, round(target_chars * 0.92)))
+            max_chars_value = int(max_chars or max(min_chars_value + 200, round(target_chars * 1.08)))
+            length_requirements = (
+                f"- Target spoken duration: about {min_minutes} minutes, calibrated by the selected ElevenLabs voice.\n"
+                f"- Target script length: about {int(target_chars)} characters, including spaces.\n"
+                f"- Keep output between {min_chars_value} and {max_chars_value} characters, including spaces.\n"
+                "- Character count is more important than word count for this task.\n"
+                "- Return only final script text with natural paragraphs."
+            )
+        else:
+            length_requirements = (
+                f"- Target spoken duration: {min_minutes}-{max_minutes} minutes.\n"
+                f"- Keep output between {min_words} and {max_words} words.\n"
+                f"- Aim close to {target_words} words.\n"
+                f"- Return only final script text with natural paragraphs."
+            )
 
         narrative_rules = (
             "Follow the 2026 YouTube Master Narrative & Retention Framework:\n"
@@ -143,10 +167,7 @@ class LLMClient:
             "- Ignore and remove all CTA fragments (subscribe/like/comment/follow).\n"
             "- Keep only the informational/analytical core and practical meaning.\n\n"
             f"LENGTH REQUIREMENTS:\n"
-            f"- Target spoken duration: {min_minutes}-{max_minutes} minutes.\n"
-            f"- Keep output between {min_words} and {max_words} words.\n"
-            f"- Aim close to {target_words} words.\n"
-            f"- Return only final script text with natural paragraphs."
+            f"{length_requirements}"
         )
         
         user_prompt = f"Rewrite this source material into a complete script:\n\n{source_text}"
@@ -157,6 +178,42 @@ class LLMClient:
         ]
         
         return self._complete(messages, temperature=0.8)
+
+    def humanize_russian_text_by_chars(
+        self,
+        script: str,
+        style_profile: Optional[str],
+        min_chars: int,
+        max_chars: int,
+    ) -> Optional[str]:
+        if not script:
+            return None
+
+        system_prompt = (
+            "Ты редактор русскоязычных сценариев. "
+            "Убери следы ИИ-генерации и сделай текст живым.\n"
+            "Сохраняй смысл и факты, не выдумывай новое.\n"
+            "Ориентируйся на практики humanizer-ru:\n"
+            "- убирай канцелярит и общие пафосные формулировки;\n"
+            "- заменяй шаблонные связки на естественную речь;\n"
+            "- убирай фразы-пустышки и мета-объяснения;\n"
+            "- избегай синтетических троек и одинакового ритма.\n\n"
+            "Дополнительные требования:\n"
+            "- Усиль первые 2-3 предложения: крючок должен быть конкретным и цеплять сразу.\n"
+            "- Запрети клише типа: 'в этом видео', 'давайте разберемся', 'важно отметить', "
+            "'не только..., но и...', 'в современном мире'.\n"
+            "- Пиши естественно, будто это живой автор, а не ассистент.\n"
+            "- Разрешено сохранять/добавлять пометки ударения одной заглавной буквой в спорных словах, но умеренно.\n"
+            f"- Сохрани длину в диапазоне {min_chars}-{max_chars} символов, включая пробелы.\n"
+            f"- Учитывай стиль: {style_profile if style_profile else 'живой, уверенный, разговорный без воды'}\n"
+            "- Верни только финальный текст."
+        )
+        user_prompt = f"Очеловечь и отредактируй этот сценарий:\n\n{script}"
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        return self._complete(messages, temperature=0.75)
 
     def humanize_russian_text(
         self,
@@ -224,6 +281,35 @@ class LLMClient:
             "- Return only the edited final script."
         )
         user_prompt = f"Edit this script to fit length:\n\n{script}"
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        return self._complete(messages, temperature=0.6)
+
+    def adjust_script_length_chars(
+        self,
+        script: str,
+        style_profile: Optional[str],
+        min_chars: int,
+        max_chars: int,
+    ) -> Optional[str]:
+        if not script:
+            return None
+
+        target_chars = int((min_chars + max_chars) / 2)
+        system_prompt = (
+            "You are an expert script editor. "
+            "Adjust script length to fit exact character-count constraints while preserving facts, structure, and voice.\n"
+            f"- Target about {target_chars} characters including spaces.\n"
+            f"- Keep between {min_chars} and {max_chars} characters including spaces.\n"
+            "- Do not invent new facts.\n"
+            "- Keep it natural and ready for voiceover.\n"
+            "- Preserve stress marks written as one uppercase letter inside Russian words when they are present.\n"
+            f"- Preserve style: {style_profile if style_profile else 'natural professional YouTube delivery'}\n"
+            "- Return only the edited final script."
+        )
+        user_prompt = f"Edit this script to fit character length:\n\n{script}"
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},

@@ -69,6 +69,15 @@ def update_settings(telegram_id: str, settings: schemas.UserSettingsUpdate, db: 
             raise HTTPException(status_code=400, detail="avatar_insert_clips_count must be between 0 and 20")
         update_data["avatar_insert_clips_count"] = clips_value
 
+    if "avatar_script_duration_minutes" in update_data:
+        try:
+            duration_value = int(update_data.get("avatar_script_duration_minutes"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="avatar_script_duration_minutes must be an integer")
+        if duration_value < 1 or duration_value > 30:
+            raise HTTPException(status_code=400, detail="avatar_script_duration_minutes must be between 1 and 30")
+        update_data["avatar_script_duration_minutes"] = duration_value
+
     for key, value in update_data.items():
         setattr(user, key, value)
     db.commit()
@@ -83,7 +92,9 @@ async def get_style_settings(telegram_id: str, db: Session = Depends(get_db)):
         "training_source": user.training_source,
         "heygen_avatar_id": user.heygen_avatar_id,
         "elevenlabs_voice_id": user.elevenlabs_voice_id,
+        "elevenlabs_voice_speeds": user.elevenlabs_voice_speeds or {},
         "thumbnail_face_path": user.thumbnail_face_path,
+        "avatar_script_duration_minutes": user.avatar_script_duration_minutes,
         "avatar_insert_start_percent": user.avatar_insert_start_percent,
         "avatar_insert_end_percent": user.avatar_insert_end_percent,
         "avatar_insert_clips_count": user.avatar_insert_clips_count,

@@ -16,6 +16,7 @@ class UserSettingsUpdate(BaseModel):
     heygen_avatar_id: Optional[str] = None
     elevenlabs_voice_id: Optional[str] = None
     thumbnail_face_path: Optional[str] = None
+    avatar_script_duration_minutes: Optional[int] = None
     avatar_insert_start_percent: Optional[int] = None
     avatar_insert_end_percent: Optional[int] = None
     avatar_insert_clips_count: Optional[int] = None
@@ -147,7 +148,9 @@ class UserSettings(BaseModel):
     training_source: Optional[str] = None
     heygen_avatar_id: Optional[str] = None
     elevenlabs_voice_id: Optional[str] = None
+    elevenlabs_voice_speeds: Optional[dict] = None
     thumbnail_face_path: Optional[str] = None
+    avatar_script_duration_minutes: int
     avatar_insert_start_percent: int
     avatar_insert_end_percent: int
     avatar_insert_clips_count: int
