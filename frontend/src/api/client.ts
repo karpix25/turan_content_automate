@@ -62,7 +62,7 @@ export const apiClient = {
     const res = await axios.post(`${API_BASE}/tasks/${telegramId}`, payload);
     return res.data;
   },
-  updateTaskSchedule: async (telegramId: string, taskId: number, publishAt: string) => {
+  updateTaskSchedule: async (telegramId: string, taskId: number, publishAt: string | null) => {
     const res = await axios.patch(`${API_BASE}/tasks/${telegramId}/${taskId}/schedule`, { publish_at: publishAt });
     return res.data;
   },

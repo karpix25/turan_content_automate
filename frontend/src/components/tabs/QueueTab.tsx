@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Video, CalendarDays, Clock3, PlaySquare, 
-  CheckCircle2, AlertTriangle, Loader2, Download, Trash2, Globe2
+  Loader2, Download, Trash2, Globe2, ExternalLink, X
 } from 'lucide-react';
 import { apiClient } from '../../api/client';
 import { useTelegram } from '../../context/TelegramContext';
@@ -78,14 +78,13 @@ export const QueueTab: React.FC = () => {
     return () => clearInterval(interval);
   }, [telegramId]);
 
-  const saveTaskSchedule = async (taskId: number) => {
+  const saveTaskSchedule = async (taskId: number, overrideValue?: string | null) => {
     if (!telegramId) return;
-    const localValue = scheduleInputs[taskId];
-    if (!localValue) return;
-    const publishAt = new Date(localValue);
+    const localValue = overrideValue === undefined ? scheduleInputs[taskId] : overrideValue;
+    const publishAt = localValue ? new Date(localValue) : null;
     setActiveTaskId(taskId);
     try {
-      await apiClient.updateTaskSchedule(telegramId, taskId, publishAt.toISOString());
+      await apiClient.updateTaskSchedule(telegramId, taskId, publishAt ? publishAt.toISOString() : null);
       await loadTasks();
     } catch (error) {
     } finally {
@@ -263,10 +262,46 @@ export const QueueTab: React.FC = () => {
             const isPublished = task.publishing_status === 'published';
             const isScheduled = task.publishing_status === 'scheduled';
             const API_BASE = import.meta.env.VITE_API_BASE || '/api';
-            const previewUrl = task.output_path ? `${API_BASE}/tasks/${telegramId}/${task.id}/file` : undefined;
+            const filePreviewUrl = task.output_path ? `${API_BASE}/tasks/${telegramId}/${task.id}/file` : undefined;
+            const fileDownloadUrl = task.output_path ? `${API_BASE}/tasks/${telegramId}/${task.id}/file?download=1` : undefined;
+            const postPreviewUrl = task.preview_url || undefined;
 
             return (
               <div key={task.id} className={`tg-card overflow-hidden transition-all ${isPublished ? 'opacity-75' : ''}`}>
+                {filePreviewUrl ? (
+                  <div className="relative bg-black aspect-video overflow-hidden">
+                    <video
+                      src={filePreviewUrl}
+                      className="w-full h-full object-contain bg-black"
+                      controls
+                      preload="metadata"
+                    />
+                    {postPreviewUrl && (
+                      <a
+                        href={postPreviewUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="absolute top-2 right-2 h-8 px-3 rounded-lg bg-white/90 text-slate-900 text-[11px] font-bold inline-flex items-center gap-1 shadow-sm"
+                      >
+                        <ExternalLink size={13} />
+                        PostMyPost
+                      </a>
+                    )}
+                  </div>
+                ) : postPreviewUrl ? (
+                  <a
+                    href={postPreviewUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="h-14 px-4 bg-slate-900 text-white text-xs font-bold flex items-center justify-between gap-3"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <ExternalLink size={15} />
+                      Открыть превью PostMyPost
+                    </span>
+                    <span className="text-white/50 truncate max-w-[140px]">{postPreviewUrl}</span>
+                  </a>
+                ) : null}
                 <div className="p-4">
                   <div className="flex justify-between items-start gap-4 mb-3">
                     <div className="flex-1 min-w-0">
@@ -365,6 +400,17 @@ export const QueueTab: React.FC = () => {
                       >
                         {activeTaskId === task.id ? '...' : 'Обновить дату'}
                       </button>
+                      <button
+                        onClick={() => {
+                          setScheduleInputs(prev => ({ ...prev, [task.id]: '' }));
+                          void saveTaskSchedule(task.id, null);
+                        }}
+                        disabled={activeTaskId === task.id || !scheduleInputs[task.id]}
+                        className="h-10 w-10 bg-slate-100 text-slate-500 text-xs font-bold rounded-xl inline-flex items-center justify-center disabled:opacity-50"
+                        title="Очистить дату"
+                      >
+                        <X size={14} />
+                      </button>
                       {task.status === 'completed' && task.publishing_status !== 'published' && (
                         <button
                           onClick={() => publishTaskNow(task.id)}
@@ -376,7 +422,7 @@ export const QueueTab: React.FC = () => {
                       )}
                       {task.output_path && task.status === 'completed' ? (
                         <a
-                          href={previewUrl}
+                          href={fileDownloadUrl}
                           target="_blank"
                           rel="noreferrer"
                           className="h-10 px-4 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-xl inline-flex items-center justify-center gap-2"

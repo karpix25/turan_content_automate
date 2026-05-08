@@ -60,7 +60,12 @@ def list_user_tasks(telegram_id: str, db: Session = Depends(get_db)):
     return tasks
 
 @router.get("/{telegram_id}/{task_id}/file")
-def download_task_output(telegram_id: str, task_id: int, db: Session = Depends(get_db)):
+def download_task_output(
+    telegram_id: str,
+    task_id: int,
+    download: bool = False,
+    db: Session = Depends(get_db),
+):
     ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
     task = get_user_task_or_404(db, user.id, task_id)
@@ -77,6 +82,7 @@ def download_task_output(telegram_id: str, task_id: int, db: Session = Depends(g
         path=resolved_path,
         filename=os.path.basename(resolved_path),
         media_type="video/mp4",
+        content_disposition_type="attachment" if download else "inline",
     )
 
 @router.patch("/{telegram_id}/{task_id}/schedule", response_model=schemas.VideoTaskOut)
