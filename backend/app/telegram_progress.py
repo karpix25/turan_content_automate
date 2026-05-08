@@ -126,6 +126,57 @@ def _send_telegram_message(token: str, chat_id: str, text: str) -> bool:
         return False
 
 
+def send_thumbnail_prompt_review_to_telegram(task, prompt: str) -> bool:
+    token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+    chat_id = (getattr(task, "telegram_chat_id", None) or "").strip()
+    if not token or not chat_id or not prompt:
+        return False
+
+    chunks = _split_message_chunks(
+        f"🖼 Prompt обложки для видео #{getattr(task, 'id', '-')}:\n\n{prompt}",
+        max_len=MAX_TELEGRAM_TEXT_LEN,
+    )
+    ok = True
+    for chunk in chunks:
+        ok = _send_telegram_message(token, chat_id, chunk) and ok
+
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {"text": "✅ Approve", "callback_data": f"thumbprompt:approve:{getattr(task, 'id', '-')}"}
+            ],
+            [
+                {"text": "✏️ Edit", "callback_data": f"thumbprompt:edit:{getattr(task, 'id', '-')}"},
+                {"text": "🚫 Reject", "callback_data": f"thumbprompt:reject:{getattr(task, 'id', '-')}"},
+            ],
+        ]
+    }
+    try:
+        with httpx.Client(timeout=httpx.Timeout(20.0, connect=5.0)) as client:
+            response = client.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={
+                    "chat_id": chat_id,
+                    "text": "Проверь prompt обложки. Можно подтвердить, отклонить или нажать Edit и отправить новый prompt следующим сообщением.",
+                    "reply_markup": keyboard,
+                    "disable_web_page_preview": True,
+                },
+            )
+        payload = response.json()
+        if response.status_code >= 400 or not payload.get("ok", False):
+            description = payload.get("description") if isinstance(payload, dict) else response.text[:300]
+            logger.warning(
+                "Failed to send Telegram thumbnail prompt review keyboard: status=%s description=%s",
+                response.status_code,
+                description,
+            )
+            return False
+        return ok
+    except Exception as exc:
+        logger.warning("Failed to send Telegram thumbnail prompt review keyboard: %s", exc)
+        return False
+
+
 def _send_telegram_document(token: str, chat_id: str, file_path: str, caption: str) -> tuple[bool, str]:
     try:
         with httpx.Client(timeout=httpx.Timeout(300.0, connect=10.0)) as client:

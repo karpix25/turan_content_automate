@@ -16,6 +16,20 @@ const toLocalInput = (isoValue?: string | null): string => {
   return localDate.toISOString().slice(0, 16);
 };
 
+const dateToPeriodStartIso = (value: string): string | undefined => {
+  if (!value) return undefined;
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return undefined;
+  return date.toISOString();
+};
+
+const dateToPeriodEndIso = (value: string): string | undefined => {
+  if (!value) return undefined;
+  const date = new Date(`${value}T23:59:59.999`);
+  if (Number.isNaN(date.getTime())) return undefined;
+  return date.toISOString();
+};
+
 const cleanTaskSource = (value: string) =>
   String(value || '')
     .split(' [slot ', 1)[0]
@@ -42,6 +56,8 @@ export const QueueTab: React.FC = () => {
   const [queueStatusFilter, setQueueStatusFilter] = useState<'all' | 'active' | 'scheduled' | 'published' | 'failed'>('all');
   const [queuePlatformFilter, setQueuePlatformFilter] = useState<'all' | 'instagram' | 'youtube' | 'tiktok' | 'other'>('all');
   const [queueSearch, setQueueSearch] = useState('');
+  const [publishDateFrom, setPublishDateFrom] = useState('');
+  const [publishDateTo, setPublishDateTo] = useState('');
   
   const [scheduleInputs, setScheduleInputs] = useState<Record<number, string>>({});
   const [activeTaskId, setActiveTaskId] = useState<number | null>(null);
@@ -57,7 +73,10 @@ export const QueueTab: React.FC = () => {
     if (!telegramId) return;
     setTasksLoading(true);
     try {
-      const data = await apiClient.getTasks(telegramId);
+      const data = await apiClient.getTasks(telegramId, {
+        publish_from: dateToPeriodStartIso(publishDateFrom),
+        publish_to: dateToPeriodEndIso(publishDateTo || publishDateFrom),
+      });
       setTasks(data);
       setScheduleInputs(
         data.reduce<Record<number, string>>((acc, task) => {
@@ -76,7 +95,7 @@ export const QueueTab: React.FC = () => {
     loadTasks();
     const interval = setInterval(loadTasks, 15000);
     return () => clearInterval(interval);
-  }, [telegramId]);
+  }, [telegramId, publishDateFrom, publishDateTo]);
 
   const saveTaskSchedule = async (taskId: number, overrideValue?: string | null) => {
     if (!telegramId) return;
@@ -163,6 +182,8 @@ export const QueueTab: React.FC = () => {
     }
     return true;
   });
+  const scheduledInPeriodCount = filteredTasks.filter(task => task.publishing_status === 'scheduled' && task.publish_at).length;
+  const periodFilterEnabled = Boolean(publishDateFrom || publishDateTo);
 
   return (
     <motion.div key="queue" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4 pb-20">
@@ -235,6 +256,47 @@ export const QueueTab: React.FC = () => {
               <option value="other">Прочие</option>
             </select>
           </div>
+          <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
+            <div>
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">
+                Публикации с
+              </label>
+              <input
+                type="date"
+                value={publishDateFrom}
+                onChange={(e) => setPublishDateFrom(e.target.value)}
+                className="input-field h-9 text-xs w-full"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">
+                По
+              </label>
+              <input
+                type="date"
+                value={publishDateTo}
+                onChange={(e) => setPublishDateTo(e.target.value)}
+                className="input-field h-9 text-xs w-full"
+              />
+            </div>
+            <button
+              onClick={() => {
+                setPublishDateFrom('');
+                setPublishDateTo('');
+              }}
+              disabled={!periodFilterEnabled}
+              className="h-9 w-9 bg-slate-100 text-slate-500 rounded-xl inline-flex items-center justify-center disabled:opacity-50"
+              title="Сбросить период"
+            >
+              <X size={14} />
+            </button>
+          </div>
+          {periodFilterEnabled && (
+            <div className="px-3 py-2 rounded-xl bg-amber-50 border border-amber-100 text-[11px] font-semibold text-amber-700 flex items-center justify-between gap-3">
+              <span>Запланировано за период</span>
+              <span className="text-sm font-black">{scheduledInPeriodCount}</span>
+            </div>
+          )}
         </div>
       </div>
 

@@ -51,12 +51,26 @@ def create_task(telegram_id: str, payload: schemas.VideoTaskCreate, db: Session 
     return {"status": "queued", "task_id": new_task.id, "type": payload.type}
 
 @router.get("/{telegram_id}", response_model=list[schemas.VideoTaskOut])
-def list_user_tasks(telegram_id: str, db: Session = Depends(get_db)):
+def list_user_tasks(
+    telegram_id: str,
+    publish_from: datetime.datetime | None = None,
+    publish_to: datetime.datetime | None = None,
+    db: Session = Depends(get_db),
+):
     ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
-    tasks = db.query(models.VideoTask).filter(
+    query = db.query(models.VideoTask).filter(
         models.VideoTask.user_id == user.id
-    ).order_by(models.VideoTask.created_at.desc()).limit(100).all()
+    )
+    if publish_from is not None:
+        query = query.filter(models.VideoTask.publish_at >= normalize_utc_naive(publish_from))
+    if publish_to is not None:
+        query = query.filter(models.VideoTask.publish_at <= normalize_utc_naive(publish_to))
+    if publish_from is not None or publish_to is not None:
+        query = query.filter(models.VideoTask.publish_at.isnot(None))
+        tasks = query.order_by(models.VideoTask.publish_at.asc()).limit(500).all()
+    else:
+        tasks = query.order_by(models.VideoTask.created_at.desc()).limit(100).all()
     return tasks
 
 @router.get("/{telegram_id}/{task_id}/file")
@@ -118,6 +132,45 @@ def update_task_schedule(
     except Exception as e:
         logging.error(f"Failed to enqueue schedule sync for task {task.id}: {e}")
 
+    db.refresh(task)
+    return task
+
+@router.post("/{telegram_id}/{task_id}/thumbnail-prompt-review", response_model=schemas.VideoTaskOut)
+def update_thumbnail_prompt_review(
+    telegram_id: str,
+    task_id: int,
+    payload: schemas.ThumbnailPromptReviewUpdate,
+    db: Session = Depends(get_db),
+):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    task = get_user_task_or_404(db, user.id, task_id)
+
+    action = (payload.action or "").strip().lower()
+    if action not in {"approve", "reject", "edit"}:
+        raise HTTPException(status_code=400, detail="action must be approve, reject, or edit")
+
+    meta = dict(task.script_meta or {})
+    review = dict(meta.get("thumbnail_prompt_review") or {})
+    current_prompt = (review.get("prompt") or "").strip()
+    edited_prompt = (payload.prompt or "").strip()
+
+    if action == "edit" and not edited_prompt:
+        review["status"] = "awaiting_edit"
+    elif action == "reject":
+        review["status"] = "rejected"
+    else:
+        review["status"] = "approved"
+        if edited_prompt:
+            review["approved_prompt"] = edited_prompt
+        elif current_prompt:
+            review["approved_prompt"] = current_prompt
+
+    review["action"] = action
+    review["updated_at"] = datetime.datetime.utcnow().isoformat()
+    meta["thumbnail_prompt_review"] = review
+    task.script_meta = meta
+    db.commit()
     db.refresh(task)
     return task
 

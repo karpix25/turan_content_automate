@@ -45,6 +45,10 @@ class VideoTaskCreate(BaseModel):
 class VideoTaskScheduleUpdate(BaseModel):
     publish_at: Optional[datetime.datetime] = None
 
+class ThumbnailPromptReviewUpdate(BaseModel):
+    action: str
+    prompt: Optional[str] = None
+
 class VideoTaskOut(BaseModel):
     id: int
     user_id: int

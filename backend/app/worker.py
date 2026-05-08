@@ -5,6 +5,7 @@ import logging
 import re
 import shutil
 import datetime
+import time
 from typing import List
 from urllib.parse import urlparse, parse_qs
 from celery import Celery
@@ -21,6 +22,7 @@ from .telegram_progress import (
     update_task_status_message,
     send_avatar_audio_to_telegram,
     send_thumbnail_to_telegram,
+    send_thumbnail_prompt_review_to_telegram,
     send_yandex_disk_links_to_telegram,
 )
 from .integrations.elevenlabs_client import ElevenLabsClient
@@ -118,6 +120,15 @@ def _is_truthy(value: str | None) -> bool:
 
 
 ENABLE_HEYGEN_READY_TRANSCRIBE = _is_truthy(os.getenv("AVATAR_HEYGEN_READY_TRANSCRIBE", "1"))
+THUMBNAIL_PROMPT_REVIEW_ENABLED = _is_truthy(os.getenv("THUMBNAIL_PROMPT_REVIEW_ENABLED", "1"))
+THUMBNAIL_PROMPT_REVIEW_TIMEOUT_SECONDS = max(
+    60,
+    int(os.getenv("THUMBNAIL_PROMPT_REVIEW_TIMEOUT_SECONDS", str(24 * 60 * 60))),
+)
+THUMBNAIL_PROMPT_REVIEW_POLL_SECONDS = max(
+    2,
+    int(os.getenv("THUMBNAIL_PROMPT_REVIEW_POLL_SECONDS", "5")),
+)
 
 
 def _extract_heygen_video_id(value: str | None) -> str | None:
@@ -454,6 +465,51 @@ def process_content_task(task_id: int):
             return None, thumbnail_meta
 
         if thumbnail_prompt:
+            if THUMBNAIL_PROMPT_REVIEW_ENABLED and getattr(task, "telegram_chat_id", None):
+                meta = dict(task.script_meta or {})
+                review = dict(meta.get("thumbnail_prompt_review") or {})
+                if review.get("prompt") != thumbnail_prompt or review.get("status") not in {"approved", "rejected"}:
+                    review = {
+                        "status": "pending",
+                        "prompt": thumbnail_prompt,
+                        "created_at": datetime.datetime.utcnow().isoformat(),
+                    }
+                    meta["thumbnail_prompt_review"] = review
+                    task.script_meta = meta
+                    db.commit()
+                    send_thumbnail_prompt_review_to_telegram(task, thumbnail_prompt)
+
+                update_task_status_message(
+                    db,
+                    task,
+                    stage="Обложка",
+                    detail="Жду подтверждение prompt обложки в Telegram.",
+                )
+                deadline = time.monotonic() + THUMBNAIL_PROMPT_REVIEW_TIMEOUT_SECONDS
+                while time.monotonic() < deadline:
+                    db.refresh(task)
+                    meta = dict(task.script_meta or {})
+                    review = dict(meta.get("thumbnail_prompt_review") or {})
+                    status = (review.get("status") or "").strip().lower()
+                    if status == "approved":
+                        thumbnail_prompt = (review.get("approved_prompt") or thumbnail_prompt).strip()
+                        break
+                    if status == "rejected":
+                        thumbnail_meta = {
+                            **thumbnail_meta,
+                            "status": "skipped",
+                            "reason": "thumbnail_prompt_rejected",
+                        }
+                        return thumbnail_prompt, thumbnail_meta
+                    time.sleep(THUMBNAIL_PROMPT_REVIEW_POLL_SECONDS)
+                else:
+                    thumbnail_meta = {
+                        **thumbnail_meta,
+                        "status": "skipped",
+                        "reason": "thumbnail_prompt_review_timeout",
+                    }
+                    return thumbnail_prompt, thumbnail_meta
+
             references = (
                 db.query(models.ThumbnailReference)
                 .filter(models.ThumbnailReference.user_id == user.id)
@@ -897,6 +953,7 @@ def process_content_task(task_id: int):
                 description_template=user.youtube_description_template,
             )
             description_txt_path = _write_avatar_description_file(task_id, final_description_text)
+            existing_script_meta = dict(task.script_meta or {})
             task.script_text = script
             task.script_meta = {
                 **(validation or {}),
@@ -910,6 +967,7 @@ def process_content_task(task_id: int):
                 "char_count": count_script_chars(script),
                 "estimated_minutes": estimated_minutes,
                 "thumbnail_prompt": thumbnail_prompt,
+                "thumbnail_prompt_review": existing_script_meta.get("thumbnail_prompt_review"),
                 "thumbnail": thumbnail_meta,
                 "youtube_description": {
                     "hook_text": hook_text,

@@ -21,6 +21,7 @@ logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
+PENDING_THUMBNAIL_PROMPT_EDITS: dict[str, int] = {}
 
 SUPPORTED_URL_RE = re.compile(r"(https?://[^\s]+|(?:www\.)?(?:youtube\.com|youtu\.be|instagram\.com|vizard\.ai)/[^\s]+)", re.IGNORECASE)
 
@@ -191,6 +192,23 @@ async def create_task_in_backend(
             await status_message.answer("❌ Sorry, something went wrong while creating the task.")
 
 
+async def send_thumbnail_prompt_review_to_backend(user_id: str, task_id: int, action: str, prompt: str | None = None) -> bool:
+    try:
+        payload = {"action": action}
+        if prompt is not None:
+            payload["prompt"] = prompt
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.post(
+                f"{BACKEND_API_URL}/tasks/{user_id}/{task_id}/thumbnail-prompt-review",
+                json=payload,
+            )
+        response.raise_for_status()
+        return True
+    except Exception as e:
+        logging.error("Failed to update thumbnail prompt review: %s", e)
+        return False
+
+
 def build_webapp_url_for_user(base_url: str, telegram_user_id: int) -> str:
     raw = (base_url or "").strip()
     if not raw:
@@ -229,6 +247,23 @@ async def send_welcome(message: types.Message):
 @dp.message_handler(commands=['id'])
 async def send_user_id(message: types.Message):
     await message.reply(f"Ваш Telegram ID: `{message.from_user.id}`", parse_mode="Markdown")
+
+
+@dp.message_handler(lambda message: str(message.from_user.id) in PENDING_THUMBNAIL_PROMPT_EDITS)
+async def handle_thumbnail_prompt_edit(message: types.Message):
+    user_id = str(message.from_user.id)
+    task_id = PENDING_THUMBNAIL_PROMPT_EDITS.pop(user_id, None)
+    prompt = (message.text or "").strip()
+    if not task_id:
+        return
+    if not prompt:
+        await message.reply("❌ Prompt пустой. Нажмите Edit ещё раз и отправьте новый текст.")
+        return
+    ok = await send_thumbnail_prompt_review_to_backend(user_id, task_id, "edit", prompt=prompt)
+    if ok:
+        await message.reply(f"✅ Новый prompt для обложки видео #{task_id} принят. Генерирую обложку.")
+    else:
+        await message.reply("❌ Не удалось сохранить prompt. Попробуйте ещё раз.")
 
 
 @dp.message_handler(regexp=r'^(?:heygen:)?[0-9a-fA-F]{32}(?:\s*[\|\-:—]\s*.+)?$')
@@ -350,6 +385,51 @@ async def process_choice(callback_query: types.CallbackQuery):
         await callback_query.message.delete()
     except Exception:
         pass
+
+
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith('thumbprompt:'))
+async def process_thumbnail_prompt_review(callback_query: types.CallbackQuery):
+    parts = (callback_query.data or "").split(":")
+    if len(parts) != 3:
+        await callback_query.answer("Некорректная команда", show_alert=True)
+        return
+
+    _, action, task_id_raw = parts
+    try:
+        task_id = int(task_id_raw)
+    except ValueError:
+        await callback_query.answer("Некорректный ID задачи", show_alert=True)
+        return
+
+    user_id = str(callback_query.from_user.id)
+    if action == "edit":
+        PENDING_THUMBNAIL_PROMPT_EDITS[user_id] = task_id
+        ok = await send_thumbnail_prompt_review_to_backend(user_id, task_id, "edit")
+        if ok:
+            await callback_query.answer("Отправьте новый prompt следующим сообщением")
+            await bot.send_message(
+                callback_query.message.chat.id,
+                f"✏️ Отправьте новый prompt для обложки видео #{task_id} одним сообщением."
+            )
+        else:
+            await callback_query.answer("Не удалось включить режим редактирования", show_alert=True)
+        return
+
+    if action not in {"approve", "reject"}:
+        await callback_query.answer("Некорректное действие", show_alert=True)
+        return
+
+    ok = await send_thumbnail_prompt_review_to_backend(user_id, task_id, action)
+    if not ok:
+        await callback_query.answer("Не удалось отправить решение", show_alert=True)
+        return
+
+    if action == "approve":
+        await callback_query.answer("Prompt approved")
+        await bot.send_message(callback_query.message.chat.id, f"✅ Prompt обложки видео #{task_id} подтвержден.")
+    else:
+        await callback_query.answer("Prompt rejected")
+        await bot.send_message(callback_query.message.chat.id, f"🚫 Обложка для видео #{task_id} отклонена и будет пропущена.")
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
