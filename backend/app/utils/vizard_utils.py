@@ -40,7 +40,26 @@ def _extract_vizard_clip_title(clip: dict) -> str | None:
             if normalized:
                 return normalized
 
-    # Fallback: search nested dictionaries for title-like keys.
+    def find_nested_title(node) -> str | None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                key_text = str(key).lower()
+                if isinstance(value, str) and ("title" in key_text or "headline" in key_text):
+                    normalized = value.strip()
+                    if normalized:
+                        return normalized
+            for value in node.values():
+                found = find_nested_title(value)
+                if found:
+                    return found
+        elif isinstance(node, list):
+            for item in node:
+                found = find_nested_title(item)
+                if found:
+                    return found
+        return None
+
+    # Fallback: search nested dictionaries/lists for title-like keys.
     for key, value in clip.items():
         key_text = str(key).lower()
         if not isinstance(value, str):
@@ -49,7 +68,7 @@ def _extract_vizard_clip_title(clip: dict) -> str | None:
             normalized = value.strip()
             if normalized:
                 return normalized
-    return None
+    return find_nested_title(clip)
 
 def _download_vizard_project_clips(db, task: models.VideoTask, source_url: str, **create_kwargs) -> List[tuple[str, str | None]]:
     from ..worker import vizard, downloader

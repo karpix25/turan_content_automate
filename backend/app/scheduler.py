@@ -119,6 +119,14 @@ def _get_account_descriptions(db, user_id: int) -> dict[int, str]:
     return result
 
 
+def _build_publication_content(clip_title: str | None, account_description: str | None) -> str:
+    title = (clip_title or "").strip()
+    description = (account_description or "").strip()
+    if title and description:
+        return f"{title}\n\n{description}"
+    return title or description
+
+
 def _normalize_post_at(value: datetime.datetime | None, force_now: bool) -> datetime.datetime:
     if force_now or value is None:
         return datetime.datetime.now(datetime.timezone.utc)
@@ -193,29 +201,31 @@ def sync_publication_task(task_id: int, force_now: bool = False):
 
         account_ids = _get_task_account_ids(db, task, user.id)
         account_descriptions = _get_account_descriptions(db, user.id)
+        vizard_title = (getattr(task, "source_title", None) or "").strip()
         content_by_account = {
-            account_id: account_descriptions[account_id]
+            account_id: _build_publication_content(vizard_title, account_descriptions.get(account_id))
             for account_id in account_ids
-            if account_id in account_descriptions
+            if vizard_title or account_id in account_descriptions
         }
         logger.info(
-            "Task %s publication payload: user_id=%s telegram_id=%s account_ids=%s account_descriptions=%s",
+            "Task %s publication payload: user_id=%s telegram_id=%s account_ids=%s account_descriptions=%s vizard_title=%s",
             task_id,
             user.id,
             getattr(user, "telegram_id", None),
             account_ids,
-            list(content_by_account.keys()),
+            list(account_descriptions.keys()),
+            bool(vizard_title),
         )
         project_id = _get_project_id()
         post_at = _normalize_post_at(task.publish_at, force_now)
         target_platform = (getattr(task, "target_platform", "") or "").lower()
 
         missing_description_account_ids = [
-            account_id for account_id in account_ids if account_id not in content_by_account
+            account_id for account_id in account_ids if account_id not in account_descriptions
         ]
         if missing_description_account_ids:
             logger.warning(
-                "Task %s has no publication description for account_ids=%s; publishing without fallback text",
+                "Task %s has no publication description for account_ids=%s; using Vizard title only when available",
                 task_id,
                 missing_description_account_ids,
             )
@@ -223,7 +233,6 @@ def sync_publication_task(task_id: int, force_now: bool = False):
         content = ""
         # Prepare account-specific titles
         title_by_account: dict[int, str] = {}
-        vizard_title = (getattr(task, "source_title", None) or "").strip()
 
         # Determine publication type (1: Post, 4: Reels/Shorts/Clips)
         # We use 4 for YouTube, Instagram, and TikTok for these clipping tasks.
