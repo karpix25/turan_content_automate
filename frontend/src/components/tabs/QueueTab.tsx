@@ -80,6 +80,7 @@ export const QueueTab: React.FC = () => {
       setTasks(data);
       setScheduleInputs(
         data.reduce<Record<number, string>>((acc, task) => {
+          if (task.type === 'avatar_youtube') return acc;
           acc[task.id] = toLocalInput(task.publish_at);
           return acc;
         }, {})
@@ -163,6 +164,7 @@ export const QueueTab: React.FC = () => {
   };
 
   const filteredTasks = tasks.filter(task => {
+    if (task.type === 'avatar_youtube') return false;
     if (queueStatusFilter !== 'all') {
       if (queueStatusFilter === 'active' && !['pending', 'processing'].includes(task.status)) return false;
       if (queueStatusFilter === 'scheduled' && task.publishing_status !== 'scheduled') return false;

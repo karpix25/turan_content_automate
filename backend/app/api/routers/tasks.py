@@ -14,8 +14,8 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 @router.post("/{telegram_id}")
 def create_task(telegram_id: str, payload: schemas.VideoTaskCreate, db: Session = Depends(get_db)):
     user = get_or_create_user(db, telegram_id)
-    publish_at = normalize_utc_naive(payload.publish_at)
     source_url = normalize_source_url(payload.source_url, payload.type)
+    publish_at = None if payload.type == "avatar_youtube" else normalize_utc_naive(payload.publish_at)
 
     if payload.type == "youtube":
         validate_youtube_url(source_url)
