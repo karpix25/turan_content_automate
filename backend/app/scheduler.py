@@ -210,7 +210,17 @@ def sync_publication_task(task_id: int, force_now: bool = False):
         post_at = _normalize_post_at(task.publish_at, force_now)
         target_platform = (getattr(task, "target_platform", "") or "").lower()
 
-        content = f"Auto content from Content Studio\nSource: {task.source_url}"
+        missing_description_account_ids = [
+            account_id for account_id in account_ids if account_id not in content_by_account
+        ]
+        if missing_description_account_ids:
+            logger.warning(
+                "Task %s has no publication description for account_ids=%s; publishing without fallback text",
+                task_id,
+                missing_description_account_ids,
+            )
+
+        content = ""
         # Prepare account-specific titles
         title_by_account: dict[int, str] = {}
         vizard_title = (getattr(task, "source_title", None) or "").strip()
