@@ -106,10 +106,20 @@ export const apiClient = {
     const res = await axios.get<ThumbnailReference[]>(`${API_BASE}/thumbnail-references/${telegramId}`);
     return res.data;
   },
+  listVerticalThumbnailReferences: async (telegramId: string) => {
+    const res = await axios.get<ThumbnailReference[]>(`${API_BASE}/vertical-thumbnail-references/${telegramId}`);
+    return res.data;
+  },
   uploadThumbnailReference: async (telegramId: string, file: File) => {
     const formData = new FormData();
     formData.append('file', file);
     const res = await axios.post<ThumbnailReference>(`${API_BASE}/upload/thumbnail-reference/${telegramId}`, formData);
+    return res.data;
+  },
+  uploadVerticalThumbnailReference: async (telegramId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await axios.post<ThumbnailReference>(`${API_BASE}/upload/vertical-thumbnail-reference/${telegramId}`, formData);
     return res.data;
   },
   deleteThumbnailReference: async (telegramId: string, referenceId: number) => {

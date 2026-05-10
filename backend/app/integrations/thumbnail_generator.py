@@ -195,6 +195,9 @@ class ThumbnailGeneratorClient:
         face_path: str | None,
         reference_paths: list[str],
         output_path: str,
+        aspect_ratio: str | None = None,
+        resolution: str | None = None,
+        max_style_references: int | None = None,
     ) -> str | None:
         clean_prompt = (prompt or "").strip()
         if not clean_prompt:
@@ -204,7 +207,8 @@ class ThumbnailGeneratorClient:
         refs = [p for p in reference_paths if p and (os.path.isfile(p) or p.startswith("http://") or p.startswith("https://"))]
         face_url = self._ensure_public_url(face_path, prefix="face")
         ref_urls = []
-        effective_ref_limit = 0 if topic_requires_strict_refs else self.max_style_references
+        style_ref_limit = self.max_style_references if max_style_references is None else max(0, int(max_style_references))
+        effective_ref_limit = 0 if topic_requires_strict_refs else style_ref_limit
         for index, path in enumerate(refs[:effective_ref_limit], start=1):
             maybe_url = self._ensure_public_url(path, prefix=f"ref{index}")
             if maybe_url:
@@ -221,12 +225,15 @@ class ThumbnailGeneratorClient:
             )
             return None
 
-        augmented_prompt = (
-            clean_prompt
-            + "\nВажно: первый референс в input_urls — лицо автора. "
-            + "Сохрани идентичность этого лица (черты, пропорции, узнаваемость), без подмены человека."
-            + "\nВажно: не копируй сюжет/композицию/текст/цифры/логотипы/интерфейсы с референсов буквально."
-            + "\nРеференсы можно использовать только как стиль (свет, цвет, контраст), но смысл и композицию бери из сценарного хука."
+        augmented_prompt = clean_prompt
+        if face_url:
+            augmented_prompt += (
+                "\nВажно: первый референс в input_urls — лицо автора. "
+                "Сохрани идентичность этого лица (черты, пропорции, узнаваемость), без подмены человека."
+            )
+        augmented_prompt += (
+            "\nВажно: не копируй сюжет/композицию/текст/цифры/логотипы/интерфейсы с референсов буквально."
+            "\nРеференсы можно использовать только как стиль (свет, цвет, контраст), но смысл и композицию бери из сценарного хука."
         )
         if topic_requires_strict_refs:
             augmented_prompt += (
@@ -239,8 +246,8 @@ class ThumbnailGeneratorClient:
             "input": {
                 "prompt": augmented_prompt,
                 "input_urls": input_urls,
-                "aspect_ratio": self.aspect_ratio,
-                "resolution": self.resolution,
+                "aspect_ratio": (aspect_ratio or self.aspect_ratio).strip(),
+                "resolution": (resolution or self.resolution).strip(),
             },
         }
         if self.callback_url:

@@ -129,6 +129,10 @@ THUMBNAIL_PROMPT_REVIEW_POLL_SECONDS = max(
     2,
     int(os.getenv("THUMBNAIL_PROMPT_REVIEW_POLL_SECONDS", "5")),
 )
+VERTICAL_THUMBNAIL_INTRO_SECONDS = max(
+    0.1,
+    float(os.getenv("VERTICAL_THUMBNAIL_INTRO_SECONDS", "10")),
+)
 
 
 def _extract_heygen_video_id(value: str | None) -> str | None:
@@ -557,6 +561,100 @@ def process_content_task(task_id: int):
                     "face_path": user.thumbnail_face_path,
                 }
         return thumbnail_prompt, thumbnail_meta
+
+    def _apply_vertical_thumbnail_intro(
+        *,
+        source_video_path: str,
+        clip_title: str | None,
+        clip_index: int,
+    ) -> tuple[str, dict]:
+        clean_title = (clip_title or "").strip()
+        meta: dict = {
+            "status": "skipped",
+            "reason": None,
+            "clip_title": clean_title,
+            "prompt": None,
+            "image_path": None,
+            "intro_duration_seconds": VERTICAL_THUMBNAIL_INTRO_SECONDS,
+            "used_reference_count": 0,
+        }
+        if task.type == "avatar_youtube":
+            meta["reason"] = "avatar_youtube_not_applicable"
+            return source_video_path, meta
+        if not clean_title:
+            meta["reason"] = "clip_title_empty"
+            return source_video_path, meta
+
+        references = (
+            db.query(models.ThumbnailReference)
+            .filter(models.ThumbnailReference.user_id == user.id, models.ThumbnailReference.kind == "vertical")
+            .order_by(models.ThumbnailReference.created_at.desc(), models.ThumbnailReference.id.desc())
+            .all()
+        )
+        reference_paths = []
+        for item in references:
+            resolved = _resolve_media_file_path(item.file_path, media_kind="thumbnails")
+            if resolved:
+                reference_paths.append(resolved)
+            elif item.file_path:
+                reference_paths.append(item.file_path)
+        if not reference_paths:
+            meta["reason"] = "no_vertical_references"
+            return source_video_path, meta
+
+        update_task_status_message(
+            db,
+            task,
+            stage="Обложка 9:16",
+            detail=f"Генерирую вертикальную обложку для клипа {clip_index}.",
+        )
+        try:
+            prompt = llm.generate_vertical_thumbnail_prompt(clean_title)
+        except Exception as prompt_error:
+            logging.exception("Task %s: vertical thumbnail prompt failed: %s", task_id, prompt_error)
+            meta["status"] = "failed"
+            meta["reason"] = "prompt_generation_failed"
+            return source_video_path, meta
+
+        if not prompt:
+            meta["reason"] = "prompt_empty"
+            return source_video_path, meta
+
+        output_dir = os.getenv("OUTPUT_DIR", "./output").strip()
+        os.makedirs(output_dir, exist_ok=True)
+        image_output_path = os.path.join(output_dir, f"vertical_thumbnail_{task_id}_{clip_index}.png")
+        generated_image = thumbnail_generator.generate_thumbnail(
+            prompt=prompt,
+            face_path=None,
+            reference_paths=reference_paths,
+            output_path=image_output_path,
+            aspect_ratio="9:16",
+            max_style_references=int(os.getenv("VERTICAL_THUMBNAIL_MAX_STYLE_REFERENCES", "4")),
+        )
+        meta["prompt"] = prompt
+        meta["used_reference_count"] = len(reference_paths[: int(os.getenv("VERTICAL_THUMBNAIL_MAX_STYLE_REFERENCES", "4"))])
+        if not generated_image:
+            meta["status"] = "failed"
+            meta["reason"] = "generator_failed_or_unconfigured"
+            return source_video_path, meta
+
+        intro_output_path = os.path.join(output_dir, f"vertical_intro_{task_id}_{clip_index}.mp4")
+        intro_video, intro_meta = processor.prepend_image_intro(
+            input_path=source_video_path,
+            image_path=generated_image,
+            output_path=intro_output_path,
+            duration_seconds=VERTICAL_THUMBNAIL_INTRO_SECONDS,
+        )
+        meta = {
+            **meta,
+            **(intro_meta or {}),
+            "prompt": prompt,
+            "image_path": generated_image,
+            "used_reference_count": meta["used_reference_count"],
+        }
+        if intro_video:
+            return intro_video, meta
+        return source_video_path, meta
 
     def _upload_to_yandex_disk_if_needed(rendered_items: List[dict]) -> List[dict]:
         if task.type != "avatar_youtube":
@@ -1212,11 +1310,19 @@ def process_content_task(task_id: int):
         should_sync_outputs = bool(target_account_ids)
         base_source = _get_base_source_label(task.source_url)
         rendered_outputs: List[dict] = []
+        vertical_thumbnail_intro_meta: List[dict] = []
         publish_index = 0
 
         for clip_index, video_path, clip_title in source_items:
             if not video_path:
                 raise Exception("Downloaded video path is empty")
+            if task.vizard_project_id:
+                video_path, vertical_meta = _apply_vertical_thumbnail_intro(
+                    source_video_path=video_path,
+                    clip_title=clip_title,
+                    clip_index=clip_index,
+                )
+                vertical_thumbnail_intro_meta.append({"clip_index": clip_index, **vertical_meta})
 
             video_root, _ = os.path.splitext(video_path)
             clip_used_ending_ids_by_platform: dict[str, set[int]] = {}
@@ -1417,6 +1523,10 @@ def process_content_task(task_id: int):
         task.postmypost_file_id = None
         task.preview_url = None
         task.publishing_status = _resolve_publishing_status(primary_output["publish_at"], should_sync=should_sync_outputs)
+        if vertical_thumbnail_intro_meta:
+            current_meta = dict(task.script_meta or {})
+            current_meta["vertical_thumbnail_intro"] = vertical_thumbnail_intro_meta
+            task.script_meta = current_meta
         if task.type == "avatar_youtube":
             current_meta = dict(task.script_meta or {})
             current_meta["yandex_disk_uploads"] = yandex_uploads_meta

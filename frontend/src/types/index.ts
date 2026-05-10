@@ -72,6 +72,7 @@ export type ThumbnailReference = {
   id: number;
   user_id: number;
   file_path: string;
+  kind?: string;
   created_at: string;
 };
 

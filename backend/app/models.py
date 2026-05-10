@@ -58,6 +58,7 @@ class ThumbnailReference(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
     file_path = Column(String, nullable=False)
+    kind = Column(String, default="horizontal", nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 

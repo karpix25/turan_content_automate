@@ -524,3 +524,99 @@ class LLMClient:
                     f"Композиция: {safe_scene}."
                 )
         return final_prompt
+
+    def generate_vertical_thumbnail_prompt(
+        self,
+        clip_title: str,
+        context_text: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Builds a 9:16 cover prompt for short vertical clips using the Vizard title.
+        """
+        title = re.sub(r"\s+", " ", (clip_title or "")).strip()
+        context = re.sub(r"\s+", " ", (context_text or title)).strip()
+        if not title and not context:
+            return None
+
+        cover_text = title
+        try:
+            adapted = self._complete(
+                [
+                    {
+                        "role": "system",
+                        "content": (
+                            "Ты CTR-копирайтер вертикальных обложек для Shorts/Reels/TikTok. "
+                            "Сожми заголовок в короткий текст на обложку.\n"
+                            "Правила: 2-6 слов, максимум 42 символа, русский язык, без кавычек, "
+                            "без эмодзи, без выдумывания новой темы. Верни только фразу."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Заголовок клипа:\n{title or context}",
+                    },
+                ],
+                temperature=0.55,
+            )
+        except Exception:
+            adapted = None
+
+        clean_adapted = re.sub(r"\s+", " ", (adapted or "")).strip().strip("\"'«»")
+        if clean_adapted:
+            if len(clean_adapted) > 42:
+                clean_adapted = clean_adapted[:42].rsplit(" ", 1)[0].strip()
+            words = clean_adapted.split()
+            if len(words) > 6:
+                clean_adapted = " ".join(words[:6]).strip()
+            cover_text = clean_adapted
+        else:
+            words = title.split()
+            cover_text = " ".join(words[:6]).strip() if words else "Главный момент"
+
+        system_prompt = (
+            "Ты креативный директор вертикальных обложек 9:16 для коротких видео. "
+            "Сделай промт для генератора изображения.\n"
+            "Требования:\n"
+            "- Язык: русский.\n"
+            "- Формат кадра вертикальный 9:16.\n"
+            "- Композиция должна читаться на телефоне: крупный главный объект/герой, сильная эмоция, высокий контраст.\n"
+            "- Текст крупный, 2-6 слов, расположен в верхней или центральной трети, не у краев.\n"
+            "- Визуал строго отражает заголовок клипа, без новой темы.\n"
+            "- Референсы используй только как стиль: цвет, свет, контраст, плотность кадра.\n"
+            "- Не копируй текст, логотипы, интерфейсы и композицию референсов буквально.\n"
+            "- В финальном промте обязательно явно укажи: Текст на обложке: \"...\".\n"
+            "- В финальном промте обязательно явно укажи: Композиция: ...\n"
+            "- Не добавляй технические параметры типа seed, lens, 4k.\n"
+            "- Верни только финальный промт."
+        )
+        user_prompt = (
+            f"Заголовок клипа:\n{title or 'Без заголовка'}\n\n"
+            f"Короткий текст на обложке:\n\"{cover_text or 'Главный момент'}\"\n\n"
+            f"Контекст:\n{context[:1200] or title}"
+        )
+        prompt = self._complete(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.8,
+        )
+        if not prompt:
+            return (
+                "Вертикальная 9:16 обложка для короткого видео: крупный эмоциональный герой, "
+                "контрастный фон, чистая композиция, телефонная читаемость. "
+                f'Текст на обложке: "{cover_text or "Главный момент"}". '
+                f"Композиция: визуально раскрыть заголовок клипа {title or context}."
+            )
+
+        final_prompt = prompt.strip()
+        normalized = re.sub(r"\s+", " ", final_prompt).lower()
+        if cover_text and re.sub(r"\s+", " ", cover_text).lower() not in normalized:
+            if final_prompt and not final_prompt.endswith((".", "!", "?")):
+                final_prompt = f"{final_prompt}."
+            final_prompt = f'{final_prompt} Текст на обложке: "{cover_text}".'
+        if "композиц" not in normalized:
+            if final_prompt and not final_prompt.endswith((".", "!", "?")):
+                final_prompt = f"{final_prompt}."
+            final_prompt = f"{final_prompt} Композиция: вертикальный 9:16 кадр, который визуально раскрывает заголовок клипа."
+        return final_prompt

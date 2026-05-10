@@ -120,6 +120,7 @@ class ThumbnailReferenceOut(BaseModel):
     id: int
     user_id: int
     file_path: str
+    kind: str = "horizontal"
     created_at: datetime.datetime
 
     class Config:

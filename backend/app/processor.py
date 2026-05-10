@@ -399,6 +399,114 @@ class VideoProcessor:
                 logger.error("FFmpeg mux failed for %s: %s", output_path, stderr)
             raise
 
+    def prepend_image_intro(
+        self,
+        *,
+        input_path: str,
+        image_path: str,
+        output_path: str,
+        duration_seconds: float = 10.0,
+    ) -> tuple[str | None, dict]:
+        meta: dict = {
+            "status": "skipped",
+            "reason": None,
+            "image_path": image_path,
+            "duration_seconds": float(duration_seconds),
+        }
+        if not image_path or not os.path.isfile(image_path):
+            meta["reason"] = "image_missing"
+            return None, meta
+        if duration_seconds <= 0:
+            meta["reason"] = "duration_not_positive"
+            return None, meta
+
+        source_probe = self._probe_media(input_path)
+        source_video = self._get_first_stream(source_probe, "video")
+        source_audio = self._get_first_stream(source_probe, "audio")
+        if not source_video:
+            meta["reason"] = "source_video_stream_missing"
+            return None, meta
+
+        target_width = int(source_video.get("width") or 720)
+        target_height = int(source_video.get("height") or 1280)
+        target_fps = self._parse_frame_rate(
+            source_video.get("avg_frame_rate") or source_video.get("r_frame_rate")
+        )
+        target_sample_rate = int((source_audio or {}).get("sample_rate") or 44100)
+        source_duration = float(source_probe.get("format", {}).get("duration") or 0.0)
+        include_audio = bool(source_audio)
+
+        intro_input = ffmpeg.input(image_path, loop=1, t=duration_seconds)
+        intro_v = self._fit_with_padding(
+            intro_input.video,
+            target_width=target_width,
+            target_height=target_height,
+        ).filter("trim", duration=duration_seconds).filter("setpts", "PTS-STARTPTS")
+        if target_fps:
+            intro_v = intro_v.filter("fps", fps=target_fps)
+
+        main_input = ffmpeg.input(input_path)
+        main_v = self._fit_with_padding(
+            main_input.video,
+            target_width=target_width,
+            target_height=target_height,
+        ).filter("setpts", "PTS-STARTPTS")
+        if target_fps:
+            main_v = main_v.filter("fps", fps=target_fps)
+
+        try:
+            if include_audio:
+                intro_a = self._build_silent_audio(duration_seconds, target_sample_rate)
+                main_a = main_input.audio.filter("aresample", target_sample_rate)
+                joined = ffmpeg.concat(intro_v, intro_a, main_v, main_a, v=1, a=1).node
+                out_v = joined[0]
+                out_a = joined[1]
+                (
+                    ffmpeg
+                    .output(
+                        out_v,
+                        out_a,
+                        output_path,
+                        vcodec="libx264",
+                        acodec="aac",
+                        pix_fmt="yuv420p",
+                        movflags="+faststart",
+                        map_metadata="-1",
+                    )
+                    .overwrite_output()
+                    .run(capture_stdout=True, capture_stderr=True)
+                )
+            else:
+                joined = ffmpeg.concat(intro_v, main_v, v=1, a=0).node
+                (
+                    ffmpeg
+                    .output(
+                        joined[0],
+                        output_path,
+                        vcodec="libx264",
+                        pix_fmt="yuv420p",
+                        movflags="+faststart",
+                        map_metadata="-1",
+                    )
+                    .overwrite_output()
+                    .run(capture_stdout=True, capture_stderr=True)
+                )
+        except ffmpeg.Error as exc:
+            stderr = exc.stderr.decode("utf-8", errors="ignore") if getattr(exc, "stderr", None) else ""
+            logger.error("Vertical thumbnail intro failed for %s: %s", output_path, stderr)
+            meta["status"] = "failed"
+            meta["reason"] = "ffmpeg_failed"
+            return None, meta
+
+        if not os.path.isfile(output_path):
+            meta["status"] = "failed"
+            meta["reason"] = "output_missing_after_concat"
+            return None, meta
+
+        meta["status"] = "applied"
+        meta["source_duration_seconds"] = source_duration
+        return output_path, meta
+
     def process_video(self, 
                       input_path: str, 
                       output_path: str, 

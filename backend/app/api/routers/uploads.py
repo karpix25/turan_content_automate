@@ -29,6 +29,30 @@ def _validate_thumbnail_file(file: UploadFile) -> str:
     return safe_name
 
 
+async def _create_thumbnail_reference(
+    *,
+    db: Session,
+    user: models.User,
+    telegram_id: str,
+    file: UploadFile,
+    kind: str,
+    prefix: str,
+) -> models.ThumbnailReference:
+    safe_name = _validate_thumbnail_file(file)
+    uploads_dir = _thumbnail_assets_dir()
+    unique_name = f"{prefix}_{telegram_id}_{datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}_{safe_name}"
+    file_path = os.path.join(uploads_dir, unique_name)
+
+    with open(file_path, "wb") as target:
+        target.write(await file.read())
+
+    item = models.ThumbnailReference(user_id=user.id, file_path=file_path, kind=kind)
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
 def _avatar_inserts_dir() -> str:
     target = (os.getenv("AVATAR_INSERTS_DIR") or "/app/database/media/avatar-inserts").strip()
     os.makedirs(target, exist_ok=True)
@@ -220,19 +244,32 @@ async def upload_thumbnail_reference(
 ):
     ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
-    safe_name = _validate_thumbnail_file(file)
-    uploads_dir = _thumbnail_assets_dir()
-    unique_name = f"ref_{telegram_id}_{datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}_{safe_name}"
-    file_path = os.path.join(uploads_dir, unique_name)
+    return await _create_thumbnail_reference(
+        db=db,
+        user=user,
+        telegram_id=telegram_id,
+        file=file,
+        kind="horizontal",
+        prefix="ref",
+    )
 
-    with open(file_path, "wb") as target:
-        target.write(await file.read())
 
-    item = models.ThumbnailReference(user_id=user.id, file_path=file_path)
-    db.add(item)
-    db.commit()
-    db.refresh(item)
-    return item
+@router.post("/upload/vertical-thumbnail-reference/{telegram_id}", response_model=schemas.ThumbnailReferenceOut)
+async def upload_vertical_thumbnail_reference(
+    telegram_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    return await _create_thumbnail_reference(
+        db=db,
+        user=user,
+        telegram_id=telegram_id,
+        file=file,
+        kind="vertical",
+        prefix="vref",
+    )
 
 
 @router.get("/thumbnail-references/{telegram_id}", response_model=list[schemas.ThumbnailReferenceOut])
@@ -241,7 +278,19 @@ def list_thumbnail_references(telegram_id: str, db: Session = Depends(get_db)):
     user = get_or_create_user(db, telegram_id)
     return (
         db.query(models.ThumbnailReference)
-        .filter(models.ThumbnailReference.user_id == user.id)
+        .filter(models.ThumbnailReference.user_id == user.id, models.ThumbnailReference.kind == "horizontal")
+        .order_by(models.ThumbnailReference.created_at.desc(), models.ThumbnailReference.id.desc())
+        .all()
+    )
+
+
+@router.get("/vertical-thumbnail-references/{telegram_id}", response_model=list[schemas.ThumbnailReferenceOut])
+def list_vertical_thumbnail_references(telegram_id: str, db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    return (
+        db.query(models.ThumbnailReference)
+        .filter(models.ThumbnailReference.user_id == user.id, models.ThumbnailReference.kind == "vertical")
         .order_by(models.ThumbnailReference.created_at.desc(), models.ThumbnailReference.id.desc())
         .all()
     )

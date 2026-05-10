@@ -254,6 +254,14 @@ def init_database() -> None:
         )
         conn.execute(
             text(
+                "ALTER TABLE thumbnail_references ADD COLUMN IF NOT EXISTS kind VARCHAR(32) DEFAULT 'horizontal'"
+            )
+        )
+        conn.execute(
+            text("UPDATE thumbnail_references SET kind = 'horizontal' WHERE kind IS NULL OR kind = ''")
+        )
+        conn.execute(
+            text(
                 "ALTER TABLE user_publish_channels ADD COLUMN IF NOT EXISTS selected_plate_id INTEGER"
             )
         )
