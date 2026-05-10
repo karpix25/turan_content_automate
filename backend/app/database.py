@@ -80,6 +80,11 @@ def init_database() -> None:
         )
         conn.execute(
             text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS vertical_thumbnail_face_path TEXT"
+            )
+        )
+        conn.execute(
+            text(
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_script_duration_minutes INTEGER DEFAULT 5"
             )
         )

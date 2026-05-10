@@ -15,6 +15,7 @@ export type UserSettings = {
     demo_duration_seconds?: number;
   }> | null;
   thumbnail_face_path?: string | null;
+  vertical_thumbnail_face_path?: string | null;
   avatar_script_duration_minutes?: number;
   avatar_insert_start_percent?: number;
   avatar_insert_end_percent?: number;

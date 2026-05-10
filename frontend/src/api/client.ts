@@ -21,6 +21,7 @@ export const apiClient = {
         demo_duration_seconds?: number;
       }> | null;
       thumbnail_face_path: string | null;
+      vertical_thumbnail_face_path: string | null;
       avatar_script_duration_minutes: number;
       avatar_insert_start_percent: number;
       avatar_insert_end_percent: number;
@@ -134,6 +135,16 @@ export const apiClient = {
   },
   deleteThumbnailFace: async (telegramId: string) => {
     const res = await axios.delete(`${API_BASE}/thumbnail-face/${telegramId}`);
+    return res.data;
+  },
+  uploadVerticalThumbnailFace: async (telegramId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await axios.post<{ status: string; file_path: string }>(`${API_BASE}/upload/vertical-thumbnail-face/${telegramId}`, formData);
+    return res.data;
+  },
+  deleteVerticalThumbnailFace: async (telegramId: string) => {
+    const res = await axios.delete(`${API_BASE}/vertical-thumbnail-face/${telegramId}`);
     return res.data;
   },
   listAvatarInsertClips: async (telegramId: string) => {

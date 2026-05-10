@@ -36,15 +36,19 @@ export const SettingsTab: React.FC = () => {
   const [thumbnailReferences, setThumbnailReferences] = useState<ThumbnailReference[]>([]);
   const [verticalThumbnailReferences, setVerticalThumbnailReferences] = useState<ThumbnailReference[]>([]);
   const [thumbnailFacePath, setThumbnailFacePath] = useState<string>('');
+  const [verticalThumbnailFacePath, setVerticalThumbnailFacePath] = useState<string>('');
   const [loadingThumbnailAssets, setLoadingThumbnailAssets] = useState(false);
   const [uploadingThumbnailRef, setUploadingThumbnailRef] = useState(false);
   const [uploadingVerticalThumbnailRef, setUploadingVerticalThumbnailRef] = useState(false);
   const [uploadingThumbnailFace, setUploadingThumbnailFace] = useState(false);
+  const [uploadingVerticalThumbnailFace, setUploadingVerticalThumbnailFace] = useState(false);
   const [deletingThumbnailRefId, setDeletingThumbnailRefId] = useState<number | null>(null);
   const [deletingThumbnailFace, setDeletingThumbnailFace] = useState(false);
+  const [deletingVerticalThumbnailFace, setDeletingVerticalThumbnailFace] = useState(false);
   const thumbnailRefInputRef = useRef<HTMLInputElement>(null);
   const verticalThumbnailRefInputRef = useRef<HTMLInputElement>(null);
   const thumbnailFaceInputRef = useRef<HTMLInputElement>(null);
+  const verticalThumbnailFaceInputRef = useRef<HTMLInputElement>(null);
   const [avatarInsertClips, setAvatarInsertClips] = useState<AvatarInsertClip[]>([]);
   const [loadingAvatarInsertClips, setLoadingAvatarInsertClips] = useState(false);
   const [uploadingAvatarInsertClip, setUploadingAvatarInsertClip] = useState(false);
@@ -67,6 +71,7 @@ export const SettingsTab: React.FC = () => {
         if (data.heygen_avatar_id) setSelectedAvatar(data.heygen_avatar_id);
         if (data.elevenlabs_voice_id) setSelectedVoice(data.elevenlabs_voice_id);
         setThumbnailFacePath(data.thumbnail_face_path || '');
+        setVerticalThumbnailFacePath(data.vertical_thumbnail_face_path || '');
         setAvatarScriptDurationMinutes(data.avatar_script_duration_minutes ?? 5);
         setAvatarInsertStartPercent(data.avatar_insert_start_percent ?? 50);
         setAvatarInsertEndPercent(data.avatar_insert_end_percent ?? 95);
@@ -287,6 +292,34 @@ export const SettingsTab: React.FC = () => {
     }
   };
 
+  const handleUploadVerticalThumbnailFace = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !telegramId) return;
+    setUploadingVerticalThumbnailFace(true);
+    try {
+      const result = await apiClient.uploadVerticalThumbnailFace(telegramId, file);
+      setVerticalThumbnailFacePath(result.file_path || '');
+    } catch (error) {
+      alert('Ошибка загрузки фото лица для 9:16');
+    } finally {
+      setUploadingVerticalThumbnailFace(false);
+      if (verticalThumbnailFaceInputRef.current) verticalThumbnailFaceInputRef.current.value = '';
+    }
+  };
+
+  const handleDeleteVerticalThumbnailFace = async () => {
+    if (!telegramId) return;
+    setDeletingVerticalThumbnailFace(true);
+    try {
+      await apiClient.deleteVerticalThumbnailFace(telegramId);
+      setVerticalThumbnailFacePath('');
+    } catch (error) {
+      alert('Не удалось удалить фото лица для 9:16');
+    } finally {
+      setDeletingVerticalThumbnailFace(false);
+    }
+  };
+
   const clampPercentValue = (value: number) => {
     if (Number.isNaN(value)) return 0;
     return Math.max(0, Math.min(100, Math.round(value)));
@@ -415,6 +448,13 @@ export const SettingsTab: React.FC = () => {
         onChange={handleUploadThumbnailFace}
       />
       <input
+        ref={verticalThumbnailFaceInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        className="hidden"
+        onChange={handleUploadVerticalThumbnailFace}
+      />
+      <input
         ref={avatarInsertInputRef}
         type="file"
         accept="video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-m4v"
@@ -528,7 +568,38 @@ export const SettingsTab: React.FC = () => {
           <h3 className="text-[15px] font-bold text-slate-900">Вертикальные обложки 9:16: референсы</h3>
         </div>
 
-        <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <p className="text-xs font-bold text-slate-700 uppercase tracking-wider">Фото лица 9:16</p>
+              <button
+                onClick={() => verticalThumbnailFaceInputRef.current?.click()}
+                disabled={uploadingVerticalThumbnailFace}
+                className="h-8 px-3 rounded-lg bg-slate-900 text-white text-xs font-bold flex items-center gap-1 disabled:opacity-50"
+              >
+                {uploadingVerticalThumbnailFace ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                Загрузить
+              </button>
+            </div>
+            {verticalThumbnailFacePath ? (
+              <div className="relative aspect-[9/16] max-h-56 rounded-lg overflow-hidden border border-slate-200 bg-white">
+                <img src={getMediaUrl(verticalThumbnailFacePath)} alt="Vertical face reference" className="w-full h-full object-cover" />
+                <button
+                  onClick={handleDeleteVerticalThumbnailFace}
+                  disabled={deletingVerticalThumbnailFace}
+                  className="absolute top-2 right-2 h-8 w-8 rounded-lg bg-black/70 text-white flex items-center justify-center disabled:opacity-50"
+                >
+                  {deletingVerticalThumbnailFace ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                </button>
+              </div>
+            ) : (
+              <div className="h-40 rounded-lg border border-dashed border-slate-300 bg-white flex items-center justify-center text-xs text-slate-500">
+                Фото лица 9:16 не загружено
+              </div>
+            )}
+          </div>
+
+          <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
           <div className="flex items-center justify-between gap-2 mb-2">
             <p className="text-xs font-bold text-slate-700 uppercase tracking-wider">Референсы Shorts/Reels</p>
             <button
@@ -565,8 +636,9 @@ export const SettingsTab: React.FC = () => {
             </div>
           )}
           <p className="text-[11px] text-slate-500 mt-2">
-            Для Vizard-нарезок система берет заголовок клипа, создает 9:16 prompt, генерирует обложку по этим референсам и ставит ее в начало ролика.
+            Для Vizard-нарезок система берет заголовок клипа, фото лица 9:16 и дизайн-референсы, генерирует обложку и ставит ее в начало ролика.
           </p>
+          </div>
         </div>
       </div>
 

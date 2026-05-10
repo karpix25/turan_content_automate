@@ -367,6 +367,52 @@ def delete_thumbnail_face(telegram_id: str, db: Session = Depends(get_db)):
     return {"status": "deleted"}
 
 
+@router.post("/upload/vertical-thumbnail-face/{telegram_id}")
+async def upload_vertical_thumbnail_face(
+    telegram_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    safe_name = _validate_thumbnail_file(file)
+    uploads_dir = _thumbnail_assets_dir()
+    unique_name = f"vface_{telegram_id}_{datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}_{safe_name}"
+    file_path = os.path.join(uploads_dir, unique_name)
+
+    previous_path = user.vertical_thumbnail_face_path
+    with open(file_path, "wb") as target:
+        target.write(await file.read())
+
+    user.vertical_thumbnail_face_path = file_path
+    db.commit()
+
+    if previous_path and previous_path != file_path and os.path.isfile(previous_path):
+        try:
+            os.remove(previous_path)
+        except OSError:
+            logging.warning("Failed to remove previous vertical thumbnail face file: %s", previous_path)
+
+    return {"status": "uploaded", "file_path": file_path}
+
+
+@router.delete("/vertical-thumbnail-face/{telegram_id}")
+def delete_vertical_thumbnail_face(telegram_id: str, db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    previous_path = user.vertical_thumbnail_face_path
+    user.vertical_thumbnail_face_path = None
+    db.commit()
+
+    if previous_path and os.path.isfile(previous_path):
+        try:
+            os.remove(previous_path)
+        except OSError:
+            logging.warning("Failed to remove vertical thumbnail face file: %s", previous_path)
+
+    return {"status": "deleted"}
+
+
 @router.post("/upload/avatar-insert/{telegram_id}", response_model=schemas.AvatarInsertClipOut)
 async def upload_avatar_insert_clip(
     telegram_id: str,

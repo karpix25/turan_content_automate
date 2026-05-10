@@ -577,6 +577,7 @@ def process_content_task(task_id: int):
             "image_path": None,
             "intro_duration_seconds": VERTICAL_THUMBNAIL_INTRO_SECONDS,
             "used_reference_count": 0,
+            "face_path": user.vertical_thumbnail_face_path,
         }
         if task.type == "avatar_youtube":
             meta["reason"] = "avatar_youtube_not_applicable"
@@ -625,7 +626,7 @@ def process_content_task(task_id: int):
         image_output_path = os.path.join(output_dir, f"vertical_thumbnail_{task_id}_{clip_index}.png")
         generated_image = thumbnail_generator.generate_thumbnail(
             prompt=prompt,
-            face_path=None,
+            face_path=user.vertical_thumbnail_face_path,
             reference_paths=reference_paths,
             output_path=image_output_path,
             aspect_ratio="9:16",

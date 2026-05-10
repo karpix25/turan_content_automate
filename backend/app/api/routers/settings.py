@@ -94,6 +94,7 @@ async def get_style_settings(telegram_id: str, db: Session = Depends(get_db)):
         "elevenlabs_voice_id": user.elevenlabs_voice_id,
         "elevenlabs_voice_speeds": user.elevenlabs_voice_speeds or {},
         "thumbnail_face_path": user.thumbnail_face_path,
+        "vertical_thumbnail_face_path": user.vertical_thumbnail_face_path,
         "avatar_script_duration_minutes": user.avatar_script_duration_minutes,
         "avatar_insert_start_percent": user.avatar_insert_start_percent,
         "avatar_insert_end_percent": user.avatar_insert_end_percent,
