@@ -212,6 +212,8 @@ class LLMClient:
         target_chars: int,
         min_chars: int,
         max_chars: int,
+        voice_chars_per_second: Optional[float] = None,
+        target_duration_seconds: Optional[float] = None,
     ) -> Optional[str]:
         """
         Rewrites a Reel into a HeyGen-ready avatar script that mirrors the original short.
@@ -220,6 +222,14 @@ class LLMClient:
         if not source:
             return None
 
+        voice_speed_line = ""
+        if voice_chars_per_second and voice_chars_per_second > 0 and target_duration_seconds and target_duration_seconds > 0:
+            voice_speed_line = (
+                f"Озвучка будет выбранным ElevenLabs-голосом со скоростью примерно "
+                f"{voice_chars_per_second:.2f} символов/сек. "
+                f"Целевая длительность озвучки: около {target_duration_seconds:.1f} сек.\n"
+            )
+
         system_prompt = (
             "Ты сценарист Reels/Shorts и редактор аватарных видео. "
             "Перепиши очищенный транскрипт в финальный сценарий для HeyGen-аватара.\n"
@@ -227,6 +237,7 @@ class LLMClient:
             "Хук: используй такой же хук, если он сильный; если можно усилить без смены смысла, сделай лучше и резче.\n"
             "Длина: финальный текст должен быть примерно на 10% короче очищенного оригинала.\n"
             f"Цель: около {target_chars} символов с пробелами. Диапазон: {min_chars}-{max_chars} символов.\n"
+            f"{voice_speed_line}"
             "Запрещено добавлять CTA, рекламу, подпишись/лайк/комментарий/директ/ссылка/сохрани/репост.\n"
             "Не растягивай в YouTube-сценарий, не добавляй главы, не объясняй тему шире оригинала.\n"
             "Пиши естественно для русской озвучки: короткие фразы, живой темп, без канцелярита.\n"

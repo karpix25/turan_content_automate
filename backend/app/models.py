@@ -35,7 +35,7 @@ class User(Base):
     avatar_insert_start_percent = Column(Integer, default=50, nullable=False)
     avatar_insert_end_percent = Column(Integer, default=95, nullable=False)
     avatar_insert_clips_count = Column(Integer, default=2, nullable=False)
-    reels_broll_yandex_dir = Column(String, default="disk:/Broll", nullable=False)
+    reels_broll_yandex_dir = Column(String, default="disk:/", nullable=False)
     reels_broll_start_percent = Column(Integer, default=15, nullable=False)
     reels_broll_end_percent = Column(Integer, default=85, nullable=False)
     reels_broll_clips_count = Column(Integer, default=3, nullable=False)

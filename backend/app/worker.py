@@ -481,7 +481,7 @@ def process_content_task(task_id: int):
         broll_dir = (
             getattr(user, "reels_broll_yandex_dir", None)
             or os.getenv("YANDEX_DISK_BROLL_DIR")
-            or "disk:/Broll"
+            or "disk:/"
         ).strip()
         try:
             source_probe = processor._probe_media(base_video_path)
@@ -1244,6 +1244,11 @@ def process_content_task(task_id: int):
                 target_chars = max(80, int(round(original_char_count * 0.9)))
                 min_chars = max(40, int(round(target_chars * 0.97)))
                 max_chars = max(min_chars + 10, int(round(target_chars * 1.03)))
+                target_duration_seconds = (
+                    round(target_chars / chars_per_second, 2)
+                    if chars_per_second > 0
+                    else None
+                )
                 update_task_status_message(
                     db,
                     task,
@@ -1256,6 +1261,8 @@ def process_content_task(task_id: int):
                     target_chars=target_chars,
                     min_chars=min_chars,
                     max_chars=max_chars,
+                    voice_chars_per_second=chars_per_second or None,
+                    target_duration_seconds=target_duration_seconds,
                 )
                 if not script:
                     raise Exception("Failed to generate short Avatar script")
@@ -1432,6 +1439,7 @@ def process_content_task(task_id: int):
                         "cleaned_transcript": cleaned_reels_transcript,
                         "cleaned_transcript_char_count": count_script_chars(cleaned_reels_transcript),
                         "target_is_10_percent_shorter": True,
+                        "target_duration_seconds_by_voice_speed": target_duration_seconds,
                     }
                 }
             task.script_text = script

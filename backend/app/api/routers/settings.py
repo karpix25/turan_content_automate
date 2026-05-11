@@ -96,7 +96,7 @@ def update_settings(telegram_id: str, settings: schemas.UserSettingsUpdate, db: 
 
     if "reels_broll_yandex_dir" in update_data:
         broll_dir = (update_data.get("reels_broll_yandex_dir") or "").strip()
-        update_data["reels_broll_yandex_dir"] = broll_dir or "disk:/Broll"
+        update_data["reels_broll_yandex_dir"] = broll_dir or "disk:/"
 
     if "reels_broll_coverage_percent" in update_data:
         update_data["reels_broll_coverage_percent"] = normalize_percent(
