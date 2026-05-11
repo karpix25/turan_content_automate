@@ -1493,7 +1493,15 @@ def process_content_task(task_id: int):
             send_avatar_audio_to_telegram(task, audio_output_path, estimated_minutes=estimated_minutes)
             
             # --- HeyGen Video Generation ---
-            avatar_id = (user.heygen_avatar_id or os.getenv("HEYGEN_AVATAR_ID", "788070966a344933a30c6a8581005a30")).strip()
+            avatar_id = (
+                (
+                    user.heygen_vertical_avatar_id
+                    if task.type in SHORT_AVATAR_TASK_TYPES
+                    else user.heygen_avatar_id
+                )
+                or user.heygen_avatar_id
+                or os.getenv("HEYGEN_AVATAR_ID", "788070966a344933a30c6a8581005a30")
+            ).strip()
             update_task_status_message(
                 db,
                 task,

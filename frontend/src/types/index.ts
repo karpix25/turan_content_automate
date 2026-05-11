@@ -8,6 +8,7 @@ export type UserSettings = {
   author_style_profile?: string | null;
   training_source?: string | null;
   heygen_avatar_id?: string | null;
+  heygen_vertical_avatar_id?: string | null;
   elevenlabs_voice_id?: string | null;
   elevenlabs_voice_speeds?: Record<string, {
     chars_per_second?: number;

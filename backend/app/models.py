@@ -27,6 +27,7 @@ class User(Base):
     author_style_profile = Column(String, nullable=True)  # Detailed tone/style analyzed by LLM
     training_source = Column(String, nullable=True)       # YouTube channel link/handle
     heygen_avatar_id = Column(String, nullable=True)
+    heygen_vertical_avatar_id = Column(String, nullable=True)
     elevenlabs_voice_id = Column(String, nullable=True)
     elevenlabs_voice_speeds = Column(JSON, nullable=True)
     thumbnail_face_path = Column(String, nullable=True)

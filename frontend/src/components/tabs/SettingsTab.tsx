@@ -30,6 +30,7 @@ export const SettingsTab: React.FC = () => {
   const [heygenAvatars, setHeygenAvatars] = useState<{id: string, name: string, preview: string}[]>([]);
   const [loadingAvatars, setLoadingAvatars] = useState(false);
   const [selectedAvatar, setSelectedAvatar] = useState<string>('');
+  const [selectedVerticalAvatar, setSelectedVerticalAvatar] = useState<string>('');
   const [selectedVoice, setSelectedVoice] = useState<string>('');
   const [savingSettings, setSavingSettings] = useState(false);
   const [savedSettings, setSavedSettings] = useState(false);
@@ -70,6 +71,7 @@ export const SettingsTab: React.FC = () => {
         setStyleProfile(data.author_style_profile || '');
         setTrainingSource(data.training_source || '');
         if (data.heygen_avatar_id) setSelectedAvatar(data.heygen_avatar_id);
+        if (data.heygen_vertical_avatar_id) setSelectedVerticalAvatar(data.heygen_vertical_avatar_id);
         if (data.elevenlabs_voice_id) setSelectedVoice(data.elevenlabs_voice_id);
         setThumbnailFacePath(data.thumbnail_face_path || '');
         setVerticalThumbnailFacePath(data.vertical_thumbnail_face_path || '');
@@ -156,9 +158,10 @@ export const SettingsTab: React.FC = () => {
             preview: a.preview_image_url || a.preview_video_url || ''
           }));
           setHeygenAvatars(fetchedAvatars);
-          if (fetchedAvatars.length > 0) {
-            setSelectedAvatar(prev => prev || fetchedAvatars[0].id);
-          }
+        if (fetchedAvatars.length > 0) {
+          setSelectedAvatar(prev => prev || fetchedAvatars[0].id);
+          setSelectedVerticalAvatar(prev => prev || fetchedAvatars[0].id);
+        }
         }
       } catch (error) {
         console.error("Failed to load avatars:", error);
@@ -199,6 +202,7 @@ export const SettingsTab: React.FC = () => {
       await apiClient.updateSettings(telegramId, {
         author_style_profile: styleProfile,
         heygen_avatar_id: selectedAvatar,
+        heygen_vertical_avatar_id: selectedVerticalAvatar || selectedAvatar,
         elevenlabs_voice_id: selectedVoice,
         avatar_insert_start_percent: avatarInsertStartPercent,
         avatar_insert_end_percent: avatarInsertEndPercent,
@@ -783,11 +787,10 @@ export const SettingsTab: React.FC = () => {
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {heygenAvatars.map(avatar => (
-              <div 
-                key={avatar.id} 
-                onClick={() => setSelectedAvatar(avatar.id)}
+              <div
+                key={avatar.id}
                 className={`relative cursor-pointer rounded-xl overflow-hidden border-2 transition-all h-32 ${
-                  selectedAvatar === avatar.id ? 'border-[#24a1de] shadow-md' : 'border-transparent opacity-70 hover:opacity-100'
+                  selectedAvatar === avatar.id || selectedVerticalAvatar === avatar.id ? 'border-[#24a1de] shadow-md' : 'border-transparent opacity-70 hover:opacity-100'
                 }`}
               >
                 {avatar.preview && avatar.preview.endsWith('.mp4') ? (
@@ -799,11 +802,36 @@ export const SettingsTab: React.FC = () => {
                   <p className="text-white text-[11px] font-bold leading-tight truncate">{avatar.name}</p>
                   <p className="text-white/60 text-[8px] leading-tight truncate mt-0.5">{avatar.id}</p>
                 </div>
-                {selectedAvatar === avatar.id && (
-                  <div className="absolute top-2 right-2 w-5 h-5 bg-[#24a1de] rounded-full border-2 border-white flex items-center justify-center shadow-sm">
-                    <div className="w-2 h-2 bg-white rounded-full"></div>
-                  </div>
-                )}
+                <div className="absolute top-2 right-2 flex flex-col gap-1">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedAvatar(avatar.id);
+                    }}
+                    className={`px-2 h-6 rounded-md border text-[10px] font-bold shadow-sm ${
+                      selectedAvatar === avatar.id
+                        ? 'bg-[#24a1de] border-white text-white'
+                        : 'bg-white/90 border-white text-slate-700'
+                    }`}
+                  >
+                    YouTube
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedVerticalAvatar(avatar.id);
+                    }}
+                    className={`px-2 h-6 rounded-md border text-[10px] font-bold shadow-sm ${
+                      selectedVerticalAvatar === avatar.id
+                        ? 'bg-emerald-500 border-white text-white'
+                        : 'bg-white/90 border-white text-slate-700'
+                    }`}
+                  >
+                    Shorts
+                  </button>
+                </div>
               </div>
             ))}
           </div>

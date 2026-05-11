@@ -14,6 +14,7 @@ class UserSettingsUpdate(BaseModel):
     selected_plate_id: Optional[int] = None
     plate_start_percent: Optional[int] = None
     heygen_avatar_id: Optional[str] = None
+    heygen_vertical_avatar_id: Optional[str] = None
     elevenlabs_voice_id: Optional[str] = None
     thumbnail_face_path: Optional[str] = None
     vertical_thumbnail_face_path: Optional[str] = None
@@ -158,6 +159,7 @@ class UserSettings(BaseModel):
     author_style_profile: Optional[str] = None
     training_source: Optional[str] = None
     heygen_avatar_id: Optional[str] = None
+    heygen_vertical_avatar_id: Optional[str] = None
     elevenlabs_voice_id: Optional[str] = None
     elevenlabs_voice_speeds: Optional[dict] = None
     thumbnail_face_path: Optional[str] = None
