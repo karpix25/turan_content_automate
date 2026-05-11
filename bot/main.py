@@ -397,9 +397,16 @@ async def handle_link(message: types.Message):
                 "inline_keyboard": [
                     [
                         {
-                            "text": "👤 Shorts Аватар",
+                            "text": "👤 ИИ аватар",
                             "callback_data": f"avatar:shorts:{video_id}",
                             "style": "success",
+                        }
+                    ],
+                    [
+                        {
+                            "text": "📌 Публикация с плашками",
+                            "callback_data": f"publish:shorts:{video_id}",
+                            "style": "primary",
                         }
                     ]
                 ]
@@ -416,9 +423,16 @@ async def handle_link(message: types.Message):
             "inline_keyboard": [
                 [
                     {
-                        "text": "👤 Reels Аватар",
+                        "text": "👤 ИИ аватар",
                         "callback_data": f"avatar:ig:{instagram_reel_shortcode}",
                         "style": "success",
+                    }
+                ],
+                [
+                    {
+                        "text": "📌 Публикация с плашками",
+                        "callback_data": f"publish:ig:{instagram_reel_shortcode}",
+                        "style": "primary",
                     }
                 ]
             ]
@@ -436,7 +450,7 @@ async def handle_link(message: types.Message):
 
 
 
-@dp.callback_query_handler(lambda c: c.data and c.data.startswith(('vizard:', 'avatar:')))
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith(('vizard:', 'avatar:', 'publish:')))
 async def process_choice(callback_query: types.CallbackQuery):
     data = callback_query.data
     parts = data.split(":")
@@ -467,6 +481,30 @@ async def process_choice(callback_query: types.CallbackQuery):
         
         await create_task_in_backend(str(callback_query.from_user.id), url, task_type, status_message)
         
+        try:
+            await callback_query.message.delete()
+        except Exception:
+            pass
+        return
+
+    if service == "publish":
+        if platform == "ig":
+            url = f"https://www.instagram.com/reel/{identifier}/"
+            task_type = "instagram"
+            answer_text = "📌 Запускаю публикацию Reels с плашками..."
+            selected_text = "⏳ Выбрана публикация с плашками\nЭтап: создаю задачу."
+        elif platform == "shorts":
+            url = f"https://www.youtube.com/shorts/{identifier}"
+            task_type = "youtube"
+            answer_text = "📌 Запускаю публикацию Shorts с плашками..."
+            selected_text = "⏳ Выбрана публикация с плашками\nЭтап: создаю задачу."
+        else:
+            return
+
+        await callback_query.answer(answer_text)
+        status_message = await bot.send_message(callback_query.message.chat.id, selected_text)
+        await create_task_in_backend(str(callback_query.from_user.id), url, task_type, status_message)
+
         try:
             await callback_query.message.delete()
         except Exception:
