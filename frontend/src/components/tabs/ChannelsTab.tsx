@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Globe2, Upload, Loader2, Trash2 } from 'lucide-react';
+import { ChevronDown, Globe2, Upload, Loader2, Trash2 } from 'lucide-react';
 import { apiClient } from '../../api/client';
 import { useTelegram } from '../../context/TelegramContext';
 import { PublishAccount, PlateAsset, EndingClip } from '../../types';
@@ -11,6 +11,7 @@ export const ChannelsTab: React.FC = () => {
   const [channelDescriptions, setChannelDescriptions] = useState<Record<number, string>>({});
   const [selectedPlateIdsByAccount, setSelectedPlateIdsByAccount] = useState<Record<number, number[]>>({});
   const [plateStartPercentByAccount, setPlateStartPercentByAccount] = useState<Record<number, number>>({});
+  const [collapsedAccounts, setCollapsedAccounts] = useState<Record<number, boolean>>({});
   const [channelsLoading, setChannelsLoading] = useState(false);
   const [channelsError, setChannelsError] = useState('');
   const [savingChannelSettings, setSavingChannelSettings] = useState(false);
@@ -93,6 +94,13 @@ export const ChannelsTab: React.FC = () => {
     setPublishAccounts(prev => prev.map(acc => 
       acc.account_id === accountId ? { ...acc, enabled: !acc.enabled } : acc
     ));
+  };
+
+  const toggleAccountCollapse = (accountId: number) => {
+    setCollapsedAccounts(prev => ({
+      ...prev,
+      [accountId]: !prev[accountId],
+    }));
   };
 
   const deletePlate = async (plateId: number) => {
@@ -232,6 +240,7 @@ export const ChannelsTab: React.FC = () => {
             const isUploadingPlate = uploadingPlateAccountId === account.account_id;
             const isUploadingEnding = uploadingEndingAccountId === account.account_id;
             const accountEndings = endingClips.filter(e => e.account_id === account.account_id);
+            const isCollapsed = Boolean(collapsedAccounts[account.account_id]);
             const API_BASE = import.meta.env.VITE_API_BASE || '/api';
             
             const getMediaUrl = (path: string) => {
@@ -247,9 +256,21 @@ export const ChannelsTab: React.FC = () => {
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-4 mb-3">
                     <div>
-                      <h4 className="text-[17px] font-bold text-slate-900 leading-tight">
-                        {account.account_name}
-                      </h4>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => toggleAccountCollapse(account.account_id)}
+                          className="h-8 w-8 -ml-1 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900 flex items-center justify-center transition-colors"
+                          aria-label={isCollapsed ? 'Развернуть канал' : 'Свернуть канал'}
+                        >
+                          <ChevronDown
+                            size={18}
+                            className={`transition-transform ${isCollapsed ? '-rotate-90' : 'rotate-0'}`}
+                          />
+                        </button>
+                        <h4 className="text-[17px] font-bold text-slate-900 leading-tight">
+                          {account.account_name}
+                        </h4>
+                      </div>
                       <p className="text-xs text-slate-500 mt-1">
                         Канал: {account.channel_name || 'Неизвестно'} <span className="opacity-50">({account.channel_code})</span>
                       </p>
@@ -262,7 +283,7 @@ export const ChannelsTab: React.FC = () => {
                     </button>
                   </div>
 
-                  {account.enabled && (
+                  {account.enabled && !isCollapsed && (
                     <div className="mt-4 space-y-4 pt-4 border-t border-slate-100">
                       <div>
                         <label className="text-xs font-bold text-[#707579] uppercase tracking-wider mb-2 block">Описание (шаблон поста)</label>
