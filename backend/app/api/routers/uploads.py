@@ -71,6 +71,18 @@ def _set_active_thumbnail_face(user: models.User, file_path: str | None) -> None
     user.vertical_thumbnail_face_path = file_path
 
 
+def _set_active_thumbnail_face_target(user: models.User, file_path: str, target: str | None) -> None:
+    normalized = (target or "both").strip().lower()
+    if normalized in {"youtube", "horizontal", "default", "landscape"}:
+        user.thumbnail_face_path = file_path
+    elif normalized in {"shorts", "reels", "vertical", "portrait", "9:16"}:
+        user.vertical_thumbnail_face_path = file_path
+    elif normalized == "both":
+        _set_active_thumbnail_face(user, file_path)
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported thumbnail face target")
+
+
 async def _create_thumbnail_face_reference(
     *,
     db: Session,
@@ -482,7 +494,12 @@ async def upload_thumbnail_faces(
 
 
 @router.patch("/thumbnail-face-references/{telegram_id}/{reference_id}", response_model=schemas.ThumbnailFaceReferenceOut)
-def activate_thumbnail_face_reference(telegram_id: str, reference_id: int, db: Session = Depends(get_db)):
+def activate_thumbnail_face_reference(
+    telegram_id: str,
+    reference_id: int,
+    payload: schemas.ThumbnailFaceReferenceUpdate | None = None,
+    db: Session = Depends(get_db),
+):
     ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
     reference = (
@@ -492,7 +509,7 @@ def activate_thumbnail_face_reference(telegram_id: str, reference_id: int, db: S
     )
     if not reference:
         raise HTTPException(status_code=404, detail="Thumbnail face reference not found")
-    _set_active_thumbnail_face(user, reference.file_path)
+    _set_active_thumbnail_face_target(user, reference.file_path, payload.target if payload else "both")
     db.commit()
     db.refresh(reference)
     return reference

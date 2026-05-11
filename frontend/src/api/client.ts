@@ -164,8 +164,8 @@ export const apiClient = {
     const res = await axios.post<ThumbnailFaceReference[]>(`${API_BASE}/upload/thumbnail-faces/${telegramId}`, formData);
     return res.data;
   },
-  activateThumbnailFaceReference: async (telegramId: string, referenceId: number) => {
-    const res = await axios.patch<ThumbnailFaceReference>(`${API_BASE}/thumbnail-face-references/${telegramId}/${referenceId}`);
+  activateThumbnailFaceReference: async (telegramId: string, referenceId: number, target = 'both') => {
+    const res = await axios.patch<ThumbnailFaceReference>(`${API_BASE}/thumbnail-face-references/${telegramId}/${referenceId}`, { target });
     return res.data;
   },
   deleteThumbnailFace: async (telegramId: string) => {

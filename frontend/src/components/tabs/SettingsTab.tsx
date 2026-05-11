@@ -283,15 +283,25 @@ export const SettingsTab: React.FC = () => {
     }
   };
 
-  const activateThumbnailFaceReference = async (reference: ThumbnailFaceReference) => {
+  const activateThumbnailFaceReference = async (reference: ThumbnailFaceReference, target: 'horizontal' | 'vertical') => {
     if (!telegramId) return;
-    setThumbnailFacePath(reference.file_path);
-    setVerticalThumbnailFacePath(reference.file_path);
+    const previousHorizontalPath = thumbnailFacePath;
+    const previousVerticalPath = verticalThumbnailFacePath;
+    if (target === 'horizontal') {
+      setThumbnailFacePath(reference.file_path);
+    } else {
+      setVerticalThumbnailFacePath(reference.file_path);
+    }
     try {
-      const updated = await apiClient.activateThumbnailFaceReference(telegramId, reference.id);
-      setThumbnailFacePath(updated.file_path);
-      setVerticalThumbnailFacePath(updated.file_path);
+      const updated = await apiClient.activateThumbnailFaceReference(telegramId, reference.id, target);
+      if (target === 'horizontal') {
+        setThumbnailFacePath(updated.file_path);
+      } else {
+        setVerticalThumbnailFacePath(updated.file_path);
+      }
     } catch (error) {
+      setThumbnailFacePath(previousHorizontalPath);
+      setVerticalThumbnailFacePath(previousVerticalPath);
       alert('Не удалось выбрать референс лица');
     }
   };
@@ -513,15 +523,11 @@ export const SettingsTab: React.FC = () => {
             {thumbnailFaceReferences.length > 0 ? (
               <div className="grid grid-cols-2 gap-2">
                 {thumbnailFaceReferences.map((item) => {
-                  const isActive = item.file_path === thumbnailFacePath || item.file_path === verticalThumbnailFacePath;
+                  const isYoutube = item.file_path === thumbnailFacePath;
+                  const isShorts = item.file_path === verticalThumbnailFacePath;
                   return (
-                    <div key={item.id} className={`relative rounded-lg overflow-hidden border bg-white ${isActive ? 'border-slate-900 ring-2 ring-slate-900/10' : 'border-slate-200'}`}>
-                      <button
-                        onClick={() => activateThumbnailFaceReference(item)}
-                        className="block w-full"
-                      >
-                        <img src={getMediaUrl(item.file_path)} alt={`Face reference ${item.id}`} className="w-full h-24 object-cover" />
-                      </button>
+                    <div key={item.id} className={`relative rounded-lg overflow-hidden border bg-white ${isYoutube || isShorts ? 'border-slate-900 ring-2 ring-slate-900/10' : 'border-slate-200'}`}>
+                      <img src={getMediaUrl(item.file_path)} alt={`Face reference ${item.id}`} className="w-full h-24 object-cover" />
                       <button
                         onClick={() => handleDeleteThumbnailFaceReference(item)}
                         disabled={deletingThumbnailFace}
@@ -529,11 +535,20 @@ export const SettingsTab: React.FC = () => {
                       >
                         {deletingThumbnailFace ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
                       </button>
-                      {isActive && (
-                        <div className="absolute left-1 bottom-1 rounded bg-slate-900 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                          Активный
-                        </div>
-                      )}
+                      <div className="grid grid-cols-2 gap-1 p-1.5">
+                        <button
+                          onClick={() => activateThumbnailFaceReference(item, 'horizontal')}
+                          className={`h-7 rounded-md text-[11px] font-bold ${isYoutube ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'}`}
+                        >
+                          YouTube
+                        </button>
+                        <button
+                          onClick={() => activateThumbnailFaceReference(item, 'vertical')}
+                          className={`h-7 rounded-md text-[11px] font-bold ${isShorts ? 'bg-[#24a1de] text-white' : 'bg-slate-100 text-slate-600'}`}
+                        >
+                          Shorts
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
