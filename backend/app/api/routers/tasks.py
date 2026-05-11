@@ -190,7 +190,7 @@ def publish_task_now(telegram_id: str, task_id: int, db: Session = Depends(get_d
     if task.type in AVATAR_TASK_TYPES:
         raise HTTPException(
             status_code=400,
-            detail="avatar tasks are not published via PostMyPost; check Yandex.Disk folder disk/Heygen",
+            detail="avatar tasks are not published via PostMyPost; check Yandex.Disk root folder disk:/",
         )
 
     if task.status != "completed":

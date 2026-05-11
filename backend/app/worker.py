@@ -922,20 +922,14 @@ def process_content_task(task_id: int):
         if not yandex_disk.is_configured:
             raise Exception("YANDEX_DISK_TOKEN is not configured for avatar upload")
 
-        created_at = getattr(task, "created_at", None)
-        if isinstance(created_at, datetime.datetime):
-            date_folder = created_at.strftime("%d.%m.%Y")
-        else:
-            date_folder = datetime.datetime.utcnow().strftime("%d.%m.%Y")
-
         update_task_status_message(
             db,
             task,
             stage="Выгрузка",
-            detail=f"Сохраняю видео и обложку в Яндекс.Диск (disk/Heygen/{date_folder}).",
+            detail="Сохраняю видео и обложку в корень Яндекс.Диска (disk:/).",
         )
-        target_root = (os.getenv("YANDEX_DISK_AVATAR_DIR") or "disk:/Heygen").strip()
-        target_dir = f"{target_root.rstrip('/')}/{date_folder}"
+        target_root = (os.getenv("YANDEX_DISK_AVATAR_DIR") or "disk:/").strip()
+        target_dir = target_root.rstrip("/") or "disk:/"
         ensured_dir = yandex_disk.ensure_directory(target_dir)
 
         thumbnail_path = ""
