@@ -25,6 +25,19 @@ PENDING_THUMBNAIL_PROMPT_EDITS: dict[str, int] = {}
 
 SUPPORTED_URL_RE = re.compile(r"(https?://[^\s]+|(?:www\.)?(?:youtube\.com|youtu\.be|instagram\.com|vizard\.ai)/[^\s]+)", re.IGNORECASE)
 
+
+async def remove_inline_keyboard(message: types.Message | None) -> None:
+    if not message:
+        return
+    try:
+        await bot.edit_message_reply_markup(
+            chat_id=message.chat.id,
+            message_id=message.message_id,
+            reply_markup=None,
+        )
+    except Exception:
+        pass
+
 def extract_vizard_project_id(url: str) -> str | None:
     raw = (url or "").strip()
     # Remove https:// if it was accidentally prepended to a pure digit ID
@@ -550,6 +563,7 @@ async def process_thumbnail_prompt_review(callback_query: types.CallbackQuery):
         PENDING_THUMBNAIL_PROMPT_EDITS[user_id] = task_id
         ok = await send_thumbnail_prompt_review_to_backend(user_id, task_id, "edit")
         if ok:
+            await remove_inline_keyboard(callback_query.message)
             task_payload = await fetch_task_from_backend(user_id, task_id)
             current_prompt = extract_thumbnail_review_prompt(task_payload)
             await callback_query.answer("Отправьте новый prompt следующим сообщением")
@@ -578,6 +592,7 @@ async def process_thumbnail_prompt_review(callback_query: types.CallbackQuery):
         await callback_query.answer("Не удалось отправить решение", show_alert=True)
         return
 
+    await remove_inline_keyboard(callback_query.message)
     if action == "approve":
         await callback_query.answer("Prompt approved")
         await bot.send_message(callback_query.message.chat.id, f"✅ Prompt обложки видео #{task_id} подтвержден.")

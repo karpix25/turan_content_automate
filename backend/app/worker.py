@@ -909,15 +909,23 @@ def process_content_task(task_id: int):
             return intro_video, meta
         return source_video_path, meta
 
-    def _apply_short_avatar_vertical_cover(source_video_path: str, script_text: str) -> tuple[str, dict]:
+    def _apply_short_avatar_vertical_cover(
+        source_video_path: str,
+        script_text: str,
+        cover_image_path: str | None = None,
+        cover_prompt: str | None = None,
+    ) -> tuple[str, dict]:
+        existing_cover_path = (cover_image_path or "").strip()
+        existing_prompt = (cover_prompt or "").strip()
         meta: dict = {
             "status": "skipped",
             "reason": None,
-            "prompt": None,
-            "image_path": None,
+            "prompt": existing_prompt or None,
+            "image_path": existing_cover_path or None,
             "intro_duration_seconds": REELS_VERTICAL_COVER_SECONDS,
             "used_reference_count": 0,
             "face_path": user.vertical_thumbnail_face_path,
+            "source": "generated_thumbnail" if existing_cover_path else "generated_vertical_cover",
         }
         if task.type not in SHORT_AVATAR_TASK_TYPES:
             meta["reason"] = "not_short_avatar"
@@ -950,37 +958,48 @@ def process_content_task(task_id: int):
             elif item.file_path:
                 reference_paths.append(item.file_path)
 
-        update_task_status_message(
-            db,
-            task,
-            stage="Обложка 9:16",
-            detail="Генерирую вертикальную обложку для короткого Avatar.",
-        )
-        title = (task.source_title or "Short Avatar").strip()
-        try:
-            prompt = llm.generate_vertical_thumbnail_prompt(title, context_text=script_text)
-        except Exception as prompt_error:
-            logging.exception("Task %s: Reels vertical cover prompt failed: %s", task_id, prompt_error)
-            meta["status"] = "failed"
-            meta["reason"] = "prompt_generation_failed"
-            return source_video_path, meta
-        if not prompt:
-            meta["reason"] = "prompt_empty"
-            return source_video_path, meta
-
         output_dir = os.getenv("OUTPUT_DIR", "./output").strip()
         os.makedirs(output_dir, exist_ok=True)
-        image_output_path = os.path.join(output_dir, f"reels_vertical_cover_{task_id}.png")
         max_refs = int(os.getenv("VERTICAL_THUMBNAIL_MAX_STYLE_REFERENCES", "4"))
-        generated_image = thumbnail_generator.generate_thumbnail(
-            prompt=prompt,
-            face_path=user.vertical_thumbnail_face_path,
-            face_paths=face_paths,
-            reference_paths=reference_paths,
-            output_path=image_output_path,
-            aspect_ratio="9:16",
-            max_style_references=max_refs,
-        )
+        generated_image = existing_cover_path if existing_cover_path and os.path.isfile(existing_cover_path) else None
+        meta["source"] = "generated_thumbnail" if generated_image else "generated_vertical_cover"
+        prompt = existing_prompt or None
+        if generated_image:
+            update_task_status_message(
+                db,
+                task,
+                stage="Обложка 9:16",
+                detail="Использую уже сгенерированную обложку для короткого Avatar.",
+            )
+        else:
+            update_task_status_message(
+                db,
+                task,
+                stage="Обложка 9:16",
+                detail="Генерирую вертикальную обложку для короткого Avatar.",
+            )
+            title = (task.source_title or "Short Avatar").strip()
+            try:
+                prompt = llm.generate_vertical_thumbnail_prompt(title, context_text=script_text)
+            except Exception as prompt_error:
+                logging.exception("Task %s: Reels vertical cover prompt failed: %s", task_id, prompt_error)
+                meta["status"] = "failed"
+                meta["reason"] = "prompt_generation_failed"
+                return source_video_path, meta
+            if not prompt:
+                meta["reason"] = "prompt_empty"
+                return source_video_path, meta
+
+            image_output_path = os.path.join(output_dir, f"reels_vertical_cover_{task_id}.png")
+            generated_image = thumbnail_generator.generate_thumbnail(
+                prompt=prompt,
+                face_path=user.vertical_thumbnail_face_path,
+                face_paths=face_paths,
+                reference_paths=reference_paths,
+                output_path=image_output_path,
+                aspect_ratio="9:16",
+                max_style_references=max_refs,
+            )
         meta["prompt"] = prompt
         meta["used_reference_count"] = len(reference_paths[:max_refs])
         if not generated_image:
@@ -1683,7 +1702,13 @@ def process_content_task(task_id: int):
                 db.commit()
 
             if task.type in SHORT_AVATAR_TASK_TYPES:
-                local_avatar_video, vertical_cover_meta = _apply_short_avatar_vertical_cover(local_avatar_video, script)
+                thumbnail_image_path = str((thumbnail_meta or {}).get("output_path") or "").strip()
+                local_avatar_video, vertical_cover_meta = _apply_short_avatar_vertical_cover(
+                    local_avatar_video,
+                    script,
+                    cover_image_path=thumbnail_image_path,
+                    cover_prompt=thumbnail_prompt,
+                )
                 current_meta = dict(task.script_meta or {})
                 current_meta["short_vertical_cover"] = vertical_cover_meta
                 task.script_meta = current_meta
