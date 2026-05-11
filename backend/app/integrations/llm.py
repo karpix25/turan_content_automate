@@ -179,6 +179,70 @@ class LLMClient:
         
         return self._complete(messages, temperature=0.8)
 
+    def remove_cta_from_transcript(self, transcript: str) -> Optional[str]:
+        """
+        Removes calls to action, ads, sponsor inserts, and self-promo from a short-form transcript.
+        """
+        source = (transcript or "").strip()
+        if not source:
+            return None
+
+        system_prompt = (
+            "Ты редактор коротких видео. Очисти транскрипт от всех призывов к действию и промо.\n"
+            "Удаляй: подпишись, поставь лайк, оставь комментарий, напиши в директ, переходи по ссылке, "
+            "купи, забронируй, регистрируйся, скачай, жми, сохраняй, репостни, промокоды, рекламные и спонсорские вставки, "
+            "саморекламу автора и просьбы о вовлечении.\n"
+            "Сохрани оригинальный смысл, порядок мыслей, хук, факты, тон и разговорную подачу.\n"
+            "Не переписывай текст сильнее, чем нужно для удаления CTA.\n"
+            "Верни только очищенный текст."
+        )
+        user_prompt = f"Очисти этот транскрипт:\n\n{source}"
+        return self._complete(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.25,
+        )
+
+    def rewrite_reels_avatar_script(
+        self,
+        cleaned_transcript: str,
+        style_profile: Optional[str],
+        target_chars: int,
+        min_chars: int,
+        max_chars: int,
+    ) -> Optional[str]:
+        """
+        Rewrites a Reel into a HeyGen-ready avatar script that mirrors the original short.
+        """
+        source = (cleaned_transcript or "").strip()
+        if not source:
+            return None
+
+        system_prompt = (
+            "Ты сценарист Reels/Shorts и редактор аватарных видео. "
+            "Перепиши очищенный транскрипт в финальный сценарий для HeyGen-аватара.\n"
+            "Главная задача: сценарий должен по сути повторять оригинал, сохранять тот же порядок мысли, конфликт и подачу.\n"
+            "Хук: используй такой же хук, если он сильный; если можно усилить без смены смысла, сделай лучше и резче.\n"
+            "Длина: финальный текст должен быть примерно на 10% короче очищенного оригинала.\n"
+            f"Цель: около {target_chars} символов с пробелами. Диапазон: {min_chars}-{max_chars} символов.\n"
+            "Запрещено добавлять CTA, рекламу, подпишись/лайк/комментарий/директ/ссылка/сохрани/репост.\n"
+            "Не растягивай в YouTube-сценарий, не добавляй главы, не объясняй тему шире оригинала.\n"
+            "Пиши естественно для русской озвучки: короткие фразы, живой темп, без канцелярита.\n"
+            "Не выдумывай новых фактов. Не добавляй мета-фразы про видео или сценарий.\n"
+            f"Стиль автора учитывать мягко: {style_profile if style_profile else 'живой, уверенный, разговорный'}\n"
+            "Верни только финальный сценарий."
+        )
+        user_prompt = f"Очищенный транскрипт Reels:\n\n{source}"
+        return self._complete(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.65,
+        )
+
     def humanize_russian_text_by_chars(
         self,
         script: str,
@@ -275,6 +339,7 @@ class LLMClient:
             f"- Keep between {min_words} and {max_words} words.\n"
             "- Do not invent new facts.\n"
             "- Keep it natural and ready for voiceover.\n"
+            "- Do not add calls to action, ads, sponsor mentions, self-promo, subscribe/like/comment/follow fragments.\n"
             "- Preserve stress marks written as one uppercase letter inside Russian words when they are present.\n"
             "- Do not remove stress marks in city names/toponyms, technical terminology and verbs with ambiguous stress.\n"
             f"- Preserve style: {style_profile if style_profile else 'natural professional YouTube delivery'}\n"
@@ -305,6 +370,7 @@ class LLMClient:
             f"- Keep between {min_chars} and {max_chars} characters including spaces.\n"
             "- Do not invent new facts.\n"
             "- Keep it natural and ready for voiceover.\n"
+            "- Do not add calls to action, ads, sponsor mentions, self-promo, subscribe/like/comment/follow fragments.\n"
             "- Preserve stress marks written as one uppercase letter inside Russian words when they are present.\n"
             f"- Preserve style: {style_profile if style_profile else 'natural professional YouTube delivery'}\n"
             "- Return only the edited final script."

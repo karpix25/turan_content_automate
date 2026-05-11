@@ -69,6 +69,41 @@ def update_settings(telegram_id: str, settings: schemas.UserSettingsUpdate, db: 
             raise HTTPException(status_code=400, detail="avatar_insert_clips_count must be between 0 and 20")
         update_data["avatar_insert_clips_count"] = clips_value
 
+    broll_start_percent = update_data.get("reels_broll_start_percent", user.reels_broll_start_percent)
+    broll_end_percent = update_data.get("reels_broll_end_percent", user.reels_broll_end_percent)
+    broll_clips_count = update_data.get("reels_broll_clips_count", user.reels_broll_clips_count)
+    if broll_start_percent is not None:
+        broll_start_percent = normalize_percent(broll_start_percent, field_name="reels_broll_start_percent")
+        if broll_start_percent >= 100:
+            raise HTTPException(status_code=400, detail="reels_broll_start_percent must be below 100")
+        update_data["reels_broll_start_percent"] = broll_start_percent
+    if broll_end_percent is not None:
+        broll_end_percent = normalize_percent(broll_end_percent, field_name="reels_broll_end_percent")
+        if broll_end_percent <= 0:
+            raise HTTPException(status_code=400, detail="reels_broll_end_percent must be above 0")
+        update_data["reels_broll_end_percent"] = broll_end_percent
+    if broll_start_percent is not None and broll_end_percent is not None and broll_end_percent <= broll_start_percent:
+        raise HTTPException(status_code=400, detail="reels_broll_end_percent must be greater than reels_broll_start_percent")
+
+    if broll_clips_count is not None:
+        try:
+            broll_count_value = int(broll_clips_count)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="reels_broll_clips_count must be an integer")
+        if broll_count_value < 0 or broll_count_value > 20:
+            raise HTTPException(status_code=400, detail="reels_broll_clips_count must be between 0 and 20")
+        update_data["reels_broll_clips_count"] = broll_count_value
+
+    if "reels_broll_yandex_dir" in update_data:
+        broll_dir = (update_data.get("reels_broll_yandex_dir") or "").strip()
+        update_data["reels_broll_yandex_dir"] = broll_dir or "disk:/Broll"
+
+    if "reels_broll_coverage_percent" in update_data:
+        update_data["reels_broll_coverage_percent"] = normalize_percent(
+            update_data.get("reels_broll_coverage_percent"),
+            field_name="reels_broll_coverage_percent",
+        )
+
     if "avatar_script_duration_minutes" in update_data:
         try:
             duration_value = int(update_data.get("avatar_script_duration_minutes"))
@@ -99,6 +134,11 @@ async def get_style_settings(telegram_id: str, db: Session = Depends(get_db)):
         "avatar_insert_start_percent": user.avatar_insert_start_percent,
         "avatar_insert_end_percent": user.avatar_insert_end_percent,
         "avatar_insert_clips_count": user.avatar_insert_clips_count,
+        "reels_broll_yandex_dir": user.reels_broll_yandex_dir,
+        "reels_broll_start_percent": user.reels_broll_start_percent,
+        "reels_broll_end_percent": user.reels_broll_end_percent,
+        "reels_broll_clips_count": user.reels_broll_clips_count,
+        "reels_broll_coverage_percent": user.reels_broll_coverage_percent,
         "youtube_description_template": user.youtube_description_template,
     }
 

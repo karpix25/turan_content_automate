@@ -20,6 +20,11 @@ export type UserSettings = {
   avatar_insert_start_percent?: number;
   avatar_insert_end_percent?: number;
   avatar_insert_clips_count?: number;
+  reels_broll_yandex_dir?: string;
+  reels_broll_start_percent?: number;
+  reels_broll_end_percent?: number;
+  reels_broll_clips_count?: number;
+  reels_broll_coverage_percent?: number;
   youtube_description_template?: string | null;
 };
 

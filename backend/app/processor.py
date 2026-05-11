@@ -84,6 +84,9 @@ class VideoProcessor:
         output_path: str,
         seed: Optional[int] = None,
         max_insert_seconds: float = 7.0,
+        min_insert_seconds: float = 0.2,
+        target_total_insert_seconds: Optional[float] = None,
+        preserve_source_audio: bool = False,
     ) -> tuple[str | None, dict]:
         meta: dict = {
             "status": "skipped",
@@ -91,6 +94,8 @@ class VideoProcessor:
             "requested_count": int(max(0, clips_count)),
             "applied_count": 0,
             "window_percent": [int(start_percent), int(end_percent)],
+            "target_total_insert_seconds": target_total_insert_seconds,
+            "preserve_source_audio": preserve_source_audio,
             "insertions": [],
         }
 
@@ -116,7 +121,7 @@ class VideoProcessor:
             source_video.get("avg_frame_rate") or source_video.get("r_frame_rate")
         )
         target_sample_rate = int((source_audio or {}).get("sample_rate") or 44100)
-        include_audio = bool(source_audio)
+        include_audio = bool(source_audio) and not preserve_source_audio
 
         normalized_start = max(0, min(99, int(start_percent)))
         normalized_end = max(1, min(100, int(end_percent)))
@@ -130,6 +135,8 @@ class VideoProcessor:
             meta["reason"] = "insert_window_too_small"
             return None, meta
 
+        max_insert_limit = float(max_insert_seconds)
+        min_insert_limit = max(0.2, float(min_insert_seconds))
         valid_candidates: List[Tuple[str, float]] = []
         for path in insert_paths:
             if not path or not os.path.isfile(path):
@@ -139,9 +146,8 @@ class VideoProcessor:
             except ffmpeg.Error:
                 continue
             duration = float(probe.get("format", {}).get("duration") or 0.0)
-            if duration <= 0.15:
+            if duration < min_insert_limit:
                 continue
-            max_insert_limit = float(max_insert_seconds)
             if max_insert_limit > 0:
                 bounded_duration = min(duration, self._safe_duration(max_insert_limit))
             else:
@@ -159,8 +165,31 @@ class VideoProcessor:
             meta["reason"] = "no_selected_clips"
             return None, meta
 
+        if target_total_insert_seconds is not None:
+            target_total = max(min_insert_limit, float(target_total_insert_seconds))
+            target_total = min(target_total, window_length * 0.95)
+            selected_count = len(selected)
+            target_per_clip = target_total / max(1, selected_count)
+            if target_per_clip > max_insert_limit and max_insert_limit > 0:
+                selected_count = min(len(valid_candidates), max(1, int(math.ceil(target_total / max_insert_limit))))
+                selected = valid_candidates[:selected_count]
+                target_per_clip = target_total / max(1, len(selected))
+            if target_per_clip < min_insert_limit and selected_count > 1:
+                selected_count = max(1, int(math.floor(target_total / min_insert_limit)))
+                selected = selected[:selected_count]
+                target_per_clip = target_total / max(1, len(selected))
+
+            adjusted: List[Tuple[str, float]] = []
+            for path, available_duration in selected:
+                duration = min(available_duration, target_per_clip)
+                if max_insert_limit > 0:
+                    duration = min(duration, max_insert_limit)
+                duration = max(min_insert_limit, duration)
+                adjusted.append((path, self._safe_duration(duration, minimum=min_insert_limit)))
+            selected = adjusted
+
         max_total_insert_duration = window_length * 0.95
-        min_segment_duration = 0.2
+        min_segment_duration = min_insert_limit
 
         # Keep requested insert count whenever possible and compress segment durations to fit the window.
         if sum(item[1] for item in selected) > max_total_insert_duration:
@@ -289,7 +318,26 @@ class VideoProcessor:
             )
 
         try:
-            if include_audio:
+            if preserve_source_audio and source_audio:
+                joined = ffmpeg.concat(*streams, v=1, a=0).node
+                out_v = joined[0]
+                audio_input = ffmpeg.input(input_path)
+                (
+                    ffmpeg
+                    .output(
+                        out_v,
+                        audio_input.audio,
+                        output_path,
+                        vcodec="libx264",
+                        acodec="aac",
+                        pix_fmt="yuv420p",
+                        movflags="+faststart",
+                        map_metadata="-1",
+                    )
+                    .overwrite_output()
+                    .run(capture_stdout=True, capture_stderr=True)
+                )
+            elif include_audio:
                 joined = ffmpeg.concat(*streams, v=1, a=1).node
                 out_v = joined[0]
                 out_a = joined[1]

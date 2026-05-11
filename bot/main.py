@@ -145,6 +145,24 @@ def is_youtube_shorts_url(url: str) -> bool:
     return "youtube.com" in host and len(path_parts) >= 2 and path_parts[0] == "shorts"
 
 
+def extract_instagram_reel_shortcode(url: str) -> str | None:
+    raw = (url or "").strip()
+    if not raw:
+        return None
+    if not raw.startswith(("http://", "https://")):
+        raw = f"https://{raw}"
+
+    parsed = urlparse(raw)
+    host = parsed.netloc.lower()
+    path_parts = [part for part in parsed.path.split("/") if part]
+    if "instagram.com" not in host or len(path_parts) < 2:
+        return None
+    if path_parts[0].lower() not in {"reel", "reels"}:
+        return None
+    shortcode = path_parts[1].strip()
+    return shortcode if re.fullmatch(r"[A-Za-z0-9_-]+", shortcode) else None
+
+
 async def create_task_in_backend(
     user_id: str,
     url: str,
@@ -342,6 +360,7 @@ async def handle_link(message: types.Message):
     user_id = str(message.from_user.id)
     is_youtube = "youtube.com" in url or "youtu.be" in url
     is_shorts = is_youtube and is_youtube_shorts_url(url)
+    instagram_reel_shortcode = extract_instagram_reel_shortcode(url)
 
     # For long YouTube videos, ask the user for choice.
     if is_youtube and not is_shorts:
@@ -371,6 +390,25 @@ async def handle_link(message: types.Message):
         )
         return
 
+    if task_type == "instagram" and instagram_reel_shortcode:
+        kb = {
+            "inline_keyboard": [
+                [
+                    {
+                        "text": "👤 Reels Аватар",
+                        "callback_data": f"avatar:ig:{instagram_reel_shortcode}",
+                        "style": "success",
+                    }
+                ]
+            ]
+        }
+        await message.reply(
+            "🎞️ Это Instagram Reels. Что вы хотите сделать?",
+            reply_markup=json.dumps(kb),
+            disable_web_page_preview=True,
+        )
+        return
+
     # Automatically process Instagram, YouTube Shorts, and Vizard project links.
     status_message = await message.reply("⏳ Получил ссылку\nЭтап: создаю задачу.")
     await create_task_in_backend(user_id, url, task_type, status_message)
@@ -387,15 +425,22 @@ async def process_choice(callback_query: types.CallbackQuery):
     service, platform, identifier = parts[0], parts[1], parts[2]
     
     if service == "avatar":
-        url = f"https://www.youtube.com/watch?v={identifier}" if platform == "yt" else identifier
-        await callback_query.answer("👤 Запускаю создание сценария с аватаром...")
+        if platform == "ig":
+            url = f"https://www.instagram.com/reel/{identifier}/"
+            task_type = "avatar_instagram"
+            answer_text = "👤 Запускаю Reels Аватар..."
+        else:
+            url = f"https://www.youtube.com/watch?v={identifier}" if platform == "yt" else identifier
+            task_type = "avatar_youtube"
+            answer_text = "👤 Запускаю создание сценария с аватаром..."
+        await callback_query.answer(answer_text)
         
         status_message = await bot.send_message(
             callback_query.message.chat.id,
             "⏳ Выбран Аватар\nЭтап: создаю задачу."
         )
         
-        await create_task_in_backend(str(callback_query.from_user.id), url, "avatar_youtube", status_message)
+        await create_task_in_backend(str(callback_query.from_user.id), url, task_type, status_message)
         
         try:
             await callback_query.message.delete()

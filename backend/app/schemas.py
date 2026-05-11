@@ -21,6 +21,11 @@ class UserSettingsUpdate(BaseModel):
     avatar_insert_start_percent: Optional[int] = None
     avatar_insert_end_percent: Optional[int] = None
     avatar_insert_clips_count: Optional[int] = None
+    reels_broll_yandex_dir: Optional[str] = None
+    reels_broll_start_percent: Optional[int] = None
+    reels_broll_end_percent: Optional[int] = None
+    reels_broll_clips_count: Optional[int] = None
+    reels_broll_coverage_percent: Optional[int] = None
     youtube_description_template: Optional[str] = None
 
     telegram_chat_id: Optional[str] = None
@@ -161,6 +166,11 @@ class UserSettings(BaseModel):
     avatar_insert_start_percent: int
     avatar_insert_end_percent: int
     avatar_insert_clips_count: int
+    reels_broll_yandex_dir: str
+    reels_broll_start_percent: int
+    reels_broll_end_percent: int
+    reels_broll_clips_count: int
+    reels_broll_coverage_percent: int
     youtube_description_template: Optional[str] = None
 
     class Config:

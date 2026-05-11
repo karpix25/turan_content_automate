@@ -162,3 +162,81 @@ class YandexDiskClient:
         if not public_url:
             raise RuntimeError(f"Public URL is empty for '{normalized_remote}'")
         return str(public_url).strip()
+
+    def list_video_files(self, directory_path: str, limit: int = 500) -> list[dict]:
+        if not self.is_configured:
+            raise RuntimeError("YANDEX_DISK_TOKEN is empty")
+
+        normalized_dir = self._normalize_disk_path(directory_path)
+        encoded_path = quote(normalized_dir, safe=":/")
+        fields = "_embedded.items.name,_embedded.items.path,_embedded.items.type,_embedded.items.media_type,_embedded.items.mime_type"
+        response = self._request(
+            "GET",
+            f"/resources?path={encoded_path}&limit={int(limit)}&fields={fields}",
+        )
+        if response.status_code != 200:
+            if response.status_code == 401:
+                raise RuntimeError("Yandex.Disk authorization failed (401). Check YANDEX_DISK_TOKEN.")
+            raise RuntimeError(
+                f"Failed to list Yandex.Disk folder '{normalized_dir}': "
+                f"{response.status_code} {response.text[:300]}"
+            )
+
+        items = (((response.json() or {}).get("_embedded") or {}).get("items") or [])
+        video_exts = {".mp4", ".mov", ".webm", ".mkv", ".m4v", ".mpeg"}
+        result: list[dict] = []
+        for item in items:
+            if not isinstance(item, dict) or item.get("type") != "file":
+                continue
+            path = str(item.get("path") or "").strip()
+            name = str(item.get("name") or os.path.basename(path)).strip()
+            mime_type = str(item.get("mime_type") or "").lower()
+            media_type = str(item.get("media_type") or "").lower()
+            _, ext = os.path.splitext(name.lower())
+            if media_type == "video" or mime_type.startswith("video/") or ext in video_exts:
+                result.append({"path": path, "name": name, "mime_type": mime_type, "media_type": media_type})
+        return result
+
+    def download_file(self, remote_path: str, local_path: str) -> str:
+        if not self.is_configured:
+            raise RuntimeError("YANDEX_DISK_TOKEN is empty")
+
+        normalized_remote = self._normalize_disk_path(remote_path)
+        encoded_path = quote(normalized_remote, safe=":/")
+        get_href_response = self._request("GET", f"/resources/download?path={encoded_path}")
+        if get_href_response.status_code != 200:
+            if get_href_response.status_code == 401:
+                raise RuntimeError("Yandex.Disk authorization failed (401). Check YANDEX_DISK_TOKEN.")
+            raise RuntimeError(
+                f"Failed to get Yandex.Disk download URL for '{normalized_remote}': "
+                f"{get_href_response.status_code} {get_href_response.text[:300]}"
+            )
+
+        href = (get_href_response.json() or {}).get("href")
+        if not href:
+            raise RuntimeError(f"Yandex.Disk download URL is missing for '{normalized_remote}'")
+
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        temp_path = f"{local_path}.part"
+        timeout = httpx.Timeout(
+            connect=min(self.timeout_seconds, 30.0),
+            read=self.upload_timeout_seconds,
+            write=self.upload_timeout_seconds,
+            pool=self.timeout_seconds,
+        )
+        try:
+            with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+                with client.stream("GET", href) as response:
+                    response.raise_for_status()
+                    with open(temp_path, "wb") as output:
+                        for chunk in response.iter_bytes(chunk_size=1024 * 512):
+                            if chunk:
+                                output.write(chunk)
+            os.replace(temp_path, local_path)
+        finally:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+        return local_path

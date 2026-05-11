@@ -57,6 +57,7 @@ export const SettingsTab: React.FC = () => {
   const [avatarInsertStartPercent, setAvatarInsertStartPercent] = useState<number>(50);
   const [avatarInsertEndPercent, setAvatarInsertEndPercent] = useState<number>(95);
   const [avatarInsertClipsCount, setAvatarInsertClipsCount] = useState<number>(2);
+  const [reelsBrollCoveragePercent, setReelsBrollCoveragePercent] = useState<number>(50);
   const [youtubeDescriptionTemplate, setYoutubeDescriptionTemplate] = useState<string>('');
   const [avatarScriptDurationMinutes, setAvatarScriptDurationMinutes] = useState<number>(5);
 
@@ -76,6 +77,7 @@ export const SettingsTab: React.FC = () => {
         setAvatarInsertStartPercent(data.avatar_insert_start_percent ?? 50);
         setAvatarInsertEndPercent(data.avatar_insert_end_percent ?? 95);
         setAvatarInsertClipsCount(data.avatar_insert_clips_count ?? 2);
+        setReelsBrollCoveragePercent(data.reels_broll_coverage_percent ?? 50);
         setYoutubeDescriptionTemplate(data.youtube_description_template || '');
       } catch (error) {
       } finally {
@@ -201,6 +203,7 @@ export const SettingsTab: React.FC = () => {
         avatar_insert_start_percent: avatarInsertStartPercent,
         avatar_insert_end_percent: avatarInsertEndPercent,
         avatar_insert_clips_count: avatarInsertClipsCount,
+        reels_broll_coverage_percent: reelsBrollCoveragePercent,
         avatar_script_duration_minutes: avatarScriptDurationMinutes,
         youtube_description_template: youtubeDescriptionTemplate,
       });
@@ -733,6 +736,31 @@ export const SettingsTab: React.FC = () => {
           )}
           <p className="text-[11px] text-slate-500 mt-2">
             Вставки размещаются автоматически после Remotion: максимально равномерно и с максимальной дистанцией между ними в выбранном диапазоне.
+          </p>
+        </div>
+      </div>
+
+      <div className="tg-card p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Film size={18} className="text-[#24a1de]" />
+          <h3 className="text-[15px] font-bold text-slate-900">Reels B-roll из Яндекс.Диска</h3>
+        </div>
+
+        <div>
+          <label className="text-[11px] text-slate-600 font-semibold">Доля b-roll от видео (%)</label>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={reelsBrollCoveragePercent}
+            onChange={(e) => {
+              const next = clampPercentValue(Number(e.target.value));
+              setReelsBrollCoveragePercent(next);
+            }}
+            className="input-field w-full h-10 mt-1"
+          />
+          <p className="text-[11px] text-slate-500 mt-2">
+            Если видео 10 секунд и стоит 50%, система вставит примерно 5 секунд b-roll. Одна вставка использует один случайный ролик с Яндекс.Диска, длина вставки 2.5-4 сек.
           </p>
         </div>
       </div>

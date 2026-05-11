@@ -105,6 +105,31 @@ def init_database() -> None:
         )
         conn.execute(
             text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS reels_broll_yandex_dir TEXT DEFAULT 'disk:/Broll'"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS reels_broll_start_percent INTEGER DEFAULT 15"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS reels_broll_end_percent INTEGER DEFAULT 85"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS reels_broll_clips_count INTEGER DEFAULT 3"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS reels_broll_coverage_percent INTEGER DEFAULT 50"
+            )
+        )
+        conn.execute(
+            text(
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS youtube_description_template TEXT"
             )
         )
@@ -131,6 +156,21 @@ def init_database() -> None:
         )
         conn.execute(
             text("UPDATE users SET avatar_insert_clips_count = 2 WHERE avatar_insert_clips_count IS NULL")
+        )
+        conn.execute(
+            text("UPDATE users SET reels_broll_yandex_dir = 'disk:/Broll' WHERE reels_broll_yandex_dir IS NULL OR reels_broll_yandex_dir = ''")
+        )
+        conn.execute(
+            text("UPDATE users SET reels_broll_start_percent = 15 WHERE reels_broll_start_percent IS NULL")
+        )
+        conn.execute(
+            text("UPDATE users SET reels_broll_end_percent = 85 WHERE reels_broll_end_percent IS NULL")
+        )
+        conn.execute(
+            text("UPDATE users SET reels_broll_clips_count = 3 WHERE reels_broll_clips_count IS NULL")
+        )
+        conn.execute(
+            text("UPDATE users SET reels_broll_coverage_percent = 50 WHERE reels_broll_coverage_percent IS NULL")
         )
         conn.execute(
             text("UPDATE users SET elevenlabs_voice_speeds = '{}'::jsonb WHERE elevenlabs_voice_speeds IS NULL")
@@ -167,6 +207,36 @@ def init_database() -> None:
         )
         conn.execute(
             text("UPDATE users SET avatar_insert_clips_count = 20 WHERE avatar_insert_clips_count > 20")
+        )
+        conn.execute(
+            text("UPDATE users SET reels_broll_start_percent = 0 WHERE reels_broll_start_percent < 0")
+        )
+        conn.execute(
+            text("UPDATE users SET reels_broll_start_percent = 99 WHERE reels_broll_start_percent > 99")
+        )
+        conn.execute(
+            text("UPDATE users SET reels_broll_end_percent = 1 WHERE reels_broll_end_percent < 1")
+        )
+        conn.execute(
+            text("UPDATE users SET reels_broll_end_percent = 100 WHERE reels_broll_end_percent > 100")
+        )
+        conn.execute(
+            text(
+                "UPDATE users SET reels_broll_end_percent = reels_broll_start_percent + 1 "
+                "WHERE reels_broll_end_percent <= reels_broll_start_percent"
+            )
+        )
+        conn.execute(
+            text("UPDATE users SET reels_broll_clips_count = 0 WHERE reels_broll_clips_count < 0")
+        )
+        conn.execute(
+            text("UPDATE users SET reels_broll_clips_count = 20 WHERE reels_broll_clips_count > 20")
+        )
+        conn.execute(
+            text("UPDATE users SET reels_broll_coverage_percent = 0 WHERE reels_broll_coverage_percent < 0")
+        )
+        conn.execute(
+            text("UPDATE users SET reels_broll_coverage_percent = 100 WHERE reels_broll_coverage_percent > 100")
         )
         conn.execute(
             text("UPDATE users SET plate_start_percent = 0 WHERE plate_start_percent < 0")

@@ -10,12 +10,13 @@ from ..deps import get_db, ensure_admin_access, get_or_create_user, get_user_tas
 from ..utils import normalize_source_url, validate_youtube_url, resolve_output_file_path, normalize_utc_naive
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+AVATAR_TASK_TYPES = {"avatar_youtube", "avatar_instagram"}
 
 @router.post("/{telegram_id}")
 def create_task(telegram_id: str, payload: schemas.VideoTaskCreate, db: Session = Depends(get_db)):
     user = get_or_create_user(db, telegram_id)
     source_url = normalize_source_url(payload.source_url, payload.type)
-    publish_at = None if payload.type == "avatar_youtube" else normalize_utc_naive(payload.publish_at)
+    publish_at = None if payload.type in AVATAR_TASK_TYPES else normalize_utc_naive(payload.publish_at)
 
     if payload.type == "youtube":
         validate_youtube_url(source_url)
@@ -116,10 +117,10 @@ def update_task_schedule(
     user = get_or_create_user(db, telegram_id)
     task = get_user_task_or_404(db, user.id, task_id)
 
-    if task.type == "avatar_youtube":
+    if task.type in AVATAR_TASK_TYPES:
         raise HTTPException(
             status_code=400,
-            detail="avatar_youtube does not use PostMyPost scheduling; file is uploaded to Yandex.Disk automatically",
+            detail="avatar tasks do not use PostMyPost scheduling; file is uploaded to Yandex.Disk automatically",
         )
 
     if task.publishing_status == "published":
@@ -186,10 +187,10 @@ def publish_task_now(telegram_id: str, task_id: int, db: Session = Depends(get_d
     user = get_or_create_user(db, telegram_id)
     task = get_user_task_or_404(db, user.id, task_id)
 
-    if task.type == "avatar_youtube":
+    if task.type in AVATAR_TASK_TYPES:
         raise HTTPException(
             status_code=400,
-            detail="avatar_youtube is not published via PostMyPost; check Yandex.Disk folder disk/Heygen",
+            detail="avatar tasks are not published via PostMyPost; check Yandex.Disk folder disk/Heygen",
         )
 
     if task.status != "completed":

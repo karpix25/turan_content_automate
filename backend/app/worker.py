@@ -6,6 +6,7 @@ import re
 import shutil
 import datetime
 import time
+import math
 from typing import List
 from urllib.parse import urlparse, parse_qs
 from celery import Celery
@@ -21,6 +22,7 @@ from .publish_planner import plan_next_publish_times
 from .telegram_progress import (
     update_task_status_message,
     send_avatar_audio_to_telegram,
+    send_avatar_video_to_telegram,
     send_thumbnail_to_telegram,
     send_thumbnail_prompt_review_to_telegram,
     send_yandex_disk_links_to_telegram,
@@ -104,6 +106,7 @@ rapidapi_yt = RapidAPIYoutubeClient(
 )
 downloader = Downloader(output_dir=(os.getenv("OUTPUT_DIR") or "./output").strip())
 processor = VideoProcessor()
+AVATAR_TASK_TYPES = {"avatar_youtube", "avatar_instagram"}
 AVATAR_SCRIPT_MIN_MINUTES = int(os.getenv("AVATAR_SCRIPT_MIN_MINUTES", "4"))
 AVATAR_SCRIPT_MAX_MINUTES = int(os.getenv("AVATAR_SCRIPT_MAX_MINUTES", "6"))
 AVATAR_SCRIPT_WPM = int(os.getenv("AVATAR_SCRIPT_WORDS_PER_MINUTE", "110"))
@@ -132,6 +135,10 @@ THUMBNAIL_PROMPT_REVIEW_POLL_SECONDS = max(
 VERTICAL_THUMBNAIL_INTRO_SECONDS = max(
     0.1,
     float(os.getenv("VERTICAL_THUMBNAIL_INTRO_SECONDS", "10")),
+)
+REELS_VERTICAL_COVER_SECONDS = max(
+    0.01,
+    min(0.10, float(os.getenv("REELS_VERTICAL_COVER_SECONDS", "0.10"))),
 )
 
 
@@ -302,6 +309,32 @@ def _write_avatar_description_file(task_id: int, description_text: str) -> str |
     return path
 
 
+def _strip_cta_fallback(text: str | None) -> str:
+    content = (text or "").strip()
+    if not content:
+        return ""
+    cta_patterns = [
+        r"\bподпиш\w*\b.*?(?:[.!?…]|$)",
+        r"\bлайк\w*\b.*?(?:[.!?…]|$)",
+        r"\bкоммент\w*\b.*?(?:[.!?…]|$)",
+        r"\bсохран\w*\b.*?(?:[.!?…]|$)",
+        r"\bрепост\w*\b.*?(?:[.!?…]|$)",
+        r"\bдирект\b.*?(?:[.!?…]|$)",
+        r"\bссылк\w*\b.*?(?:[.!?…]|$)",
+        r"\bпромокод\w*\b.*?(?:[.!?…]|$)",
+        r"\bжми\w*\b.*?(?:[.!?…]|$)",
+        r"\bпереход\w*\b.*?(?:[.!?…]|$)",
+        r"\bfollow\b.*?(?:[.!?…]|$)",
+        r"\blike\b.*?(?:[.!?…]|$)",
+        r"\bsubscribe\b.*?(?:[.!?…]|$)",
+        r"\blink in bio\b.*?(?:[.!?…]|$)",
+    ]
+    cleaned = content
+    for pattern in cta_patterns:
+        cleaned = re.sub(pattern, " ", cleaned, flags=re.IGNORECASE | re.UNICODE)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
 def _run_remotion_pipeline(task_id: int, input_video: str, script: str) -> str | None:
     import subprocess
     import json
@@ -439,6 +472,135 @@ def process_content_task(task_id: int):
                     logging.warning("Failed to remove intermediate avatar file after inserts: %s", base_video_path)
             return inserted_path, insert_meta or {"status": "applied"}
         return base_video_path, insert_meta or {"status": "failed", "reason": "unknown"}
+
+    def _create_reels_avatar_broll(base_video_path: str, script_text: str, source_video_path: str | None) -> tuple[str, dict]:
+        coverage_percent = max(0, min(100, int(getattr(user, "reels_broll_coverage_percent", 50) or 0)))
+        start_percent = 0
+        end_percent = 100
+        broll_dir = (
+            getattr(user, "reels_broll_yandex_dir", None)
+            or os.getenv("YANDEX_DISK_BROLL_DIR")
+            or "disk:/Broll"
+        ).strip()
+        try:
+            source_probe = processor._probe_media(base_video_path)
+            source_duration = float(source_probe.get("format", {}).get("duration") or 0.0)
+        except Exception:
+            source_duration = 0.0
+        target_broll_seconds = max(0.0, source_duration * (coverage_percent / 100.0))
+        min_broll_seconds = float(os.getenv("REELS_BROLL_CLIP_MIN_SECONDS", "2.5"))
+        max_broll_seconds = float(os.getenv("REELS_BROLL_CLIP_MAX_SECONDS", "4"))
+        clips_count = int(math.ceil(target_broll_seconds / max_broll_seconds)) if target_broll_seconds > 0 else 0
+        meta = {
+            "status": "skipped",
+            "reason": None,
+            "input_video_path": base_video_path,
+            "source_reel_path": source_video_path,
+            "script_char_count": count_script_chars(script_text),
+            "yandex_dir": broll_dir,
+            "coverage_percent": coverage_percent,
+            "source_duration_sec": round(source_duration, 3) if source_duration else None,
+            "target_broll_seconds": round(target_broll_seconds, 3),
+            "clip_duration_range_sec": [min_broll_seconds, max_broll_seconds],
+            "requested_count": clips_count,
+            "window_percent": [start_percent, end_percent],
+            "selected_files": [],
+        }
+        if task.type != "avatar_instagram":
+            meta["status"] = "skipped"
+            meta["reason"] = "not_reels_avatar"
+            return base_video_path, meta
+        if coverage_percent <= 0 or clips_count <= 0:
+            meta["reason"] = "coverage_percent_is_zero"
+            return base_video_path, meta
+        if source_duration <= 0:
+            meta["reason"] = "source_duration_unavailable"
+            return base_video_path, meta
+        if not yandex_disk.is_configured:
+            meta["reason"] = "yandex_disk_not_configured"
+            return base_video_path, meta
+
+        update_task_status_message(
+            db,
+            task,
+            stage="B-roll",
+            detail="Выбираю случайные b-roll ролики с Яндекс.Диска.",
+        )
+        try:
+            remote_files = yandex_disk.list_video_files(broll_dir)
+        except Exception as list_error:
+            logging.warning("Task %s: failed to list Yandex.Disk b-roll folder: %s", task_id, list_error)
+            meta["status"] = "failed"
+            meta["reason"] = "yandex_list_failed"
+            meta["error"] = str(list_error)
+            return base_video_path, meta
+
+        if not remote_files:
+            meta["reason"] = "no_video_files_in_yandex_dir"
+            return base_video_path, meta
+
+        rnd = random.Random(task_id)
+        rnd.shuffle(remote_files)
+        selected_files = remote_files[: min(clips_count, len(remote_files))]
+        meta["selected_files"] = selected_files
+
+        local_dir = os.path.join(os.getenv("OUTPUT_DIR", "./output").strip(), f"reels_broll_{task_id}")
+        os.makedirs(local_dir, exist_ok=True)
+        local_paths: list[str] = []
+        for index, item in enumerate(selected_files, start=1):
+            remote_path = str(item.get("path") or "").strip()
+            name = os.path.basename(str(item.get("name") or remote_path or f"broll_{index}.mp4"))
+            _, ext = os.path.splitext(name)
+            safe_ext = ext if ext.lower() in {".mp4", ".mov", ".webm", ".mkv", ".m4v", ".mpeg"} else ".mp4"
+            local_path = os.path.join(local_dir, f"broll_{index}{safe_ext}")
+            try:
+                yandex_disk.download_file(remote_path, local_path)
+            except Exception as download_error:
+                logging.warning(
+                    "Task %s: failed to download b-roll file %s: %s",
+                    task_id,
+                    remote_path,
+                    download_error,
+                )
+                continue
+            local_paths.append(local_path)
+
+        if not local_paths:
+            meta["status"] = "failed"
+            meta["reason"] = "all_downloads_failed"
+            return base_video_path, meta
+
+        update_task_status_message(
+            db,
+            task,
+            stage="B-roll",
+            detail=f"Встраиваю b-roll: {len(local_paths)} видео.",
+        )
+        broll_output = os.path.join(
+            os.getenv("OUTPUT_DIR", "./output").strip(),
+            f"reels_broll_inserted_{task_id}.mp4",
+        )
+        broll_path, broll_apply_meta = processor.apply_avatar_insert_clips(
+            input_path=base_video_path,
+            insert_paths=local_paths,
+            start_percent=start_percent,
+            end_percent=end_percent,
+            clips_count=clips_count,
+            output_path=broll_output,
+            seed=task_id,
+            min_insert_seconds=min_broll_seconds,
+            max_insert_seconds=max_broll_seconds,
+            target_total_insert_seconds=target_broll_seconds,
+            preserve_source_audio=True,
+        )
+        meta = {**meta, **(broll_apply_meta or {})}
+        meta["downloaded_paths"] = local_paths
+        if broll_path:
+            meta["status"] = "applied"
+            return broll_path, meta
+        meta["status"] = "failed" if (broll_apply_meta or {}).get("reason") else "skipped"
+        meta["reason"] = (broll_apply_meta or {}).get("reason") or "broll_apply_failed"
+        return base_video_path, meta
 
     def _generate_avatar_thumbnail(
         factual_outline: str,
@@ -579,8 +741,8 @@ def process_content_task(task_id: int):
             "used_reference_count": 0,
             "face_path": user.vertical_thumbnail_face_path,
         }
-        if task.type == "avatar_youtube":
-            meta["reason"] = "avatar_youtube_not_applicable"
+        if task.type in AVATAR_TASK_TYPES:
+            meta["reason"] = "avatar_not_applicable"
             return source_video_path, meta
         if not clean_title:
             meta["reason"] = "clip_title_empty"
@@ -657,11 +819,94 @@ def process_content_task(task_id: int):
             return intro_video, meta
         return source_video_path, meta
 
+    def _apply_reels_avatar_vertical_cover(source_video_path: str, script_text: str) -> tuple[str, dict]:
+        meta: dict = {
+            "status": "skipped",
+            "reason": None,
+            "prompt": None,
+            "image_path": None,
+            "intro_duration_seconds": REELS_VERTICAL_COVER_SECONDS,
+            "used_reference_count": 0,
+            "face_path": user.vertical_thumbnail_face_path,
+        }
+        if task.type != "avatar_instagram":
+            meta["reason"] = "not_reels_avatar"
+            return source_video_path, meta
+
+        references = (
+            db.query(models.ThumbnailReference)
+            .filter(models.ThumbnailReference.user_id == user.id, models.ThumbnailReference.kind == "vertical")
+            .order_by(models.ThumbnailReference.created_at.desc(), models.ThumbnailReference.id.desc())
+            .all()
+        )
+        reference_paths = []
+        for item in references:
+            resolved = _resolve_media_file_path(item.file_path, media_kind="thumbnails")
+            if resolved:
+                reference_paths.append(resolved)
+            elif item.file_path:
+                reference_paths.append(item.file_path)
+
+        update_task_status_message(
+            db,
+            task,
+            stage="Обложка 9:16",
+            detail="Генерирую вертикальную обложку для Reels Avatar.",
+        )
+        title = (task.source_title or "Reels Avatar").strip()
+        try:
+            prompt = llm.generate_vertical_thumbnail_prompt(title, context_text=script_text)
+        except Exception as prompt_error:
+            logging.exception("Task %s: Reels vertical cover prompt failed: %s", task_id, prompt_error)
+            meta["status"] = "failed"
+            meta["reason"] = "prompt_generation_failed"
+            return source_video_path, meta
+        if not prompt:
+            meta["reason"] = "prompt_empty"
+            return source_video_path, meta
+
+        output_dir = os.getenv("OUTPUT_DIR", "./output").strip()
+        os.makedirs(output_dir, exist_ok=True)
+        image_output_path = os.path.join(output_dir, f"reels_vertical_cover_{task_id}.png")
+        max_refs = int(os.getenv("VERTICAL_THUMBNAIL_MAX_STYLE_REFERENCES", "4"))
+        generated_image = thumbnail_generator.generate_thumbnail(
+            prompt=prompt,
+            face_path=user.vertical_thumbnail_face_path,
+            reference_paths=reference_paths,
+            output_path=image_output_path,
+            aspect_ratio="9:16",
+            max_style_references=max_refs,
+        )
+        meta["prompt"] = prompt
+        meta["used_reference_count"] = len(reference_paths[:max_refs])
+        if not generated_image:
+            meta["status"] = "failed"
+            meta["reason"] = "generator_failed_or_unconfigured"
+            return source_video_path, meta
+
+        cover_output_path = os.path.join(output_dir, f"reels_vertical_cover_intro_{task_id}.mp4")
+        cover_video, cover_meta = processor.prepend_image_intro(
+            input_path=source_video_path,
+            image_path=generated_image,
+            output_path=cover_output_path,
+            duration_seconds=REELS_VERTICAL_COVER_SECONDS,
+        )
+        meta = {
+            **meta,
+            **(cover_meta or {}),
+            "prompt": prompt,
+            "image_path": generated_image,
+            "used_reference_count": meta["used_reference_count"],
+        }
+        if cover_video:
+            return cover_video, meta
+        return source_video_path, meta
+
     def _upload_to_yandex_disk_if_needed(rendered_items: List[dict]) -> List[dict]:
-        if task.type != "avatar_youtube":
+        if task.type not in AVATAR_TASK_TYPES:
             return []
         if not yandex_disk.is_configured:
-            raise Exception("YANDEX_DISK_TOKEN is not configured for avatar_youtube upload")
+            raise Exception("YANDEX_DISK_TOKEN is not configured for avatar upload")
 
         created_at = getattr(task, "created_at", None)
         if isinstance(created_at, datetime.datetime):
@@ -864,17 +1109,71 @@ def process_content_task(task_id: int):
             input_videos.append(local_avatar_video)
             input_video_titles.append(task.source_title or f"Avatar Video {task_id}")
 
-        elif task.type == "avatar_youtube":
-            update_task_status_message(db, task, stage="Сценарий", detail="Получаю транскрипт видео.")
-            t_data = scraper.get_youtube_transcript(source_url)
-            transcript = t_data.get("transcript_only_text") if t_data else None
-            source_title = (t_data.get("title") if t_data else None) or task.source_title
-            if source_title and not task.source_title:
-                task.source_title = str(source_title).strip()
-                db.commit()
-            
-            if not transcript:
-                raise Exception("Failed to retrieve transcript for Avatar task")
+        elif task.type in AVATAR_TASK_TYPES:
+            cleaned_reels_transcript = ""
+            local_reel_source = None
+            if task.type == "avatar_instagram":
+                update_task_status_message(db, task, stage="Сценарий", detail="Получаю данные Instagram Reels.")
+                t_data = scraper.get_instagram_details(source_url)
+                caption = ((t_data or {}).get("caption") or "").strip()
+                creator = ((t_data or {}).get("creator") or "").strip()
+                view_count = (t_data or {}).get("view_count")
+                download_url = _normalize_external_url(((t_data or {}).get("download_url") or "").strip())
+                source_title = (task.source_title or "").strip()
+                if not source_title:
+                    source_title = f"Instagram Reel @{creator}" if creator else "Instagram Reel"
+                    task.source_title = source_title
+                    db.commit()
+
+                reel_transcript = ""
+                if download_url and deepgram_client.is_configured:
+                    update_task_status_message(
+                        db,
+                        task,
+                        stage="Сценарий",
+                        detail="Транскрибирую аудио Instagram Reels.",
+                    )
+                    local_reel_source = downloader.download_video(download_url, f"reels_avatar_source_{task_id}")
+                    if local_reel_source:
+                        try:
+                            reel_transcript = (deepgram_client.transcribe_media_text(local_reel_source) or "").strip()
+                        except Exception as transcribe_error:
+                            logging.warning(
+                                "Task %s: Deepgram transcription failed for Instagram Reel: %s",
+                                task_id,
+                                transcribe_error,
+                            )
+
+                if not reel_transcript and not caption:
+                    raise Exception("Failed to retrieve usable text for Instagram Reel")
+                raw_reels_transcript = "\n".join(
+                    part for part in [
+                        f"Transcript: {reel_transcript}" if reel_transcript else "",
+                        f"Caption: {caption}" if caption else "",
+                        f"Creator: @{creator}" if creator else "",
+                        f"Views: {view_count}" if view_count else "",
+                    ]
+                    if part
+                )
+                update_task_status_message(db, task, stage="Сценарий", detail="Удаляю CTA и промо из Reels.")
+                cleaned_reels_transcript = (
+                    llm.remove_cta_from_transcript(raw_reels_transcript)
+                    or _strip_cta_fallback(raw_reels_transcript)
+                ).strip()
+                if not cleaned_reels_transcript:
+                    raise Exception("Failed to clean Instagram Reel transcript")
+                transcript = cleaned_reels_transcript
+            else:
+                update_task_status_message(db, task, stage="Сценарий", detail="Получаю транскрипт видео.")
+                t_data = scraper.get_youtube_transcript(source_url)
+                transcript = t_data.get("transcript_only_text") if t_data else None
+                source_title = (t_data.get("title") if t_data else None) or task.source_title
+                if source_title and not task.source_title:
+                    task.source_title = str(source_title).strip()
+                    db.commit()
+                
+                if not transcript:
+                    raise Exception("Failed to retrieve transcript for Avatar task")
             
             # factual outline
             update_task_status_message(db, task, stage="Сценарий", detail="Выделяю ключевые факты (Gemini 2.5 Pro).")
@@ -884,7 +1183,6 @@ def process_content_task(task_id: int):
             task.factual_outline = outline
             db.commit()
             
-            # rewrite with style
             voice_id = (user.elevenlabs_voice_id or os.getenv("ELEVENLABS_VOICE_ID", "nPczCjzB2oQXqZ4mU67e")).strip()
             voice_speed = get_cached_voice_speed(user, voice_id)
             if not voice_speed:
@@ -895,143 +1193,177 @@ def process_content_task(task_id: int):
                     elevenlabs_client=elevenlabs_client,
                 )
             chars_per_second = float((voice_speed or {}).get("chars_per_second") or 0)
-            target_duration_minutes = int(getattr(user, "avatar_script_duration_minutes", 5) or 5)
-            target_duration_minutes = max(1, min(30, target_duration_minutes))
-            target_chars = int(round(chars_per_second * target_duration_minutes * 60)) if chars_per_second > 0 else None
-            min_chars = int(round(target_chars * 0.92)) if target_chars else None
-            max_chars = int(round(target_chars * 1.08)) if target_chars else None
-
-            update_task_status_message(
-                db,
-                task,
-                stage="Сценарий",
-                detail=(
-                    f"Пишу сценарий в вашем стиле на {target_duration_minutes} мин."
-                    if target_chars
-                    else "Пишу сценарий в вашем стиле на 4-6 минут."
-                ),
-            )
             style_profile = user.author_style_profile
             min_words = AVATAR_SCRIPT_MIN_MINUTES * AVATAR_SCRIPT_WPM
             max_words = AVATAR_SCRIPT_MAX_MINUTES * AVATAR_SCRIPT_WPM
+            target_duration_minutes = int(getattr(user, "avatar_script_duration_minutes", 5) or 5)
+            target_duration_minutes = max(1, min(30, target_duration_minutes))
 
-            structured_source = (
-                "FACTUAL OUTLINE (ключевые смыслы):\n"
-                f"{outline}\n\n"
-                "RAW TRANSCRIPT (оригинальный поток речи, может быть не по порядку):\n"
-                f"{transcript}"
-            )
-            script = llm.rewrite_to_script(
-                structured_source,
-                style_profile,
-                min_minutes=target_duration_minutes if target_chars else AVATAR_SCRIPT_MIN_MINUTES,
-                max_minutes=target_duration_minutes if target_chars else AVATAR_SCRIPT_MAX_MINUTES,
-                words_per_minute=AVATAR_SCRIPT_WPM,
-                target_chars=target_chars,
-                min_chars=min_chars,
-                max_chars=max_chars,
-            )
-            if not script:
-                raise Exception("Failed to generate styled script for Avatar task")
-
-            word_count = llm.estimate_word_count(script)
-            char_count = count_script_chars(script)
-            if target_chars and min_chars and max_chars and (char_count < min_chars or char_count > max_chars):
+            if task.type == "avatar_instagram":
+                original_char_count = count_script_chars(cleaned_reels_transcript)
+                target_chars = max(80, int(round(original_char_count * 0.9)))
+                min_chars = max(40, int(round(target_chars * 0.97)))
+                max_chars = max(min_chars + 10, int(round(target_chars * 1.03)))
                 update_task_status_message(
                     db,
                     task,
                     stage="Сценарий",
-                    detail=f"Подгоняю длину сценария под {target_duration_minutes} мин.",
+                    detail="Повторяю оригинальный Reels на 10% короче и усиливаю хук.",
                 )
-                adjusted_script = llm.adjust_script_length_chars(
-                    script=script,
+                script = llm.rewrite_reels_avatar_script(
+                    cleaned_transcript=cleaned_reels_transcript,
                     style_profile=style_profile,
+                    target_chars=target_chars,
                     min_chars=min_chars,
                     max_chars=max_chars,
                 )
-                if adjusted_script:
-                    script = adjusted_script
-                    word_count = llm.estimate_word_count(script)
-                    char_count = count_script_chars(script)
-            elif not target_chars and (word_count < min_words or word_count > max_words):
-                update_task_status_message(
-                    db,
-                    task,
-                    stage="Сценарий",
-                    detail="Подгоняю длину сценария под 4-6 минут.",
-                )
-                adjusted_script = llm.adjust_script_length(
-                    script=script,
-                    style_profile=style_profile,
-                    min_words=min_words,
-                    max_words=max_words,
-                )
-                if adjusted_script:
-                    script = adjusted_script
-                    word_count = llm.estimate_word_count(script)
-                    char_count = count_script_chars(script)
-
-            # humanize pass (remove AI-like patterns and strengthen opening)
-            update_task_status_message(
-                db,
-                task,
-                stage="Сценарий",
-                detail="Очеловечиваю текст и усиливаю начало.",
-            )
-            if target_chars and min_chars and max_chars:
-                humanized_script = llm.humanize_russian_text_by_chars(
-                    script=script,
-                    style_profile=style_profile,
-                    min_chars=min_chars,
-                    max_chars=max_chars,
-                )
-            else:
-                humanized_script = llm.humanize_russian_text(
-                    script=script,
-                    style_profile=style_profile,
-                    min_words=min_words,
-                    max_words=max_words,
-                )
-            if humanized_script:
-                script = humanized_script
+                if not script:
+                    raise Exception("Failed to generate Reels Avatar script")
                 word_count = llm.estimate_word_count(script)
                 char_count = count_script_chars(script)
+                if char_count < min_chars or char_count > max_chars:
+                    adjusted_script = llm.adjust_script_length_chars(
+                        script=script,
+                        style_profile=style_profile,
+                        min_chars=min_chars,
+                        max_chars=max_chars,
+                    )
+                    if adjusted_script:
+                        script = adjusted_script
+                        word_count = llm.estimate_word_count(script)
+                        char_count = count_script_chars(script)
+            else:
+                target_chars = int(round(chars_per_second * target_duration_minutes * 60)) if chars_per_second > 0 else None
+                min_chars = int(round(target_chars * 0.92)) if target_chars else None
+                max_chars = int(round(target_chars * 1.08)) if target_chars else None
 
-            # final length guard after humanization
-            if target_chars and min_chars and max_chars and (char_count < min_chars or char_count > max_chars):
                 update_task_status_message(
                     db,
                     task,
                     stage="Сценарий",
-                    detail="Финально подгоняю объем после очеловечивания.",
+                    detail=(
+                        f"Пишу сценарий в вашем стиле на {target_duration_minutes} мин."
+                        if target_chars
+                        else "Пишу сценарий в вашем стиле на 4-6 минут."
+                    ),
                 )
-                adjusted_script = llm.adjust_script_length_chars(
-                    script=script,
-                    style_profile=style_profile,
+                structured_source = (
+                    "FACTUAL OUTLINE (ключевые смыслы):\n"
+                    f"{outline}\n\n"
+                    "RAW TRANSCRIPT (оригинальный поток речи, может быть не по порядку):\n"
+                    f"{transcript}"
+                )
+                script = llm.rewrite_to_script(
+                    structured_source,
+                    style_profile,
+                    min_minutes=target_duration_minutes if target_chars else AVATAR_SCRIPT_MIN_MINUTES,
+                    max_minutes=target_duration_minutes if target_chars else AVATAR_SCRIPT_MAX_MINUTES,
+                    words_per_minute=AVATAR_SCRIPT_WPM,
+                    target_chars=target_chars,
                     min_chars=min_chars,
                     max_chars=max_chars,
                 )
-                if adjusted_script:
-                    script = adjusted_script
-                    word_count = llm.estimate_word_count(script)
-                    char_count = count_script_chars(script)
-            elif not target_chars and (word_count < min_words or word_count > max_words):
+                if not script:
+                    raise Exception("Failed to generate styled script for Avatar task")
+
+                word_count = llm.estimate_word_count(script)
+                char_count = count_script_chars(script)
+                if target_chars and min_chars and max_chars and (char_count < min_chars or char_count > max_chars):
+                    update_task_status_message(
+                        db,
+                        task,
+                        stage="Сценарий",
+                        detail=f"Подгоняю длину сценария под {target_duration_minutes} мин.",
+                    )
+                    adjusted_script = llm.adjust_script_length_chars(
+                        script=script,
+                        style_profile=style_profile,
+                        min_chars=min_chars,
+                        max_chars=max_chars,
+                    )
+                    if adjusted_script:
+                        script = adjusted_script
+                        word_count = llm.estimate_word_count(script)
+                        char_count = count_script_chars(script)
+                elif not target_chars and (word_count < min_words or word_count > max_words):
+                    update_task_status_message(
+                        db,
+                        task,
+                        stage="Сценарий",
+                        detail="Подгоняю длину сценария под 4-6 минут.",
+                    )
+                    adjusted_script = llm.adjust_script_length(
+                        script=script,
+                        style_profile=style_profile,
+                        min_words=min_words,
+                        max_words=max_words,
+                    )
+                    if adjusted_script:
+                        script = adjusted_script
+                        word_count = llm.estimate_word_count(script)
+                        char_count = count_script_chars(script)
+
+                # humanize pass (remove AI-like patterns and strengthen opening)
                 update_task_status_message(
                     db,
                     task,
                     stage="Сценарий",
-                    detail="Финально подгоняю объем после очеловечивания.",
+                    detail="Очеловечиваю текст и усиливаю начало.",
                 )
-                adjusted_script = llm.adjust_script_length(
-                    script=script,
-                    style_profile=style_profile,
-                    min_words=min_words,
-                    max_words=max_words,
-                )
-                if adjusted_script:
-                    script = adjusted_script
+                if target_chars and min_chars and max_chars:
+                    humanized_script = llm.humanize_russian_text_by_chars(
+                        script=script,
+                        style_profile=style_profile,
+                        min_chars=min_chars,
+                        max_chars=max_chars,
+                    )
+                else:
+                    humanized_script = llm.humanize_russian_text(
+                        script=script,
+                        style_profile=style_profile,
+                        min_words=min_words,
+                        max_words=max_words,
+                    )
+                if humanized_script:
+                    script = humanized_script
                     word_count = llm.estimate_word_count(script)
                     char_count = count_script_chars(script)
+
+                # final length guard after humanization
+                if target_chars and min_chars and max_chars and (char_count < min_chars or char_count > max_chars):
+                    update_task_status_message(
+                        db,
+                        task,
+                        stage="Сценарий",
+                        detail="Финально подгоняю объем после очеловечивания.",
+                    )
+                    adjusted_script = llm.adjust_script_length_chars(
+                        script=script,
+                        style_profile=style_profile,
+                        min_chars=min_chars,
+                        max_chars=max_chars,
+                    )
+                    if adjusted_script:
+                        script = adjusted_script
+                        word_count = llm.estimate_word_count(script)
+                        char_count = count_script_chars(script)
+                elif not target_chars and (word_count < min_words or word_count > max_words):
+                    update_task_status_message(
+                        db,
+                        task,
+                        stage="Сценарий",
+                        detail="Финально подгоняю объем после очеловечивания.",
+                    )
+                    adjusted_script = llm.adjust_script_length(
+                        script=script,
+                        style_profile=style_profile,
+                        min_words=min_words,
+                        max_words=max_words,
+                    )
+                    if adjusted_script:
+                        script = adjusted_script
+                        word_count = llm.estimate_word_count(script)
+                        char_count = count_script_chars(script)
 
             # faithfulness check
             update_task_status_message(db, task, stage="Сценарий", detail="Проверяю сценарий на соответствие фактам.")
@@ -1053,9 +1385,19 @@ def process_content_task(task_id: int):
             )
             description_txt_path = _write_avatar_description_file(task_id, final_description_text)
             existing_script_meta = dict(task.script_meta or {})
+            reels_avatar_meta = {}
+            if task.type == "avatar_instagram":
+                reels_avatar_meta = {
+                    "reels_avatar": {
+                        "cleaned_transcript": cleaned_reels_transcript,
+                        "cleaned_transcript_char_count": count_script_chars(cleaned_reels_transcript),
+                        "target_is_10_percent_shorter": True,
+                    }
+                }
             task.script_text = script
             task.script_meta = {
                 **(validation or {}),
+                **reels_avatar_meta,
                 "target_minutes": target_duration_minutes,
                 "target_chars": target_chars,
                 "target_chars_range": [min_chars, max_chars] if min_chars and max_chars else None,
@@ -1143,6 +1485,17 @@ def process_content_task(task_id: int):
             local_avatar_video = downloader.download_media(final_video_url, f"heygen_{task_id}")
             if not local_avatar_video:
                 raise Exception("Failed to download final video from HeyGen")
+
+            local_avatar_video, broll_meta = _create_reels_avatar_broll(
+                base_video_path=local_avatar_video,
+                script_text=script,
+                source_video_path=local_reel_source,
+            )
+            if task.type == "avatar_instagram":
+                current_meta = dict(task.script_meta or {})
+                current_meta["broll"] = broll_meta
+                task.script_meta = current_meta
+                db.commit()
                 
             # --- Remotion AI Rendering ---
             update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Remotion (AI)...")
@@ -1161,6 +1514,13 @@ def process_content_task(task_id: int):
             current_meta["avatar_insert_montage"] = insert_meta
             task.script_meta = current_meta
             db.commit()
+
+            if task.type == "avatar_instagram":
+                local_avatar_video, vertical_cover_meta = _apply_reels_avatar_vertical_cover(local_avatar_video, script)
+                current_meta = dict(task.script_meta or {})
+                current_meta["reels_vertical_cover"] = vertical_cover_meta
+                task.script_meta = current_meta
+                db.commit()
                 
             # --- Final Post-Processing (Plates/Endings) ---
             # We treat this video as the 'source' for the final step
@@ -1242,7 +1602,7 @@ def process_content_task(task_id: int):
             raise Exception("No input videos were downloaded")
         update_task_status_message(db, task, stage="Монтаж", detail="Собираю финальные ролики.")
         process_all_clips = bool(task.vizard_project_id)
-        if task.type == "avatar_youtube":
+        if task.type in AVATAR_TASK_TYPES:
             # Avatar flow always has a single HeyGen source clip and must not fan out by clip.
             process_all_clips = False
         if process_all_clips:
@@ -1258,7 +1618,7 @@ def process_content_task(task_id: int):
         subtitles_enabled = False
         ass_path = None
         target_account_ids = [] if task.type == "local_upload" else _get_target_account_ids(db, user.id)
-        if task.type == "avatar_youtube":
+        if task.type in AVATAR_TASK_TYPES:
             target_account_ids = []
         if task.type in {"instagram", "youtube"} and not target_account_ids and not process_all_clips:
             raise Exception(
@@ -1266,7 +1626,7 @@ def process_content_task(task_id: int):
                 "Enable channels in UI or set POSTMYPOST_CHANNEL_IDS."
             )
 
-        if task.type != "avatar_youtube":
+        if task.type not in AVATAR_TASK_TYPES:
             if not target_account_ids and task.target_account_id:
                 target_account_ids = [int(task.target_account_id)]
             elif task.target_account_id and int(task.target_account_id) not in target_account_ids:
@@ -1274,8 +1634,8 @@ def process_content_task(task_id: int):
         target_account_ids = list(dict.fromkeys(target_account_ids))
 
         account_platform_map = _get_account_platform_map(target_account_ids)
-        if task.type == "avatar_youtube":
-            logging.info("Task %s: avatar_youtube skips PostMyPost publication and account fan-out", task_id)
+        if task.type in AVATAR_TASK_TYPES:
+            logging.info("Task %s: avatar skips PostMyPost publication and account fan-out", task_id)
 
         variants_count, account_variant_index = _build_account_variant_plan(
             account_ids=target_account_ids,
@@ -1334,7 +1694,7 @@ def process_content_task(task_id: int):
                     platform_code = account_platform_map.get(account_id, "universal")
                     account_output = f"{video_root}_final_s{slot_idx}_a{account_id}.mp4"
 
-                    if task.type == "avatar_youtube":
+                    if task.type in AVATAR_TASK_TYPES:
                         logging.info(
                             "Task %s: clip=%s account=%s platform=%s slot=%s using Remotion-only output (no plate/CTA overlay)",
                             task_id,
@@ -1433,14 +1793,14 @@ def process_content_task(task_id: int):
                     )
             else:
                 base_output = f"{video_root}_final.mp4"
-                if task.type == "avatar_youtube":
+                if task.type in AVATAR_TASK_TYPES:
                     shutil.copy2(video_path, base_output)
                     rendered_outputs.append(
                         {
                             "output_path": base_output,
                             "publish_at": None,
                             "target_account_id": None,
-                            "target_platform": "youtube",
+                            "target_platform": "instagram" if task.type == "avatar_instagram" else "youtube",
                             "source_title": clip_title,
                             "source_label": _build_source_label(
                                 base_source,
@@ -1528,7 +1888,7 @@ def process_content_task(task_id: int):
             current_meta = dict(task.script_meta or {})
             current_meta["vertical_thumbnail_intro"] = vertical_thumbnail_intro_meta
             task.script_meta = current_meta
-        if task.type == "avatar_youtube":
+        if task.type in AVATAR_TASK_TYPES:
             current_meta = dict(task.script_meta or {})
             current_meta["yandex_disk_uploads"] = yandex_uploads_meta
             if yandex_upload_error:
@@ -1536,8 +1896,20 @@ def process_content_task(task_id: int):
             task.script_meta = current_meta
         db.commit()
         db.refresh(task)
-        if task.type == "avatar_youtube":
+        if task.type in AVATAR_TASK_TYPES:
             send_yandex_disk_links_to_telegram(task, yandex_uploads_meta)
+        if task.type == "avatar_instagram" and task.output_path:
+            update_task_status_message(
+                db,
+                task,
+                stage="Telegram",
+                detail="Отправляю финальный Reels Avatar в Telegram.",
+            )
+            send_avatar_video_to_telegram(
+                task,
+                task.output_path,
+                caption=f"✅ Финальный Reels Avatar готов.\nВидео #{getattr(task, 'id', '-')}",
+            )
         if should_sync_outputs:
             update_task_status_message(
                 db,

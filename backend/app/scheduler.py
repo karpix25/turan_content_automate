@@ -15,6 +15,7 @@ from .worker import celery_app
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+AVATAR_TASK_TYPES = {"avatar_youtube", "avatar_instagram"}
 pmp_client = PostMyPostClient(api_key=os.getenv("POSTMYPOST_API_KEY", ""))
 
 
@@ -182,7 +183,7 @@ def sync_publication_task(task_id: int, force_now: bool = False):
             logger.info(f"Task {task_id} is not completed yet, skipping publication sync")
             return
 
-        if task.type == "avatar_youtube":
+        if task.type in AVATAR_TASK_TYPES:
             task.postmypost_id = None
             task.postmypost_file_id = None
             task.preview_url = None
@@ -190,7 +191,7 @@ def sync_publication_task(task_id: int, force_now: bool = False):
             task.publishing_status = "not_published"
             db.commit()
             logger.info(
-                "Task %s: avatar_youtube skipped PostMyPost sync (saved to Yandex.Disk in worker stage)",
+                "Task %s: avatar skipped PostMyPost sync (saved to Yandex.Disk in worker stage)",
                 task_id,
             )
             return
