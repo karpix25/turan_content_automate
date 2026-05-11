@@ -1551,23 +1551,32 @@ def process_content_task(task_id: int):
                 task.script_meta = current_meta
                 db.commit()
                 
-            # --- Remotion AI Rendering ---
-            update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Remotion (AI)...")
-            remotion_output = _run_remotion_pipeline(task_id, local_avatar_video, script)
-            if remotion_output:
-                local_avatar_video = remotion_output
-                logging.info(f"Task {task_id}: Successfully replaced raw video with Remotion output.")
+            if task.type in SHORT_AVATAR_TASK_TYPES:
+                current_meta = dict(task.script_meta or {})
+                current_meta["remotion"] = {
+                    "status": "skipped",
+                    "reason": "vertical_heygen_avatar_not_needed",
+                }
+                task.script_meta = current_meta
+                db.commit()
             else:
-                raise Exception(
-                    "Remotion rendering failed for avatar_youtube task. "
-                    "Raw HeyGen fallback is disabled by policy."
-                )
+                # --- Remotion AI Rendering ---
+                update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Remotion (AI)...")
+                remotion_output = _run_remotion_pipeline(task_id, local_avatar_video, script)
+                if remotion_output:
+                    local_avatar_video = remotion_output
+                    logging.info(f"Task {task_id}: Successfully replaced raw video with Remotion output.")
+                else:
+                    raise Exception(
+                        "Remotion rendering failed for avatar_youtube task. "
+                        "Raw HeyGen fallback is disabled by policy."
+                    )
 
-            local_avatar_video, insert_meta = _apply_avatar_insert_montage(local_avatar_video)
-            current_meta = dict(task.script_meta or {})
-            current_meta["avatar_insert_montage"] = insert_meta
-            task.script_meta = current_meta
-            db.commit()
+                local_avatar_video, insert_meta = _apply_avatar_insert_montage(local_avatar_video)
+                current_meta = dict(task.script_meta or {})
+                current_meta["avatar_insert_montage"] = insert_meta
+                task.script_meta = current_meta
+                db.commit()
 
             if task.type in SHORT_AVATAR_TASK_TYPES:
                 local_avatar_video, vertical_cover_meta = _apply_short_avatar_vertical_cover(local_avatar_video, script)
