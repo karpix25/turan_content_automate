@@ -608,13 +608,15 @@ def process_content_task(task_id: int):
         script_text: str,
         detail_text: str = "Генерирую обложку YouTube по сценарию и референсам.",
     ) -> tuple[str | None, dict]:
+        is_short_avatar = task.type in SHORT_AVATAR_TASK_TYPES
         thumbnail_prompt = None
         thumbnail_meta: dict = {
             "status": "skipped",
             "reason": "thumbnail_prompt_empty",
             "output_path": None,
             "used_reference_count": 0,
-            "face_path": user.thumbnail_face_path,
+            "face_path": user.vertical_thumbnail_face_path if is_short_avatar else user.thumbnail_face_path,
+            "aspect_ratio": "9:16" if is_short_avatar else "16:9",
         }
         try:
             thumbnail_prompt = llm.generate_youtube_thumbnail_prompt(
@@ -679,7 +681,10 @@ def process_content_task(task_id: int):
 
             references = (
                 db.query(models.ThumbnailReference)
-                .filter(models.ThumbnailReference.user_id == user.id)
+                .filter(
+                    models.ThumbnailReference.user_id == user.id,
+                    models.ThumbnailReference.kind == ("vertical" if is_short_avatar else "horizontal"),
+                )
                 .order_by(models.ThumbnailReference.created_at.desc(), models.ThumbnailReference.id.desc())
                 .all()
             )
@@ -696,9 +701,15 @@ def process_content_task(task_id: int):
             )
             generated_thumbnail = thumbnail_generator.generate_thumbnail(
                 prompt=thumbnail_prompt,
-                face_path=user.thumbnail_face_path,
+                face_path=user.vertical_thumbnail_face_path if is_short_avatar else user.thumbnail_face_path,
                 reference_paths=reference_paths,
                 output_path=thumbnail_output_path,
+                aspect_ratio="9:16" if is_short_avatar else None,
+                max_style_references=(
+                    int(os.getenv("VERTICAL_THUMBNAIL_MAX_STYLE_REFERENCES", "4"))
+                    if is_short_avatar
+                    else None
+                ),
             )
             if generated_thumbnail:
                 thumbnail_meta = {
@@ -706,7 +717,8 @@ def process_content_task(task_id: int):
                     "reason": None,
                     "output_path": generated_thumbnail,
                     "used_reference_count": len(reference_paths[:5]),
-                    "face_path": user.thumbnail_face_path,
+                    "face_path": user.vertical_thumbnail_face_path if is_short_avatar else user.thumbnail_face_path,
+                    "aspect_ratio": "9:16" if is_short_avatar else "16:9",
                 }
                 update_task_status_message(
                     db,
@@ -721,7 +733,8 @@ def process_content_task(task_id: int):
                     "reason": "generator_failed_or_unconfigured",
                     "output_path": None,
                     "used_reference_count": len(reference_paths[:5]),
-                    "face_path": user.thumbnail_face_path,
+                    "face_path": user.vertical_thumbnail_face_path if is_short_avatar else user.thumbnail_face_path,
+                    "aspect_ratio": "9:16" if is_short_avatar else "16:9",
                 }
         return thumbnail_prompt, thumbnail_meta
 
@@ -1493,7 +1506,13 @@ def process_content_task(task_id: int):
                 
             # 2. Generate video
             update_task_status_message(db, task, stage="HeyGen", detail="Генерирую видео с аватаром...")
-            heygen_video_id = asyncio.run(heygen_client.generate_avatar_video(avatar_id, audio_asset_id))
+            heygen_video_id = asyncio.run(
+                heygen_client.generate_avatar_video(
+                    avatar_id,
+                    audio_asset_id,
+                    orientation="vertical" if task.type in SHORT_AVATAR_TASK_TYPES else "horizontal",
+                )
+            )
             if not heygen_video_id:
                 raise Exception("Failed to submit video generation to HeyGen")
                 

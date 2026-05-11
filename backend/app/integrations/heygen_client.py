@@ -45,13 +45,19 @@ class HeyGenClient:
             logger.exception(f"Error uploading asset to HeyGen: {e}")
             return None
 
-    async def generate_avatar_video(self, avatar_id: str, audio_asset_id: str) -> Optional[str]:
+    async def generate_avatar_video(
+        self,
+        avatar_id: str,
+        audio_asset_id: str,
+        orientation: str = "horizontal",
+    ) -> Optional[str]:
         """
         Submits a video generation task to HeyGen v2.
         Returns video_id.
         """
         url = f"{self.base_url}/v2/video/generate"
         
+        is_vertical = (orientation or "").strip().lower() in {"vertical", "portrait", "9:16"}
         payload = {
             "video_inputs": [
                 {
@@ -67,8 +73,8 @@ class HeyGenClient:
                 }
             ],
             "dimension": {
-                "width": 1920,
-                "height": 1080
+                "width": 1080 if is_vertical else 1920,
+                "height": 1920 if is_vertical else 1080
             }
         }
         
