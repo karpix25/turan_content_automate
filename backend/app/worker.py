@@ -1325,7 +1325,7 @@ def process_content_task(task_id: int):
 
             if task.type in SHORT_AVATAR_TASK_TYPES:
                 original_char_count = count_script_chars(cleaned_reels_transcript)
-                target_chars = max(80, int(round(original_char_count * 0.9)))
+                target_chars = max(80, original_char_count)
                 min_chars = max(40, int(round(target_chars * 0.97)))
                 max_chars = max(min_chars + 10, int(round(target_chars * 1.03)))
                 target_duration_seconds = (
@@ -1337,7 +1337,7 @@ def process_content_task(task_id: int):
                     db,
                     task,
                     stage="Сценарий",
-                    detail="Повторяю оригинальный короткий ролик на 10% короче и усиливаю хук.",
+                    detail="Подгоняю сценарий под длительность озвучки и усиливаю хук.",
                 )
                 script = llm.rewrite_reels_avatar_script(
                     cleaned_transcript=cleaned_reels_transcript,
@@ -1522,7 +1522,6 @@ def process_content_task(task_id: int):
                     "short_avatar": {
                         "cleaned_transcript": cleaned_reels_transcript,
                         "cleaned_transcript_char_count": count_script_chars(cleaned_reels_transcript),
-                        "target_is_10_percent_shorter": True,
                         "target_duration_seconds_by_voice_speed": target_duration_seconds,
                     }
                 }
