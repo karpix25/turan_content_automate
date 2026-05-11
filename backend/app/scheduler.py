@@ -41,7 +41,7 @@ def _get_project_id() -> int:
 def _get_enabled_account_ids(db, user_id: int) -> List[int]:
     rows = db.query(models.UserPublishChannel).filter(
         models.UserPublishChannel.user_id == user_id,
-    ).all()
+    ).order_by(models.UserPublishChannel.account_id.asc()).all()
     if rows:
         ids = [item.account_id for item in rows if item.enabled]
         if ids:

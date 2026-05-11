@@ -339,6 +339,19 @@ class PostMyPostClient:
             f"after {int(self.upload_poll_timeout_seconds)}s"
         )
 
+    def _normalize_account_ids(self, account_ids: List[int]) -> List[int]:
+        normalized: List[int] = []
+        seen: set[int] = set()
+        for account_id in account_ids:
+            if account_id is None:
+                continue
+            value = int(account_id)
+            if value in seen:
+                continue
+            normalized.append(value)
+            seen.add(value)
+        return sorted(normalized)
+
     def create_publication(
         self,
         project_id: int,
@@ -351,6 +364,7 @@ class PostMyPostClient:
         publication_type: int = 1,
     ) -> Dict[str, Any]:
         post_at_iso = post_at.astimezone(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        account_ids = self._normalize_account_ids(account_ids)
         content_by_account = content_by_account or {}
         title_by_account = title_by_account or {}
         details: List[Dict[str, Any]] = []
@@ -390,6 +404,7 @@ class PostMyPostClient:
         publication_type: int = 1,
     ) -> Dict[str, Any]:
         post_at_iso = post_at.astimezone(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        account_ids = self._normalize_account_ids(account_ids)
         content_by_account = content_by_account or {}
         title_by_account = title_by_account or {}
         details: List[Dict[str, Any]] = []
