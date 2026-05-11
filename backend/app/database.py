@@ -110,7 +110,7 @@ def init_database() -> None:
         )
         conn.execute(
             text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS reels_broll_yandex_dir TEXT DEFAULT 'disk:/'"
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS reels_broll_yandex_dir TEXT DEFAULT 'disk:/Видео для REELS'"
             )
         )
         conn.execute(
@@ -164,8 +164,10 @@ def init_database() -> None:
         )
         conn.execute(
             text(
-                "UPDATE users SET reels_broll_yandex_dir = 'disk:/' "
-                "WHERE reels_broll_yandex_dir IS NULL OR reels_broll_yandex_dir = '' OR reels_broll_yandex_dir = 'disk:/Broll'"
+                "UPDATE users SET reels_broll_yandex_dir = 'disk:/Видео для REELS' "
+                "WHERE reels_broll_yandex_dir IS NULL "
+                "OR reels_broll_yandex_dir = '' "
+                "OR reels_broll_yandex_dir IN ('disk:/', 'disk:/Broll')"
             )
         )
         conn.execute(

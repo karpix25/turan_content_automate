@@ -509,7 +509,7 @@ def process_content_task(task_id: int):
         broll_dir = (
             getattr(user, "reels_broll_yandex_dir", None)
             or os.getenv("YANDEX_DISK_BROLL_DIR")
-            or "disk:/"
+            or "disk:/Видео для REELS"
         ).strip()
         try:
             source_probe = processor._probe_media(base_video_path)
