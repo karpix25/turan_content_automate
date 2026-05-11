@@ -69,6 +69,14 @@ class ThumbnailReference(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
+class ThumbnailFaceReference(Base):
+    __tablename__ = "thumbnail_face_references"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    file_path = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
 class AvatarInsertClip(Base):
     __tablename__ = "avatar_insert_clips"
     id = Column(Integer, primary_key=True)

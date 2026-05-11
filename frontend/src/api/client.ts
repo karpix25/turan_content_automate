@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { UserSettings, VideoTaskItem, PublishAccount, EndingClip, ThumbnailReference, AvatarInsertClip } from '../types';
+import { UserSettings, VideoTaskItem, PublishAccount, EndingClip, ThumbnailReference, ThumbnailFaceReference, AvatarInsertClip } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
@@ -148,14 +148,32 @@ export const apiClient = {
     const res = await axios.delete(`${API_BASE}/thumbnail-references/${telegramId}/${referenceId}`);
     return res.data;
   },
+  listThumbnailFaceReferences: async (telegramId: string) => {
+    const res = await axios.get<ThumbnailFaceReference[]>(`${API_BASE}/thumbnail-face-references/${telegramId}`);
+    return res.data;
+  },
   uploadThumbnailFace: async (telegramId: string, file: File) => {
     const formData = new FormData();
     formData.append('file', file);
-    const res = await axios.post<{ status: string; file_path: string }>(`${API_BASE}/upload/thumbnail-face/${telegramId}`, formData);
+    const res = await axios.post<ThumbnailFaceReference>(`${API_BASE}/upload/thumbnail-face/${telegramId}`, formData);
+    return res.data;
+  },
+  uploadThumbnailFaces: async (telegramId: string, files: File[]) => {
+    const formData = new FormData();
+    files.forEach((file) => formData.append('files', file));
+    const res = await axios.post<ThumbnailFaceReference[]>(`${API_BASE}/upload/thumbnail-faces/${telegramId}`, formData);
+    return res.data;
+  },
+  activateThumbnailFaceReference: async (telegramId: string, referenceId: number) => {
+    const res = await axios.patch<ThumbnailFaceReference>(`${API_BASE}/thumbnail-face-references/${telegramId}/${referenceId}`);
     return res.data;
   },
   deleteThumbnailFace: async (telegramId: string) => {
     const res = await axios.delete(`${API_BASE}/thumbnail-face/${telegramId}`);
+    return res.data;
+  },
+  deleteThumbnailFaceReference: async (telegramId: string, referenceId: number) => {
+    const res = await axios.delete<{ status: string; reference_id: number; active_face_path?: string | null }>(`${API_BASE}/thumbnail-face-references/${telegramId}/${referenceId}`);
     return res.data;
   },
   uploadVerticalThumbnailFace: async (telegramId: string, file: File) => {

@@ -66,6 +66,43 @@ async def _create_thumbnail_reference(
     return item
 
 
+def _set_active_thumbnail_face(user: models.User, file_path: str | None) -> None:
+    user.thumbnail_face_path = file_path
+    user.vertical_thumbnail_face_path = file_path
+
+
+async def _create_thumbnail_face_reference(
+    *,
+    db: Session,
+    user: models.User,
+    telegram_id: str,
+    file: UploadFile,
+) -> models.ThumbnailFaceReference:
+    safe_name = _validate_thumbnail_file(file)
+    uploads_dir = _thumbnail_assets_dir()
+    unique_name = f"face_{telegram_id}_{datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}_{safe_name}"
+    file_path = os.path.join(uploads_dir, unique_name)
+
+    with open(file_path, "wb") as target:
+        target.write(await file.read())
+
+    item = models.ThumbnailFaceReference(user_id=user.id, file_path=file_path)
+    db.add(item)
+    if not user.thumbnail_face_path and not user.vertical_thumbnail_face_path:
+        _set_active_thumbnail_face(user, file_path)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def _next_thumbnail_face_path(db: Session, user_id: int, exclude_id: int | None = None) -> str | None:
+    query = db.query(models.ThumbnailFaceReference).filter(models.ThumbnailFaceReference.user_id == user_id)
+    if exclude_id is not None:
+        query = query.filter(models.ThumbnailFaceReference.id != exclude_id)
+    item = query.order_by(models.ThumbnailFaceReference.created_at.desc(), models.ThumbnailFaceReference.id.desc()).first()
+    return item.file_path if item else None
+
+
 def _avatar_inserts_dir() -> str:
     target = (os.getenv("AVATAR_INSERTS_DIR") or "/app/database/media/avatar-inserts").strip()
     os.makedirs(target, exist_ok=True)
@@ -394,7 +431,31 @@ def delete_thumbnail_reference(telegram_id: str, reference_id: int, db: Session 
     return {"status": "deleted", "reference_id": reference_id}
 
 
-@router.post("/upload/thumbnail-face/{telegram_id}")
+@router.get("/thumbnail-face-references/{telegram_id}", response_model=list[schemas.ThumbnailFaceReferenceOut])
+def list_thumbnail_face_references(telegram_id: str, db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    if user.thumbnail_face_path:
+        exists = (
+            db.query(models.ThumbnailFaceReference)
+            .filter(
+                models.ThumbnailFaceReference.user_id == user.id,
+                models.ThumbnailFaceReference.file_path == user.thumbnail_face_path,
+            )
+            .first()
+        )
+        if not exists:
+            db.add(models.ThumbnailFaceReference(user_id=user.id, file_path=user.thumbnail_face_path))
+            db.commit()
+    return (
+        db.query(models.ThumbnailFaceReference)
+        .filter(models.ThumbnailFaceReference.user_id == user.id)
+        .order_by(models.ThumbnailFaceReference.created_at.desc(), models.ThumbnailFaceReference.id.desc())
+        .all()
+    )
+
+
+@router.post("/upload/thumbnail-face/{telegram_id}", response_model=schemas.ThumbnailFaceReferenceOut)
 async def upload_thumbnail_face(
     telegram_id: str,
     file: UploadFile = File(...),
@@ -402,41 +463,57 @@ async def upload_thumbnail_face(
 ):
     ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
-    safe_name = _validate_thumbnail_file(file)
-    uploads_dir = _thumbnail_assets_dir()
-    unique_name = f"face_{telegram_id}_{datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}_{safe_name}"
-    file_path = os.path.join(uploads_dir, unique_name)
+    item = await _create_thumbnail_face_reference(db=db, user=user, telegram_id=telegram_id, file=file)
+    return item
 
-    previous_path = user.thumbnail_face_path
-    previous_vertical_path = user.vertical_thumbnail_face_path
-    with open(file_path, "wb") as target:
-        target.write(await file.read())
 
-    user.thumbnail_face_path = file_path
-    user.vertical_thumbnail_face_path = file_path
+@router.post("/upload/thumbnail-faces/{telegram_id}", response_model=list[schemas.ThumbnailFaceReferenceOut])
+async def upload_thumbnail_faces(
+    telegram_id: str,
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    created: list[models.ThumbnailFaceReference] = []
+    for file in files:
+        created.append(await _create_thumbnail_face_reference(db=db, user=user, telegram_id=telegram_id, file=file))
+    return created
+
+
+@router.patch("/thumbnail-face-references/{telegram_id}/{reference_id}", response_model=schemas.ThumbnailFaceReferenceOut)
+def activate_thumbnail_face_reference(telegram_id: str, reference_id: int, db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    reference = (
+        db.query(models.ThumbnailFaceReference)
+        .filter(models.ThumbnailFaceReference.id == reference_id, models.ThumbnailFaceReference.user_id == user.id)
+        .first()
+    )
+    if not reference:
+        raise HTTPException(status_code=404, detail="Thumbnail face reference not found")
+    _set_active_thumbnail_face(user, reference.file_path)
     db.commit()
-
-    for old_path in {previous_path, previous_vertical_path}:
-        if old_path and old_path != file_path and os.path.isfile(old_path):
-            try:
-                os.remove(old_path)
-            except OSError:
-                logging.warning("Failed to remove previous thumbnail face file: %s", old_path)
-
-    return {"status": "uploaded", "file_path": file_path}
+    db.refresh(reference)
+    return reference
 
 
 @router.delete("/thumbnail-face/{telegram_id}")
 def delete_thumbnail_face(telegram_id: str, db: Session = Depends(get_db)):
     ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
-    previous_path = user.thumbnail_face_path
-    previous_vertical_path = user.vertical_thumbnail_face_path
+    previous_paths = {
+        row.file_path
+        for row in db.query(models.ThumbnailFaceReference).filter(models.ThumbnailFaceReference.user_id == user.id).all()
+        if row.file_path
+    }
+    previous_paths.update(path for path in {user.thumbnail_face_path, user.vertical_thumbnail_face_path} if path)
     user.thumbnail_face_path = None
     user.vertical_thumbnail_face_path = None
+    db.query(models.ThumbnailFaceReference).filter(models.ThumbnailFaceReference.user_id == user.id).delete()
     db.commit()
 
-    for old_path in {previous_path, previous_vertical_path}:
+    for old_path in previous_paths:
         if old_path and os.path.isfile(old_path):
             try:
                 os.remove(old_path)
@@ -444,6 +521,35 @@ def delete_thumbnail_face(telegram_id: str, db: Session = Depends(get_db)):
                 logging.warning("Failed to remove thumbnail face file: %s", old_path)
 
     return {"status": "deleted"}
+
+
+@router.delete("/thumbnail-face-references/{telegram_id}/{reference_id}")
+def delete_thumbnail_face_reference(telegram_id: str, reference_id: int, db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    reference = (
+        db.query(models.ThumbnailFaceReference)
+        .filter(models.ThumbnailFaceReference.id == reference_id, models.ThumbnailFaceReference.user_id == user.id)
+        .first()
+    )
+    if not reference:
+        raise HTTPException(status_code=404, detail="Thumbnail face reference not found")
+
+    file_path = reference.file_path
+    is_active = file_path in {user.thumbnail_face_path, user.vertical_thumbnail_face_path}
+    next_path = _next_thumbnail_face_path(db, user.id, exclude_id=reference.id) if is_active else None
+    db.delete(reference)
+    if is_active:
+        _set_active_thumbnail_face(user, next_path)
+    db.commit()
+
+    if file_path and os.path.isfile(file_path):
+        try:
+            os.remove(file_path)
+        except OSError:
+            logging.warning("Failed to remove thumbnail face reference file: %s", file_path)
+
+    return {"status": "deleted", "reference_id": reference_id, "active_face_path": next_path}
 
 
 @router.post("/upload/vertical-thumbnail-face/{telegram_id}")

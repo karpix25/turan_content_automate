@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Settings, Save, Loader2, Link2, BookOpen, User, Mic, Upload, Image as ImageIcon, Trash2, Film } from 'lucide-react';
 import { apiClient } from '../../api/client';
 import { useTelegram } from '../../context/TelegramContext';
-import { ThumbnailReference, AvatarInsertClip } from '../../types';
+import { ThumbnailReference, ThumbnailFaceReference, AvatarInsertClip } from '../../types';
 
 type VoiceSpeed = {
   chars_per_second?: number;
@@ -35,6 +35,7 @@ export const SettingsTab: React.FC = () => {
   const [savingSettings, setSavingSettings] = useState(false);
   const [savedSettings, setSavedSettings] = useState(false);
   const [thumbnailReferences, setThumbnailReferences] = useState<ThumbnailReference[]>([]);
+  const [thumbnailFaceReferences, setThumbnailFaceReferences] = useState<ThumbnailFaceReference[]>([]);
   const [thumbnailFacePath, setThumbnailFacePath] = useState<string>('');
   const [verticalThumbnailFacePath, setVerticalThumbnailFacePath] = useState<string>('');
   const [loadingThumbnailAssets, setLoadingThumbnailAssets] = useState(false);
@@ -85,10 +86,15 @@ export const SettingsTab: React.FC = () => {
       if (!telegramId) return;
       setLoadingThumbnailAssets(true);
       try {
-        const refs = await apiClient.listAllThumbnailReferences(telegramId);
+        const [refs, faceRefs] = await Promise.all([
+          apiClient.listAllThumbnailReferences(telegramId),
+          apiClient.listThumbnailFaceReferences(telegramId),
+        ]);
         setThumbnailReferences(refs);
+        setThumbnailFaceReferences(faceRefs);
       } catch (error) {
         setThumbnailReferences([]);
+        setThumbnailFaceReferences([]);
       } finally {
         setLoadingThumbnailAssets(false);
       }
@@ -245,13 +251,15 @@ export const SettingsTab: React.FC = () => {
   };
 
   const handleUploadThumbnailFace = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !telegramId) return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0 || !telegramId) return;
     setUploadingThumbnailFace(true);
     try {
-      const result = await apiClient.uploadThumbnailFace(telegramId, file);
-      setThumbnailFacePath(result.file_path || '');
-      setVerticalThumbnailFacePath(result.file_path || '');
+      const created = await apiClient.uploadThumbnailFaces(telegramId, files);
+      setThumbnailFaceReferences(prev => [...created, ...prev]);
+      const activePath = thumbnailFacePath || verticalThumbnailFacePath || created[0]?.file_path || '';
+      setThumbnailFacePath(activePath);
+      setVerticalThumbnailFacePath(activePath);
     } catch (error) {
       alert('Ошибка загрузки фото лица');
     } finally {
@@ -267,8 +275,40 @@ export const SettingsTab: React.FC = () => {
       await apiClient.deleteThumbnailFace(telegramId);
       setThumbnailFacePath('');
       setVerticalThumbnailFacePath('');
+      setThumbnailFaceReferences([]);
     } catch (error) {
       alert('Не удалось удалить фото лица');
+    } finally {
+      setDeletingThumbnailFace(false);
+    }
+  };
+
+  const activateThumbnailFaceReference = async (reference: ThumbnailFaceReference) => {
+    if (!telegramId) return;
+    setThumbnailFacePath(reference.file_path);
+    setVerticalThumbnailFacePath(reference.file_path);
+    try {
+      const updated = await apiClient.activateThumbnailFaceReference(telegramId, reference.id);
+      setThumbnailFacePath(updated.file_path);
+      setVerticalThumbnailFacePath(updated.file_path);
+    } catch (error) {
+      alert('Не удалось выбрать референс лица');
+    }
+  };
+
+  const handleDeleteThumbnailFaceReference = async (reference: ThumbnailFaceReference) => {
+    if (!telegramId) return;
+    setDeletingThumbnailFace(true);
+    try {
+      const result = await apiClient.deleteThumbnailFaceReference(telegramId, reference.id);
+      setThumbnailFaceReferences(prev => prev.filter(item => item.id !== reference.id));
+      if (reference.file_path === thumbnailFacePath || reference.file_path === verticalThumbnailFacePath) {
+        const nextPath = result.active_face_path || '';
+        setThumbnailFacePath(nextPath);
+        setVerticalThumbnailFacePath(nextPath);
+      }
+    } catch (error) {
+      alert('Не удалось удалить референс лица');
     } finally {
       setDeletingThumbnailFace(false);
     }
@@ -419,6 +459,7 @@ export const SettingsTab: React.FC = () => {
         ref={thumbnailFaceInputRef}
         type="file"
         accept="image/png,image/jpeg,image/webp"
+        multiple
         className="hidden"
         onChange={handleUploadThumbnailFace}
       />
@@ -469,16 +510,33 @@ export const SettingsTab: React.FC = () => {
                 Загрузить
               </button>
             </div>
-            {thumbnailFacePath || verticalThumbnailFacePath ? (
-              <div className="relative rounded-lg overflow-hidden border border-slate-200 bg-white">
-                <img src={getMediaUrl(thumbnailFacePath || verticalThumbnailFacePath)} alt="Face reference" className="w-full h-44 object-cover" />
-                <button
-                  onClick={handleDeleteThumbnailFace}
-                  disabled={deletingThumbnailFace}
-                  className="absolute top-2 right-2 h-8 w-8 rounded-lg bg-black/70 text-white flex items-center justify-center disabled:opacity-50"
-                >
-                  {deletingThumbnailFace ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                </button>
+            {thumbnailFaceReferences.length > 0 ? (
+              <div className="grid grid-cols-2 gap-2">
+                {thumbnailFaceReferences.map((item) => {
+                  const isActive = item.file_path === thumbnailFacePath || item.file_path === verticalThumbnailFacePath;
+                  return (
+                    <div key={item.id} className={`relative rounded-lg overflow-hidden border bg-white ${isActive ? 'border-slate-900 ring-2 ring-slate-900/10' : 'border-slate-200'}`}>
+                      <button
+                        onClick={() => activateThumbnailFaceReference(item)}
+                        className="block w-full"
+                      >
+                        <img src={getMediaUrl(item.file_path)} alt={`Face reference ${item.id}`} className="w-full h-24 object-cover" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteThumbnailFaceReference(item)}
+                        disabled={deletingThumbnailFace}
+                        className="absolute top-1 right-1 h-6 w-6 rounded-md bg-black/70 text-white flex items-center justify-center disabled:opacity-50"
+                      >
+                        {deletingThumbnailFace ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                      </button>
+                      {isActive && (
+                        <div className="absolute left-1 bottom-1 rounded bg-slate-900 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                          Активный
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <div className="h-44 rounded-lg border border-dashed border-slate-300 bg-white flex items-center justify-center text-xs text-slate-500">

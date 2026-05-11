@@ -609,13 +609,27 @@ def process_content_task(task_id: int):
         detail_text: str = "Генерирую обложку YouTube по сценарию и референсам.",
     ) -> tuple[str | None, dict]:
         is_short_avatar = task.type in SHORT_AVATAR_TASK_TYPES
+        face_paths = [
+            item.file_path
+            for item in (
+                db.query(models.ThumbnailFaceReference)
+                .filter(models.ThumbnailFaceReference.user_id == user.id)
+                .order_by(models.ThumbnailFaceReference.created_at.desc(), models.ThumbnailFaceReference.id.desc())
+                .all()
+            )
+            if item.file_path
+        ]
+        active_face_path = user.vertical_thumbnail_face_path if is_short_avatar else user.thumbnail_face_path
+        if active_face_path:
+            face_paths = [active_face_path] + [path for path in face_paths if path != active_face_path]
         thumbnail_prompt = None
         thumbnail_meta: dict = {
             "status": "skipped",
             "reason": "thumbnail_prompt_empty",
             "output_path": None,
             "used_reference_count": 0,
-            "face_path": user.vertical_thumbnail_face_path if is_short_avatar else user.thumbnail_face_path,
+            "face_path": active_face_path,
+            "face_reference_count": len(face_paths),
             "aspect_ratio": "9:16" if is_short_avatar else "16:9",
         }
         try:
@@ -701,7 +715,8 @@ def process_content_task(task_id: int):
             )
             generated_thumbnail = thumbnail_generator.generate_thumbnail(
                 prompt=thumbnail_prompt,
-                face_path=user.vertical_thumbnail_face_path if is_short_avatar else user.thumbnail_face_path,
+                face_path=active_face_path,
+                face_paths=face_paths,
                 reference_paths=reference_paths,
                 output_path=thumbnail_output_path,
                 aspect_ratio="9:16" if is_short_avatar else None,
@@ -717,7 +732,8 @@ def process_content_task(task_id: int):
                     "reason": None,
                     "output_path": generated_thumbnail,
                     "used_reference_count": len(reference_paths[:5]),
-                    "face_path": user.vertical_thumbnail_face_path if is_short_avatar else user.thumbnail_face_path,
+                    "face_path": active_face_path,
+                    "face_reference_count": len(face_paths),
                     "aspect_ratio": "9:16" if is_short_avatar else "16:9",
                 }
                 update_task_status_message(
@@ -733,7 +749,8 @@ def process_content_task(task_id: int):
                     "reason": "generator_failed_or_unconfigured",
                     "output_path": None,
                     "used_reference_count": len(reference_paths[:5]),
-                    "face_path": user.vertical_thumbnail_face_path if is_short_avatar else user.thumbnail_face_path,
+                    "face_path": active_face_path,
+                    "face_reference_count": len(face_paths),
                     "aspect_ratio": "9:16" if is_short_avatar else "16:9",
                 }
         return thumbnail_prompt, thumbnail_meta
@@ -768,6 +785,19 @@ def process_content_task(task_id: int):
             .order_by(models.ThumbnailReference.created_at.desc(), models.ThumbnailReference.id.desc())
             .all()
         )
+        face_paths = [
+            item.file_path
+            for item in (
+                db.query(models.ThumbnailFaceReference)
+                .filter(models.ThumbnailFaceReference.user_id == user.id)
+                .order_by(models.ThumbnailFaceReference.created_at.desc(), models.ThumbnailFaceReference.id.desc())
+                .all()
+            )
+            if item.file_path
+        ]
+        if user.vertical_thumbnail_face_path:
+            face_paths = [user.vertical_thumbnail_face_path] + [path for path in face_paths if path != user.vertical_thumbnail_face_path]
+        meta["face_reference_count"] = len(face_paths)
         reference_paths = []
         for item in references:
             resolved = _resolve_media_file_path(item.file_path, media_kind="thumbnails")
@@ -803,6 +833,7 @@ def process_content_task(task_id: int):
         generated_image = thumbnail_generator.generate_thumbnail(
             prompt=prompt,
             face_path=user.vertical_thumbnail_face_path,
+            face_paths=face_paths,
             reference_paths=reference_paths,
             output_path=image_output_path,
             aspect_ratio="9:16",
@@ -853,6 +884,19 @@ def process_content_task(task_id: int):
             .order_by(models.ThumbnailReference.created_at.desc(), models.ThumbnailReference.id.desc())
             .all()
         )
+        face_paths = [
+            item.file_path
+            for item in (
+                db.query(models.ThumbnailFaceReference)
+                .filter(models.ThumbnailFaceReference.user_id == user.id)
+                .order_by(models.ThumbnailFaceReference.created_at.desc(), models.ThumbnailFaceReference.id.desc())
+                .all()
+            )
+            if item.file_path
+        ]
+        if user.vertical_thumbnail_face_path:
+            face_paths = [user.vertical_thumbnail_face_path] + [path for path in face_paths if path != user.vertical_thumbnail_face_path]
+        meta["face_reference_count"] = len(face_paths)
         reference_paths = []
         for item in references:
             resolved = _resolve_media_file_path(item.file_path, media_kind="thumbnails")
@@ -886,6 +930,7 @@ def process_content_task(task_id: int):
         generated_image = thumbnail_generator.generate_thumbnail(
             prompt=prompt,
             face_path=user.vertical_thumbnail_face_path,
+            face_paths=face_paths,
             reference_paths=reference_paths,
             output_path=image_output_path,
             aspect_ratio="9:16",

@@ -345,6 +345,48 @@ def init_database() -> None:
         )
         conn.execute(
             text(
+                "CREATE TABLE IF NOT EXISTS thumbnail_face_references ("
+                "id SERIAL PRIMARY KEY, "
+                "user_id INTEGER NOT NULL REFERENCES users(id), "
+                "file_path TEXT NOT NULL, "
+                "created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()"
+                ")"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_thumbnail_face_references_user_id "
+                "ON thumbnail_face_references(user_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO thumbnail_face_references (user_id, file_path, created_at) "
+                "SELECT users.id, users.thumbnail_face_path, NOW() "
+                "FROM users "
+                "WHERE users.thumbnail_face_path IS NOT NULL "
+                "AND users.thumbnail_face_path != '' "
+                "AND NOT EXISTS ("
+                "SELECT 1 FROM thumbnail_face_references refs "
+                "WHERE refs.user_id = users.id AND refs.file_path = users.thumbnail_face_path"
+                ")"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO thumbnail_face_references (user_id, file_path, created_at) "
+                "SELECT users.id, users.vertical_thumbnail_face_path, NOW() "
+                "FROM users "
+                "WHERE users.vertical_thumbnail_face_path IS NOT NULL "
+                "AND users.vertical_thumbnail_face_path != '' "
+                "AND NOT EXISTS ("
+                "SELECT 1 FROM thumbnail_face_references refs "
+                "WHERE refs.user_id = users.id AND refs.file_path = users.vertical_thumbnail_face_path"
+                ")"
+            )
+        )
+        conn.execute(
+            text(
                 "ALTER TABLE user_publish_channels ADD COLUMN IF NOT EXISTS selected_plate_id INTEGER"
             )
         )

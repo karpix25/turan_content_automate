@@ -83,6 +83,13 @@ export type ThumbnailReference = {
   created_at: string;
 };
 
+export type ThumbnailFaceReference = {
+  id: number;
+  user_id: number;
+  file_path: string;
+  created_at: string;
+};
+
 export type AvatarInsertClip = {
   id: number;
   user_id: number;

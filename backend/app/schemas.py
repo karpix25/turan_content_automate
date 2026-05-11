@@ -138,6 +138,16 @@ class ThumbnailReferenceUpdate(BaseModel):
     kind: str
 
 
+class ThumbnailFaceReferenceOut(BaseModel):
+    id: int
+    user_id: int
+    file_path: str
+    created_at: datetime.datetime
+
+    class Config:
+        from_attributes = True
+
+
 class AvatarInsertClipOut(BaseModel):
     id: int
     user_id: int

@@ -193,6 +193,7 @@ class ThumbnailGeneratorClient:
         *,
         prompt: str,
         face_path: str | None,
+        face_paths: list[str] | None = None,
         reference_paths: list[str],
         output_path: str,
         aspect_ratio: str | None = None,
@@ -205,7 +206,13 @@ class ThumbnailGeneratorClient:
 
         topic_requires_strict_refs = self.strict_topic_mode and self._is_surveillance_topic(clean_prompt)
         refs = [p for p in reference_paths if p and (os.path.isfile(p) or p.startswith("http://") or p.startswith("https://"))]
-        face_url = self._ensure_public_url(face_path, prefix="face")
+        candidate_face_paths = [p for p in ([face_path] + list(face_paths or [])) if p]
+        face_urls = []
+        for index, path in enumerate(dict.fromkeys(candidate_face_paths), start=1):
+            maybe_url = self._ensure_public_url(path, prefix=f"face{index}")
+            if maybe_url and maybe_url not in face_urls:
+                face_urls.append(maybe_url)
+        face_url = face_urls[0] if face_urls else None
         ref_urls = []
         style_ref_limit = self.max_style_references if max_style_references is None else max(0, int(max_style_references))
         effective_ref_limit = 0 if topic_requires_strict_refs else style_ref_limit
@@ -215,9 +222,8 @@ class ThumbnailGeneratorClient:
                 ref_urls.append(maybe_url)
 
         input_urls: list[str] = []
-        if face_url:
-            input_urls.append(face_url)
-        input_urls.extend([url for url in ref_urls if url != face_url])
+        input_urls.extend(face_urls)
+        input_urls.extend([url for url in ref_urls if url not in face_urls])
 
         if not input_urls:
             logger.error(
@@ -228,7 +234,7 @@ class ThumbnailGeneratorClient:
         augmented_prompt = clean_prompt
         if face_url:
             augmented_prompt += (
-                "\nВажно: первый референс в input_urls — лицо автора. "
+                "\nВажно: первые референсы в input_urls — лицо автора. "
                 "Сохрани идентичность этого лица (черты, пропорции, узнаваемость), без подмены человека."
             )
         augmented_prompt += (
