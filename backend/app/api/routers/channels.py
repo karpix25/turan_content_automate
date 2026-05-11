@@ -77,7 +77,7 @@ def build_postmypost_channels_response(
                 channel_id=channel_id,
                 channel_code=channel_info.get("code") if channel_info else None,
                 channel_name=channel_info.get("name") if channel_info else None,
-                enabled=bool(row.enabled) if row else True,
+                enabled=bool(row.enabled) if row else False,
                 description=(row.publication_description if row else None),
                 selected_plate_id=selected_plate_id,
                 selected_plate_ids=selected_plate_ids,
@@ -150,7 +150,7 @@ def update_postmypost_channels(
                 row.selected_plate_ids = account_plate_ids
                 row.selected_plate_id = account_plate_ids[0] if account_plate_ids else None
             if str(account_id) in percents_map: row.plate_start_percent = account_percent
-        elif should_enable or str(account_id) in descriptions or str(account_id) in plate_ids_map or str(account_id) in percents_map:
+        else:
             db.add(
                 models.UserPublishChannel(
                     user_id=user.id,

@@ -54,45 +54,15 @@ def _parse_env_account_ids(env_val: str) -> List[int]:
 
 
 def _get_target_account_ids(db, user_id: int) -> List[int]:
-    ids = [
-        item.account_id
-        for item in db.query(models.UserPublishChannel).filter(
-            models.UserPublishChannel.user_id == user_id,
-            models.UserPublishChannel.enabled.is_(True),
-        ).order_by(models.UserPublishChannel.account_id.asc()).all()
-    ]
-    if ids:
-        return ids
+    rows = db.query(models.UserPublishChannel).filter(
+        models.UserPublishChannel.user_id == user_id,
+    ).order_by(models.UserPublishChannel.account_id.asc()).all()
+    if rows:
+        return [item.account_id for item in rows if item.enabled]
 
     env_ids = _parse_env_account_ids(os.getenv("POSTMYPOST_CHANNEL_IDS", ""))
     if env_ids:
         return env_ids
-
-    # Fallback: if user did not configure channel toggles yet, use all
-    # accounts available in the selected PostMyPost project.
-    try:
-        from ..worker import pmp_client
-        if pmp_client.api_key:
-            project_id_raw = os.getenv("POSTMYPOST_PROJECT_ID", "").strip()
-            project_id = int(project_id_raw) if project_id_raw else None
-            project_id = pmp_client.ensure_project_id(project_id)
-            accounts = pmp_client.get_accounts(project_id=project_id)
-            account_ids = sorted(
-                {
-                    int(item["id"])
-                    for item in accounts
-                    if isinstance(item, dict) and item.get("id") is not None
-                }
-            )
-            if account_ids:
-                logging.info(
-                    "No explicit enabled channels for user %s, fallback to all project accounts: %s",
-                    user_id,
-                    account_ids,
-                )
-                return account_ids
-    except Exception as e:
-        logging.warning("Failed to load fallback PostMyPost account ids: %s", e)
 
     return []
 
