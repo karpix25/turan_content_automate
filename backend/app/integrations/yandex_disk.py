@@ -163,7 +163,7 @@ class YandexDiskClient:
             raise RuntimeError(f"Public URL is empty for '{normalized_remote}'")
         return str(public_url).strip()
 
-    def list_video_files(self, directory_path: str, limit: int = 500) -> list[dict]:
+    def list_video_files(self, directory_path: str, limit: int = 500, include_debug: bool = False) -> list[dict] | tuple[list[dict], dict]:
         if not self.is_configured:
             raise RuntimeError("YANDEX_DISK_TOKEN is empty")
 
@@ -185,16 +185,34 @@ class YandexDiskClient:
         items = (((response.json() or {}).get("_embedded") or {}).get("items") or [])
         video_exts = {".mp4", ".mov", ".webm", ".mkv", ".m4v", ".mpeg"}
         result: list[dict] = []
+        debug_items: list[dict] = []
         for item in items:
-            if not isinstance(item, dict) or item.get("type") != "file":
+            if not isinstance(item, dict):
                 continue
             path = str(item.get("path") or "").strip()
             name = str(item.get("name") or os.path.basename(path)).strip()
+            item_type = str(item.get("type") or "").strip()
             mime_type = str(item.get("mime_type") or "").lower()
             media_type = str(item.get("media_type") or "").lower()
             _, ext = os.path.splitext(name.lower())
-            if media_type == "video" or mime_type.startswith("video/") or ext in video_exts:
+            is_video = media_type == "video" or mime_type.startswith("video/") or ext in video_exts
+            debug_items.append(
+                {
+                    "name": name,
+                    "path": path,
+                    "type": item_type,
+                    "mime_type": mime_type,
+                    "media_type": media_type,
+                    "ext": ext,
+                    "is_video": is_video,
+                }
+            )
+            if item_type != "file":
+                continue
+            if is_video:
                 result.append({"path": path, "name": name, "mime_type": mime_type, "media_type": media_type})
+        if include_debug:
+            return result, {"directory": normalized_dir, "items_count": len(items), "items": debug_items[:50]}
         return result
 
     def download_file(self, remote_path: str, local_path: str) -> str:

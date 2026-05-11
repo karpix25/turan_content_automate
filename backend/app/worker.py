@@ -528,16 +528,32 @@ def process_content_task(task_id: int):
             detail="Выбираю случайные b-roll ролики с Яндекс.Диска.",
         )
         try:
-            remote_files = yandex_disk.list_video_files(broll_dir)
+            remote_files, yandex_debug = yandex_disk.list_video_files(broll_dir, include_debug=True)
         except Exception as list_error:
             logging.warning("Task %s: failed to list Yandex.Disk b-roll folder: %s", task_id, list_error)
             meta["status"] = "failed"
             meta["reason"] = "yandex_list_failed"
             meta["error"] = str(list_error)
             return base_video_path, meta
+        meta["yandex_items_count"] = int((yandex_debug or {}).get("items_count") or 0)
+        meta["yandex_seen_items"] = (yandex_debug or {}).get("items") or []
+        logging.info(
+            "Task %s: Yandex.Disk b-roll scan dir=%s items=%s video_files=%s names=%s",
+            task_id,
+            broll_dir,
+            meta["yandex_items_count"],
+            len(remote_files),
+            [item.get("name") for item in remote_files[:20]],
+        )
 
         if not remote_files:
             meta["reason"] = "no_video_files_in_yandex_dir"
+            logging.warning(
+                "Task %s: no b-roll video files found in %s. Seen items: %s",
+                task_id,
+                broll_dir,
+                meta["yandex_seen_items"][:20],
+            )
             return base_video_path, meta
 
         rnd = random.Random(task_id)
@@ -565,6 +581,7 @@ def process_content_task(task_id: int):
                 )
                 continue
             local_paths.append(local_path)
+            logging.info("Task %s: downloaded b-roll file %s to %s", task_id, remote_path, local_path)
 
         if not local_paths:
             meta["status"] = "failed"
