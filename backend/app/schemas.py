@@ -134,6 +134,10 @@ class ThumbnailReferenceOut(BaseModel):
         from_attributes = True
 
 
+class ThumbnailReferenceUpdate(BaseModel):
+    kind: str
+
+
 class AvatarInsertClipOut(BaseModel):
     id: int
     user_id: int

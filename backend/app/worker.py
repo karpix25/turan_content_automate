@@ -683,7 +683,7 @@ def process_content_task(task_id: int):
                 db.query(models.ThumbnailReference)
                 .filter(
                     models.ThumbnailReference.user_id == user.id,
-                    models.ThumbnailReference.kind == ("vertical" if is_short_avatar else "horizontal"),
+                    models.ThumbnailReference.kind.in_(["vertical", "both"] if is_short_avatar else ["horizontal", "both"]),
                 )
                 .order_by(models.ThumbnailReference.created_at.desc(), models.ThumbnailReference.id.desc())
                 .all()
@@ -764,7 +764,7 @@ def process_content_task(task_id: int):
 
         references = (
             db.query(models.ThumbnailReference)
-            .filter(models.ThumbnailReference.user_id == user.id, models.ThumbnailReference.kind == "vertical")
+            .filter(models.ThumbnailReference.user_id == user.id, models.ThumbnailReference.kind.in_(["vertical", "both"]))
             .order_by(models.ThumbnailReference.created_at.desc(), models.ThumbnailReference.id.desc())
             .all()
         )
@@ -849,7 +849,7 @@ def process_content_task(task_id: int):
 
         references = (
             db.query(models.ThumbnailReference)
-            .filter(models.ThumbnailReference.user_id == user.id, models.ThumbnailReference.kind == "vertical")
+            .filter(models.ThumbnailReference.user_id == user.id, models.ThumbnailReference.kind.in_(["vertical", "both"]))
             .order_by(models.ThumbnailReference.created_at.desc(), models.ThumbnailReference.id.desc())
             .all()
         )

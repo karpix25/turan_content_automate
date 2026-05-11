@@ -13,6 +13,19 @@ from ..utils import _build_safe_upload_filename, normalize_ending_platform, pars
 
 router = APIRouter(tags=["assets"])
 
+THUMBNAIL_REFERENCE_KINDS = {"horizontal", "vertical", "both"}
+
+
+def _normalize_thumbnail_reference_kind(kind: str | None) -> str:
+    normalized = (kind or "both").strip().lower()
+    if normalized in {"youtube", "default", "landscape"}:
+        normalized = "horizontal"
+    elif normalized in {"shorts", "reels", "portrait", "9:16"}:
+        normalized = "vertical"
+    if normalized not in THUMBNAIL_REFERENCE_KINDS:
+        raise HTTPException(status_code=400, detail="Unsupported thumbnail reference kind")
+    return normalized
+
 
 def _thumbnail_assets_dir() -> str:
     target = (os.getenv("THUMBNAILS_DIR") or "/app/database/media/thumbnails").strip()
@@ -46,7 +59,7 @@ async def _create_thumbnail_reference(
     with open(file_path, "wb") as target:
         target.write(await file.read())
 
-    item = models.ThumbnailReference(user_id=user.id, file_path=file_path, kind=kind)
+    item = models.ThumbnailReference(user_id=user.id, file_path=file_path, kind=_normalize_thumbnail_reference_kind(kind))
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -254,6 +267,31 @@ async def upload_thumbnail_reference(
     )
 
 
+@router.post("/upload/thumbnail-references/{telegram_id}", response_model=list[schemas.ThumbnailReferenceOut])
+async def upload_thumbnail_references(
+    telegram_id: str,
+    files: List[UploadFile] = File(...),
+    kind: str = Form("both"),
+    db: Session = Depends(get_db),
+):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    normalized_kind = _normalize_thumbnail_reference_kind(kind)
+    created: list[models.ThumbnailReference] = []
+    for file in files:
+        created.append(
+            await _create_thumbnail_reference(
+                db=db,
+                user=user,
+                telegram_id=telegram_id,
+                file=file,
+                kind=normalized_kind,
+                prefix="ref",
+            )
+        )
+    return created
+
+
 @router.post("/upload/vertical-thumbnail-reference/{telegram_id}", response_model=schemas.ThumbnailReferenceOut)
 async def upload_vertical_thumbnail_reference(
     telegram_id: str,
@@ -272,13 +310,25 @@ async def upload_vertical_thumbnail_reference(
     )
 
 
+@router.get("/thumbnail-references-all/{telegram_id}", response_model=list[schemas.ThumbnailReferenceOut])
+def list_all_thumbnail_references(telegram_id: str, db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    return (
+        db.query(models.ThumbnailReference)
+        .filter(models.ThumbnailReference.user_id == user.id)
+        .order_by(models.ThumbnailReference.created_at.desc(), models.ThumbnailReference.id.desc())
+        .all()
+    )
+
+
 @router.get("/thumbnail-references/{telegram_id}", response_model=list[schemas.ThumbnailReferenceOut])
 def list_thumbnail_references(telegram_id: str, db: Session = Depends(get_db)):
     ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
     return (
         db.query(models.ThumbnailReference)
-        .filter(models.ThumbnailReference.user_id == user.id, models.ThumbnailReference.kind == "horizontal")
+        .filter(models.ThumbnailReference.user_id == user.id, models.ThumbnailReference.kind.in_(["horizontal", "both"]))
         .order_by(models.ThumbnailReference.created_at.desc(), models.ThumbnailReference.id.desc())
         .all()
     )
@@ -290,10 +340,33 @@ def list_vertical_thumbnail_references(telegram_id: str, db: Session = Depends(g
     user = get_or_create_user(db, telegram_id)
     return (
         db.query(models.ThumbnailReference)
-        .filter(models.ThumbnailReference.user_id == user.id, models.ThumbnailReference.kind == "vertical")
+        .filter(models.ThumbnailReference.user_id == user.id, models.ThumbnailReference.kind.in_(["vertical", "both"]))
         .order_by(models.ThumbnailReference.created_at.desc(), models.ThumbnailReference.id.desc())
         .all()
     )
+
+
+@router.patch("/thumbnail-references/{telegram_id}/{reference_id}", response_model=schemas.ThumbnailReferenceOut)
+def update_thumbnail_reference(
+    telegram_id: str,
+    reference_id: int,
+    payload: schemas.ThumbnailReferenceUpdate,
+    db: Session = Depends(get_db),
+):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    reference = (
+        db.query(models.ThumbnailReference)
+        .filter(models.ThumbnailReference.id == reference_id, models.ThumbnailReference.user_id == user.id)
+        .first()
+    )
+    if not reference:
+        raise HTTPException(status_code=404, detail="Thumbnail reference not found")
+
+    reference.kind = _normalize_thumbnail_reference_kind(payload.kind)
+    db.commit()
+    db.refresh(reference)
+    return reference
 
 
 @router.delete("/thumbnail-references/{telegram_id}/{reference_id}")
@@ -335,17 +408,20 @@ async def upload_thumbnail_face(
     file_path = os.path.join(uploads_dir, unique_name)
 
     previous_path = user.thumbnail_face_path
+    previous_vertical_path = user.vertical_thumbnail_face_path
     with open(file_path, "wb") as target:
         target.write(await file.read())
 
     user.thumbnail_face_path = file_path
+    user.vertical_thumbnail_face_path = file_path
     db.commit()
 
-    if previous_path and previous_path != file_path and os.path.isfile(previous_path):
-        try:
-            os.remove(previous_path)
-        except OSError:
-            logging.warning("Failed to remove previous thumbnail face file: %s", previous_path)
+    for old_path in {previous_path, previous_vertical_path}:
+        if old_path and old_path != file_path and os.path.isfile(old_path):
+            try:
+                os.remove(old_path)
+            except OSError:
+                logging.warning("Failed to remove previous thumbnail face file: %s", old_path)
 
     return {"status": "uploaded", "file_path": file_path}
 
@@ -355,14 +431,17 @@ def delete_thumbnail_face(telegram_id: str, db: Session = Depends(get_db)):
     ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
     previous_path = user.thumbnail_face_path
+    previous_vertical_path = user.vertical_thumbnail_face_path
     user.thumbnail_face_path = None
+    user.vertical_thumbnail_face_path = None
     db.commit()
 
-    if previous_path and os.path.isfile(previous_path):
-        try:
-            os.remove(previous_path)
-        except OSError:
-            logging.warning("Failed to remove thumbnail face file: %s", previous_path)
+    for old_path in {previous_path, previous_vertical_path}:
+        if old_path and os.path.isfile(old_path):
+            try:
+                os.remove(old_path)
+            except OSError:
+                logging.warning("Failed to remove thumbnail face file: %s", old_path)
 
     return {"status": "deleted"}
 

@@ -109,6 +109,10 @@ export const apiClient = {
   },
 
   // Thumbnail references / face
+  listAllThumbnailReferences: async (telegramId: string) => {
+    const res = await axios.get<ThumbnailReference[]>(`${API_BASE}/thumbnail-references-all/${telegramId}`);
+    return res.data;
+  },
   listThumbnailReferences: async (telegramId: string) => {
     const res = await axios.get<ThumbnailReference[]>(`${API_BASE}/thumbnail-references/${telegramId}`);
     return res.data;
@@ -123,10 +127,21 @@ export const apiClient = {
     const res = await axios.post<ThumbnailReference>(`${API_BASE}/upload/thumbnail-reference/${telegramId}`, formData);
     return res.data;
   },
+  uploadThumbnailReferences: async (telegramId: string, files: File[], kind = 'both') => {
+    const formData = new FormData();
+    files.forEach((file) => formData.append('files', file));
+    formData.append('kind', kind);
+    const res = await axios.post<ThumbnailReference[]>(`${API_BASE}/upload/thumbnail-references/${telegramId}`, formData);
+    return res.data;
+  },
   uploadVerticalThumbnailReference: async (telegramId: string, file: File) => {
     const formData = new FormData();
     formData.append('file', file);
     const res = await axios.post<ThumbnailReference>(`${API_BASE}/upload/vertical-thumbnail-reference/${telegramId}`, formData);
+    return res.data;
+  },
+  updateThumbnailReference: async (telegramId: string, referenceId: number, kind: string) => {
+    const res = await axios.patch<ThumbnailReference>(`${API_BASE}/thumbnail-references/${telegramId}/${referenceId}`, { kind });
     return res.data;
   },
   deleteThumbnailReference: async (telegramId: string, referenceId: number) => {
