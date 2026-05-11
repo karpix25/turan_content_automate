@@ -390,6 +390,27 @@ async def handle_link(message: types.Message):
         )
         return
 
+    if task_type == "youtube" and is_shorts:
+        video_id = extract_youtube_video_id(url)
+        if video_id:
+            kb = {
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "👤 Shorts Аватар",
+                            "callback_data": f"avatar:shorts:{video_id}",
+                            "style": "success",
+                        }
+                    ]
+                ]
+            }
+            await message.reply(
+                "🎬 Это YouTube Shorts. Что вы хотите сделать?",
+                reply_markup=json.dumps(kb),
+                disable_web_page_preview=True,
+            )
+            return
+
     if task_type == "instagram" and instagram_reel_shortcode:
         kb = {
             "inline_keyboard": [
@@ -429,6 +450,10 @@ async def process_choice(callback_query: types.CallbackQuery):
             url = f"https://www.instagram.com/reel/{identifier}/"
             task_type = "avatar_instagram"
             answer_text = "👤 Запускаю Reels Аватар..."
+        elif platform == "shorts":
+            url = f"https://www.youtube.com/shorts/{identifier}"
+            task_type = "avatar_shorts"
+            answer_text = "👤 Запускаю Shorts Аватар..."
         else:
             url = f"https://www.youtube.com/watch?v={identifier}" if platform == "yt" else identifier
             task_type = "avatar_youtube"

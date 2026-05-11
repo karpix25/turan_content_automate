@@ -106,7 +106,8 @@ rapidapi_yt = RapidAPIYoutubeClient(
 )
 downloader = Downloader(output_dir=(os.getenv("OUTPUT_DIR") or "./output").strip())
 processor = VideoProcessor()
-AVATAR_TASK_TYPES = {"avatar_youtube", "avatar_instagram"}
+SHORT_AVATAR_TASK_TYPES = {"avatar_instagram", "avatar_shorts"}
+AVATAR_TASK_TYPES = {"avatar_youtube", *SHORT_AVATAR_TASK_TYPES}
 AVATAR_SCRIPT_MIN_MINUTES = int(os.getenv("AVATAR_SCRIPT_MIN_MINUTES", "4"))
 AVATAR_SCRIPT_MAX_MINUTES = int(os.getenv("AVATAR_SCRIPT_MAX_MINUTES", "6"))
 AVATAR_SCRIPT_WPM = int(os.getenv("AVATAR_SCRIPT_WORDS_PER_MINUTE", "110"))
@@ -473,7 +474,7 @@ def process_content_task(task_id: int):
             return inserted_path, insert_meta or {"status": "applied"}
         return base_video_path, insert_meta or {"status": "failed", "reason": "unknown"}
 
-    def _create_reels_avatar_broll(base_video_path: str, script_text: str, source_video_path: str | None) -> tuple[str, dict]:
+    def _create_short_avatar_broll(base_video_path: str, script_text: str, source_video_path: str | None) -> tuple[str, dict]:
         coverage_percent = max(0, min(100, int(getattr(user, "reels_broll_coverage_percent", 50) or 0)))
         start_percent = 0
         end_percent = 100
@@ -506,9 +507,9 @@ def process_content_task(task_id: int):
             "window_percent": [start_percent, end_percent],
             "selected_files": [],
         }
-        if task.type != "avatar_instagram":
+        if task.type not in SHORT_AVATAR_TASK_TYPES:
             meta["status"] = "skipped"
-            meta["reason"] = "not_reels_avatar"
+            meta["reason"] = "not_short_avatar"
             return base_video_path, meta
         if coverage_percent <= 0 or clips_count <= 0:
             meta["reason"] = "coverage_percent_is_zero"
@@ -819,7 +820,7 @@ def process_content_task(task_id: int):
             return intro_video, meta
         return source_video_path, meta
 
-    def _apply_reels_avatar_vertical_cover(source_video_path: str, script_text: str) -> tuple[str, dict]:
+    def _apply_short_avatar_vertical_cover(source_video_path: str, script_text: str) -> tuple[str, dict]:
         meta: dict = {
             "status": "skipped",
             "reason": None,
@@ -829,8 +830,8 @@ def process_content_task(task_id: int):
             "used_reference_count": 0,
             "face_path": user.vertical_thumbnail_face_path,
         }
-        if task.type != "avatar_instagram":
-            meta["reason"] = "not_reels_avatar"
+        if task.type not in SHORT_AVATAR_TASK_TYPES:
+            meta["reason"] = "not_short_avatar"
             return source_video_path, meta
 
         references = (
@@ -851,9 +852,9 @@ def process_content_task(task_id: int):
             db,
             task,
             stage="Обложка 9:16",
-            detail="Генерирую вертикальную обложку для Reels Avatar.",
+            detail="Генерирую вертикальную обложку для короткого Avatar.",
         )
-        title = (task.source_title or "Reels Avatar").strip()
+        title = (task.source_title or "Short Avatar").strip()
         try:
             prompt = llm.generate_vertical_thumbnail_prompt(title, context_text=script_text)
         except Exception as prompt_error:
@@ -1163,6 +1164,32 @@ def process_content_task(task_id: int):
                 if not cleaned_reels_transcript:
                     raise Exception("Failed to clean Instagram Reel transcript")
                 transcript = cleaned_reels_transcript
+            elif task.type == "avatar_shorts":
+                update_task_status_message(db, task, stage="Сценарий", detail="Получаю транскрипт YouTube Shorts.")
+                t_data = scraper.get_youtube_transcript(source_url)
+                shorts_transcript = (t_data.get("transcript_only_text") if t_data else None) or ""
+                source_title = (t_data.get("title") if t_data else None) or task.source_title
+                if source_title and not task.source_title:
+                    task.source_title = str(source_title).strip()
+                    db.commit()
+                if not shorts_transcript.strip():
+                    raise Exception("Failed to retrieve transcript for YouTube Shorts Avatar task")
+
+                raw_shorts_transcript = "\n".join(
+                    part for part in [
+                        f"Transcript: {shorts_transcript.strip()}",
+                        f"Title: {str(source_title).strip()}" if source_title else "",
+                    ]
+                    if part
+                )
+                update_task_status_message(db, task, stage="Сценарий", detail="Удаляю CTA и промо из Shorts.")
+                cleaned_reels_transcript = (
+                    llm.remove_cta_from_transcript(raw_shorts_transcript)
+                    or _strip_cta_fallback(raw_shorts_transcript)
+                ).strip()
+                if not cleaned_reels_transcript:
+                    raise Exception("Failed to clean YouTube Shorts transcript")
+                transcript = cleaned_reels_transcript
             else:
                 update_task_status_message(db, task, stage="Сценарий", detail="Получаю транскрипт видео.")
                 t_data = scraper.get_youtube_transcript(source_url)
@@ -1199,7 +1226,7 @@ def process_content_task(task_id: int):
             target_duration_minutes = int(getattr(user, "avatar_script_duration_minutes", 5) or 5)
             target_duration_minutes = max(1, min(30, target_duration_minutes))
 
-            if task.type == "avatar_instagram":
+            if task.type in SHORT_AVATAR_TASK_TYPES:
                 original_char_count = count_script_chars(cleaned_reels_transcript)
                 target_chars = max(80, int(round(original_char_count * 0.9)))
                 min_chars = max(40, int(round(target_chars * 0.97)))
@@ -1208,7 +1235,7 @@ def process_content_task(task_id: int):
                     db,
                     task,
                     stage="Сценарий",
-                    detail="Повторяю оригинальный Reels на 10% короче и усиливаю хук.",
+                    detail="Повторяю оригинальный короткий ролик на 10% короче и усиливаю хук.",
                 )
                 script = llm.rewrite_reels_avatar_script(
                     cleaned_transcript=cleaned_reels_transcript,
@@ -1218,7 +1245,7 @@ def process_content_task(task_id: int):
                     max_chars=max_chars,
                 )
                 if not script:
-                    raise Exception("Failed to generate Reels Avatar script")
+                    raise Exception("Failed to generate short Avatar script")
                 word_count = llm.estimate_word_count(script)
                 char_count = count_script_chars(script)
                 if char_count < min_chars or char_count > max_chars:
@@ -1385,10 +1412,10 @@ def process_content_task(task_id: int):
             )
             description_txt_path = _write_avatar_description_file(task_id, final_description_text)
             existing_script_meta = dict(task.script_meta or {})
-            reels_avatar_meta = {}
-            if task.type == "avatar_instagram":
-                reels_avatar_meta = {
-                    "reels_avatar": {
+            short_avatar_meta = {}
+            if task.type in SHORT_AVATAR_TASK_TYPES:
+                short_avatar_meta = {
+                    "short_avatar": {
                         "cleaned_transcript": cleaned_reels_transcript,
                         "cleaned_transcript_char_count": count_script_chars(cleaned_reels_transcript),
                         "target_is_10_percent_shorter": True,
@@ -1397,7 +1424,7 @@ def process_content_task(task_id: int):
             task.script_text = script
             task.script_meta = {
                 **(validation or {}),
-                **reels_avatar_meta,
+                **short_avatar_meta,
                 "target_minutes": target_duration_minutes,
                 "target_chars": target_chars,
                 "target_chars_range": [min_chars, max_chars] if min_chars and max_chars else None,
@@ -1486,12 +1513,12 @@ def process_content_task(task_id: int):
             if not local_avatar_video:
                 raise Exception("Failed to download final video from HeyGen")
 
-            local_avatar_video, broll_meta = _create_reels_avatar_broll(
+            local_avatar_video, broll_meta = _create_short_avatar_broll(
                 base_video_path=local_avatar_video,
                 script_text=script,
                 source_video_path=local_reel_source,
             )
-            if task.type == "avatar_instagram":
+            if task.type in SHORT_AVATAR_TASK_TYPES:
                 current_meta = dict(task.script_meta or {})
                 current_meta["broll"] = broll_meta
                 task.script_meta = current_meta
@@ -1515,10 +1542,10 @@ def process_content_task(task_id: int):
             task.script_meta = current_meta
             db.commit()
 
-            if task.type == "avatar_instagram":
-                local_avatar_video, vertical_cover_meta = _apply_reels_avatar_vertical_cover(local_avatar_video, script)
+            if task.type in SHORT_AVATAR_TASK_TYPES:
+                local_avatar_video, vertical_cover_meta = _apply_short_avatar_vertical_cover(local_avatar_video, script)
                 current_meta = dict(task.script_meta or {})
-                current_meta["reels_vertical_cover"] = vertical_cover_meta
+                current_meta["short_vertical_cover"] = vertical_cover_meta
                 task.script_meta = current_meta
                 db.commit()
                 
@@ -1898,17 +1925,18 @@ def process_content_task(task_id: int):
         db.refresh(task)
         if task.type in AVATAR_TASK_TYPES:
             send_yandex_disk_links_to_telegram(task, yandex_uploads_meta)
-        if task.type == "avatar_instagram" and task.output_path:
+        if task.type in SHORT_AVATAR_TASK_TYPES and task.output_path:
+            label = "Reels Avatar" if task.type == "avatar_instagram" else "Shorts Avatar"
             update_task_status_message(
                 db,
                 task,
                 stage="Telegram",
-                detail="Отправляю финальный Reels Avatar в Telegram.",
+                detail=f"Отправляю финальный {label} в Telegram.",
             )
             send_avatar_video_to_telegram(
                 task,
                 task.output_path,
-                caption=f"✅ Финальный Reels Avatar готов.\nВидео #{getattr(task, 'id', '-')}",
+                caption=f"✅ Финальный {label} готов.\nВидео #{getattr(task, 'id', '-')}",
             )
         if should_sync_outputs:
             update_task_status_message(

@@ -10,7 +10,7 @@ from ..deps import get_db, ensure_admin_access, get_or_create_user, get_user_tas
 from ..utils import normalize_source_url, validate_youtube_url, resolve_output_file_path, normalize_utc_naive
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
-AVATAR_TASK_TYPES = {"avatar_youtube", "avatar_instagram"}
+AVATAR_TASK_TYPES = {"avatar_youtube", "avatar_instagram", "avatar_shorts"}
 
 @router.post("/{telegram_id}")
 def create_task(telegram_id: str, payload: schemas.VideoTaskCreate, db: Session = Depends(get_db)):

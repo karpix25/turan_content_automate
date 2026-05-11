@@ -15,7 +15,7 @@ from .worker import celery_app
 load_dotenv()
 
 logger = logging.getLogger(__name__)
-AVATAR_TASK_TYPES = {"avatar_youtube", "avatar_instagram"}
+AVATAR_TASK_TYPES = {"avatar_youtube", "avatar_instagram", "avatar_shorts"}
 pmp_client = PostMyPostClient(api_key=os.getenv("POSTMYPOST_API_KEY", ""))
 
 
