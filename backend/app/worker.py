@@ -68,6 +68,7 @@ from .utils.media_utils import (
 )
 from .utils.voice_calibration import (
     count_script_chars,
+    get_audio_duration_seconds,
     get_cached_voice_speed,
     get_or_calibrate_voice_speed,
 )
@@ -473,6 +474,33 @@ def process_content_task(task_id: int):
                     logging.warning("Failed to remove intermediate avatar file after inserts: %s", base_video_path)
             return inserted_path, insert_meta or {"status": "applied"}
         return base_video_path, insert_meta or {"status": "failed", "reason": "unknown"}
+
+    def _clamp_script_to_char_range(
+        *,
+        script: str,
+        style_profile: str | None,
+        min_chars: int,
+        max_chars: int,
+        max_attempts: int = 3,
+    ) -> str:
+        current = (script or "").strip()
+        for _ in range(max_attempts):
+            char_count = count_script_chars(current)
+            if min_chars <= char_count <= max_chars:
+                return current
+            adjusted = llm.adjust_script_length_chars(
+                script=current,
+                style_profile=style_profile,
+                min_chars=min_chars,
+                max_chars=max_chars,
+            )
+            if not adjusted:
+                return current
+            adjusted = adjusted.strip()
+            if adjusted == current:
+                return current
+            current = adjusted
+        return current
 
     def _create_short_avatar_broll(base_video_path: str, script_text: str, source_video_path: str | None) -> tuple[str, dict]:
         coverage_percent = max(0, min(100, int(getattr(user, "reels_broll_coverage_percent", 50) or 0)))
@@ -1325,7 +1353,7 @@ def process_content_task(task_id: int):
                 word_count = llm.estimate_word_count(script)
                 char_count = count_script_chars(script)
                 if char_count < min_chars or char_count > max_chars:
-                    adjusted_script = llm.adjust_script_length_chars(
+                    adjusted_script = _clamp_script_to_char_range(
                         script=script,
                         style_profile=style_profile,
                         min_chars=min_chars,
@@ -1378,7 +1406,7 @@ def process_content_task(task_id: int):
                         stage="Сценарий",
                         detail=f"Подгоняю длину сценария под {target_duration_minutes} мин.",
                     )
-                    adjusted_script = llm.adjust_script_length_chars(
+                    adjusted_script = _clamp_script_to_char_range(
                         script=script,
                         style_profile=style_profile,
                         min_chars=min_chars,
@@ -1440,7 +1468,7 @@ def process_content_task(task_id: int):
                         stage="Сценарий",
                         detail="Финально подгоняю объем после очеловечивания.",
                     )
-                    adjusted_script = llm.adjust_script_length_chars(
+                    adjusted_script = _clamp_script_to_char_range(
                         script=script,
                         style_profile=style_profile,
                         min_chars=min_chars,
@@ -1550,6 +1578,19 @@ def process_content_task(task_id: int):
 
             if not generated_audio:
                 raise Exception("Failed to generate audio with ElevenLabs")
+
+            actual_audio_seconds = get_audio_duration_seconds(audio_output_path)
+            if actual_audio_seconds and actual_audio_seconds > 0:
+                estimated_minutes = round(actual_audio_seconds / 60, 2)
+                current_meta = dict(task.script_meta or {})
+                current_meta["actual_audio_duration_seconds"] = round(actual_audio_seconds, 3)
+                current_meta["estimated_minutes"] = estimated_minutes
+                current_meta["actual_voice_chars_per_second"] = round(
+                    count_script_chars(script) / actual_audio_seconds,
+                    3,
+                )
+                task.script_meta = current_meta
+                db.commit()
 
             update_task_status_message(db, task, stage="Telegram", detail="Отправляю готовое аудио в Telegram.")
             send_avatar_audio_to_telegram(task, audio_output_path, estimated_minutes=estimated_minutes)
