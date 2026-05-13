@@ -1,4 +1,4 @@
-import { copyFile, readFile, writeFile } from "node:fs/promises";
+import { readFile, rename, writeFile } from "node:fs/promises";
 import { existsSync, mkdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
@@ -33,6 +33,52 @@ function runFfprobe(params, label) {
     throw new Error(`${label} failed: ${result.stderr || result.stdout}`);
   }
   return result.stdout.trim();
+}
+
+function runFfmpeg(params, label) {
+  const result = spawnSync("ffmpeg", params, { encoding: "utf8" });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(`${label} failed: ${result.stderr || result.stdout}`);
+  }
+}
+
+async function normalizeVideoForRendering(inputPath, outputPath) {
+  const tempPath = `${outputPath}.normalized.tmp.mp4`;
+  runFfmpeg(
+    [
+      "-y",
+      "-i",
+      inputPath,
+      "-map",
+      "0:v:0",
+      "-map",
+      "0:a?",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-pix_fmt",
+      "yuv420p",
+      "-r",
+      "30",
+      "-g",
+      "30",
+      "-keyint_min",
+      "30",
+      "-sc_threshold",
+      "0",
+      "-movflags",
+      "+faststart",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "160k",
+      tempPath,
+    ],
+    "ffmpeg normalize source video",
+  );
+  await rename(tempPath, outputPath);
 }
 
 function readDuration(filePath) {
@@ -104,7 +150,7 @@ mkdirSync(inputDir, { recursive: true });
 
 if (inputVideo) {
   if (!existsSync(inputVideo)) throw new Error(`Video not found: ${inputVideo}`);
-  await copyFile(inputVideo, defaultSource);
+  await normalizeVideoForRendering(inputVideo, defaultSource.pathname);
 }
 
 if (!existsSync(defaultSource)) {
@@ -149,6 +195,7 @@ console.log(`  source: ${defaultSource.pathname}`);
 console.log(`  duration: ${durationText}s`);
 console.log(`  fps: ${fps}`);
 console.log(`  dimensions: ${width}x${height}`);
+console.log("  normalized: h264/yuv420p, 30fps, keyframe interval 30");
 if (width > height) {
   console.warn("  warning: source video is not vertical; 9:16 output will crop/cover it.");
 }
