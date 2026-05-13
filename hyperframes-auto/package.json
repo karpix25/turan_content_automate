@@ -7,6 +7,7 @@
     "check": "hyperframes lint && hyperframes validate && hyperframes inspect",
     "render": "hyperframes render",
     "render:auto": "node scripts/render-auto.mjs",
+    "prepare:heygen": "node scripts/prepare-heygen-video.mjs",
     "generate:prompts": "node scripts/generate-image-prompts.mjs",
     "generate:images": "node scripts/generate-kie-images.mjs",
     "generate:visuals": "node scripts/generate-image-prompts.mjs && node scripts/generate-kie-images.mjs",

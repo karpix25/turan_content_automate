@@ -57,6 +57,14 @@ For every vertical HeyGen source video, follow `HEYGEN_VERTICAL_REELS.md`.
 
 Core rule: keep the HeyGen avatar/video as the base layer, use centered 70%-height editorial cards for cutaways, keep headline/subtitle in HTML, and generate only the lower white-background infographic image via the Kie.ai GPT Image 2 pipeline.
 
+For a new source video, never edit duration manually. Run:
+
+```bash
+npm run prepare:heygen -- --video /absolute/path/to/new-heygen-video.mp4
+```
+
+Then rebuild card timing from the transcript/scene plan and run the image generation pipeline.
+
 ## Documentation
 
 Full docs: https://hyperframes.heygen.com/introduction

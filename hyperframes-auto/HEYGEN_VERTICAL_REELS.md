@@ -45,21 +45,33 @@ Use this rule for every vertical HeyGen source video in this project.
 
 ## AI Image Pipeline
 
-1. Build or update the HTML cards.
-2. Run:
+1. Prepare the new HeyGen source video. This copies it to `assets/input/source.mp4`, reads duration/FPS with `ffprobe`, updates `index.html`, and resets old generated image slots:
+
+   ```bash
+   npm run prepare:heygen -- --video /absolute/path/to/new-heygen-video.mp4
+   ```
+
+   For the same video when you only want to keep existing generated images:
+
+   ```bash
+   npm run prepare:heygen -- --keep-images
+   ```
+
+2. Build or update the HTML cards from the transcript/scene plan.
+3. Run:
 
    ```bash
    npm run generate:prompts
    ```
 
-3. Generate the visual blocks through Kie.ai GPT Image 2:
+4. Generate the visual blocks through Kie.ai GPT Image 2:
 
    ```bash
    KIE_API_KEY=... npm run generate:images
    ```
 
-4. The image generator saves `assets/generated/beat-N.png` and enables those IDs in `data-generated-images`.
-5. Run:
+5. The image generator saves `assets/generated/beat-N.png` and enables those IDs in `data-generated-images`.
+6. Run:
 
    ```bash
    npm run check
@@ -77,3 +89,16 @@ subject -> action -> obstacle -> result
 ```
 
 For weak visuals, improve the `data-visual-brief` on the corresponding `<section>` instead of redesigning the whole card.
+
+## Variable Duration Rule
+
+Never hardcode duration for a new HeyGen video by hand.
+
+Every source video has its own duration and often its own FPS. Always run `npm run prepare:heygen` first so these fields are synced automatically:
+
+- root composition `data-duration`
+- source video `data-duration`
+- root `data-fps`
+- `totalDuration` used by the director coverage calculation
+
+Then the timeline director must place cutaways against the new transcript/scene plan, keeping the same design rules and about 50% overlay coverage.

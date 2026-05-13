@@ -92,3 +92,4 @@ The default design/process is:
 - card headline, subtitle, kicker, and quote attribution stay in HTML
 - the lower visual block is generated as a white-background editorial infographic through Kie.ai GPT Image 2
 - remove low-value meters/status boxes once generated visual art exists
+- new videos must start with `npm run prepare:heygen -- --video /absolute/path/to/new-heygen-video.mp4`; never hand-edit duration/FPS
