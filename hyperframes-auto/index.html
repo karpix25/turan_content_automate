@@ -1,0 +1,931 @@
+<!doctype html>
+<html lang="ru" data-generated-images="beat-0,beat-1,beat-2,beat-3,beat-4,beat-5,beat-6,beat-7">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="./node_modules/gsap/dist/gsap.min.js"></script>
+    <style>
+      :root {
+        --red: #b43c34;
+        --red-dark: #7c211d;
+        --ink: #0f172a;
+        --blue: #1d4f8f;
+        --gold: #d99a28;
+        --paper: #ffffff;
+        --soft: #f8fafc;
+        --line: #dbe3ed;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 1080px;
+        height: 1920px;
+        margin: 0;
+        overflow: hidden;
+        background: #0f172a;
+        color: var(--ink);
+        font-family: "Roboto Condensed", "Arial Narrow", Arial, sans-serif;
+      }
+
+      #main {
+        position: relative;
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+        background: #0f172a;
+      }
+
+      .source-video {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        z-index: 0;
+        pointer-events: none;
+      }
+
+      .shade {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        pointer-events: none;
+        background:
+          linear-gradient(180deg, rgba(15, 23, 42, 0.1) 0%, rgba(15, 23, 42, 0) 35%, rgba(15, 23, 42, 0.28) 100%),
+          linear-gradient(90deg, rgba(15, 23, 42, 0.22) 0%, rgba(15, 23, 42, 0) 48%, rgba(15, 23, 42, 0.18) 100%);
+      }
+
+      .glass-layer {
+        position: absolute;
+        inset: 0;
+        background: rgba(248, 250, 252, 0.08);
+        backdrop-filter: blur(14px) saturate(1.08);
+        opacity: 0;
+        z-index: 1.5;
+        pointer-events: none;
+      }
+
+      .beat {
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 72px;
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+
+      .top {
+        align-items: center;
+      }
+
+      .middle {
+        align-items: center;
+      }
+
+      .bottom {
+        align-items: center;
+      }
+
+      .beat-card {
+        position: relative;
+        width: 100%;
+        height: 70%;
+        min-height: 0;
+        padding: 46px 44px 48px;
+        overflow: hidden;
+        border: 1px solid #edf2f7;
+        border-radius: 22px;
+        background: var(--paper);
+        box-shadow: 0 28px 80px rgba(15, 23, 42, 0.24);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+
+      .beat-card.compact {
+        min-height: 0;
+      }
+
+      .beat-card.medium {
+        height: 70%;
+        padding: 46px 44px 48px;
+      }
+
+      .beat-card.lower {
+        width: 100%;
+        height: 70%;
+        padding: 46px 44px 48px;
+        border-radius: 22px;
+      }
+
+      .beat-card.hero {
+        min-height: 0;
+        padding: 46px 44px 48px;
+      }
+
+      .kicker {
+        position: relative;
+        z-index: 1;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        width: max-content;
+        max-width: 100%;
+        padding: 10px 14px;
+        border: 1px solid rgba(180, 60, 52, 0.22);
+        border-radius: 999px;
+        background: rgba(180, 60, 52, 0.08);
+        color: var(--red);
+        font-size: 22px;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .kicker::before {
+        content: "";
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--red);
+      }
+
+      h1,
+      h2 {
+        position: relative;
+        z-index: 1;
+        margin: 26px 0 0;
+        padding-left: 28px;
+        border-left: 15px solid var(--red);
+        color: var(--ink);
+        font-family: Impact, "Arial Narrow", sans-serif;
+        font-size: 96px;
+        line-height: 1.18;
+        letter-spacing: 0;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        font-size: 108px;
+        line-height: 1.12;
+      }
+
+      .beat-card.medium h2 {
+        font-size: 96px;
+        line-height: 1.18;
+      }
+
+      .beat-card.lower h1,
+      .beat-card.lower h2 {
+        margin-top: 26px;
+        padding-left: 28px;
+        border-left-width: 15px;
+        font-size: 96px;
+        line-height: 1.18;
+      }
+
+      .desc {
+        position: relative;
+        z-index: 1;
+        max-width: 860px;
+        margin-top: 24px;
+        color: #172033;
+        font-size: 50px;
+        line-height: 1.12;
+        font-weight: 900;
+      }
+
+      .beat-card.medium .desc {
+        font-size: 50px;
+      }
+
+      .beat-card.lower .desc {
+        margin-top: 24px;
+        font-size: 50px;
+        line-height: 1.12;
+      }
+
+      .quote-source {
+        position: relative;
+        z-index: 1;
+        display: inline-flex;
+        align-items: center;
+        width: max-content;
+        max-width: 100%;
+        margin-top: 18px;
+        padding: 12px 16px;
+        border-radius: 12px;
+        background: #0f172a;
+        color: #fff;
+        font-size: 22px;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .stamp {
+        position: absolute;
+        right: 36px;
+        bottom: 34px;
+        z-index: 1;
+        color: rgba(15, 23, 42, 0.35);
+        font-size: 16px;
+        font-weight: 900;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+
+      .visual {
+        position: relative;
+        z-index: 1;
+        width: 100%;
+        height: 560px;
+        margin-top: 34px;
+        border: 1px solid #e9eef5;
+        border-radius: 18px;
+        background:
+          linear-gradient(90deg, rgba(15, 23, 42, 0.045) 1px, transparent 1px),
+          linear-gradient(0deg, rgba(15, 23, 42, 0.045) 1px, transparent 1px),
+          #f8fafc;
+        background-size: 48px 48px;
+        overflow: hidden;
+      }
+
+      .ai-art {
+        position: absolute;
+        inset: 0;
+        z-index: 5;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+
+      .beat-card.medium .visual {
+        height: 560px;
+        margin-top: 34px;
+      }
+
+      .beat-card.lower .visual {
+        height: 560px;
+        margin-top: 34px;
+      }
+
+      .beat-card .status-grid,
+      .beat-card .flow,
+      .beat-card .meter,
+      .beat-card .stamp {
+        display: none;
+      }
+
+      .beat-card.lower .status-grid,
+      .beat-card.lower .flow,
+      .beat-card.lower .meter {
+        margin-top: 18px;
+      }
+
+      .axis,
+      .route,
+      .bar,
+      .label,
+      .node,
+      .ship,
+      .alert,
+      .world,
+      .side,
+      .strike,
+      .seal {
+        position: absolute;
+      }
+
+      .node {
+        width: 76px;
+        height: 76px;
+        border: 7px solid var(--red);
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 16px 32px rgba(15, 23, 42, 0.14);
+      }
+
+      .node.blue {
+        border-color: var(--blue);
+      }
+
+      .route {
+        height: 8px;
+        border-radius: 999px;
+        background: rgba(180, 60, 52, 0.66);
+        transform-origin: left center;
+      }
+
+      .axis {
+        height: 8px;
+        border-radius: 999px;
+        background: #cbd5e1;
+      }
+
+      .ship {
+        width: 250px;
+        height: 86px;
+        border: 1px solid #cbd5e1;
+        border-radius: 18px 18px 52px 52px;
+        background: linear-gradient(180deg, #ffffff 0%, #dbe4ef 100%);
+        box-shadow: 0 20px 44px rgba(15, 23, 42, 0.16);
+      }
+
+      .ship::before {
+        content: "";
+        position: absolute;
+        left: 76px;
+        top: -48px;
+        width: 88px;
+        height: 52px;
+        border: 1px solid #cbd5e1;
+        border-radius: 12px 12px 4px 4px;
+        background: #fff;
+      }
+
+      .alert {
+        width: 110px;
+        height: 110px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 30px;
+        background: var(--red);
+        color: #fff;
+        font-family: Impact, "Arial Narrow", sans-serif;
+        font-size: 78px;
+        box-shadow: 0 18px 42px rgba(180, 60, 52, 0.28);
+      }
+
+      .world {
+        width: 220px;
+        height: 220px;
+        border-radius: 50%;
+        border: 8px solid #cbd5e1;
+        background:
+          radial-gradient(circle at 35% 35%, rgba(29, 79, 143, 0.18), transparent 38%),
+          #fff;
+      }
+
+      .world::before,
+      .world::after {
+        content: "";
+        position: absolute;
+        border-radius: 50%;
+        border: 4px solid rgba(15, 23, 42, 0.12);
+      }
+
+      .world::before {
+        inset: 38px 20px;
+      }
+
+      .world::after {
+        inset: 20px 72px;
+      }
+
+      .side {
+        width: 190px;
+        height: 190px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        color: #fff;
+        font-family: Impact, "Arial Narrow", sans-serif;
+        font-size: 72px;
+        box-shadow: 0 24px 54px rgba(15, 23, 42, 0.18);
+      }
+
+      .side.red {
+        background: linear-gradient(145deg, #c94b43, #84221f);
+      }
+
+      .side.blue {
+        background: linear-gradient(145deg, #315f9e, #162f57);
+      }
+
+      .strike {
+        width: 310px;
+        height: 18px;
+        border-radius: 999px;
+        background: var(--red);
+        transform-origin: center;
+      }
+
+      .seal {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 164px;
+        height: 164px;
+        border: 10px solid var(--red);
+        border-radius: 50%;
+        color: var(--red);
+        font-family: Impact, "Arial Narrow", sans-serif;
+        font-size: 78px;
+        transform: rotate(-12deg);
+      }
+
+      .label {
+        padding: 8px 12px;
+        border-radius: 10px;
+        background: #fff;
+        color: #334155;
+        font-size: 18px;
+        font-weight: 900;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .emoji-unit {
+        position: absolute;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 150px;
+        height: 150px;
+        border: 1px solid #e8eef6;
+        border-radius: 28px;
+        background: #fff;
+        font-size: 88px;
+        line-height: 1;
+        box-shadow: 0 18px 46px rgba(15, 23, 42, 0.12);
+      }
+
+      .emoji-unit.big {
+        width: 196px;
+        height: 196px;
+        border-radius: 34px;
+        font-size: 118px;
+      }
+
+      .emoji-unit.red {
+        border-color: rgba(180, 60, 52, 0.28);
+        background: #fff7f6;
+      }
+
+      .emoji-unit.blue {
+        border-color: rgba(29, 79, 143, 0.25);
+        background: #f3f7ff;
+      }
+
+      .quote-stage {
+        position: relative;
+        z-index: 1;
+        height: 360px;
+        margin-top: 32px;
+        border: 1px solid #e9eef5;
+        border-radius: 18px;
+        background:
+          radial-gradient(circle at 22% 42%, rgba(180, 60, 52, 0.12), transparent 26%),
+          radial-gradient(circle at 78% 45%, rgba(29, 79, 143, 0.12), transparent 28%),
+          #f8fafc;
+        overflow: hidden;
+      }
+
+      .quote-side {
+        position: absolute;
+        top: 82px;
+        width: 220px;
+        text-align: center;
+      }
+
+      .quote-side.left {
+        left: 58px;
+      }
+
+      .quote-side.right {
+        right: 58px;
+      }
+
+      .quote-side .emoji-unit {
+        position: relative;
+        margin: 0 auto 14px;
+      }
+
+      .quote-side b {
+        color: var(--ink);
+        font-size: 25px;
+        font-weight: 900;
+        text-transform: uppercase;
+      }
+
+      .quote-beam {
+        position: absolute;
+        left: 290px;
+        right: 290px;
+        top: 174px;
+        height: 12px;
+        border-radius: 999px;
+        background: var(--red);
+      }
+
+      .quote-beam::before,
+      .quote-beam::after {
+        content: "";
+        position: absolute;
+        top: -18px;
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        border: 10px solid var(--red);
+        background: #fff;
+      }
+
+      .quote-beam::before {
+        left: -20px;
+      }
+
+      .quote-beam::after {
+        right: -20px;
+      }
+
+      .status-grid {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin-top: 26px;
+      }
+
+      .status {
+        min-height: 86px;
+        padding: 12px 14px;
+        border: 1px solid #e8eef6;
+        border-radius: 14px;
+        background: #f8fafc;
+      }
+
+      .status b {
+        display: block;
+        color: #64748b;
+        font-size: 15px;
+        font-weight: 900;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .status span {
+        display: block;
+        margin-top: 6px;
+        color: var(--ink);
+        font-family: Impact, "Arial Narrow", sans-serif;
+        font-size: 34px;
+        line-height: 1.02;
+        text-transform: uppercase;
+      }
+
+      .status.alert-status span {
+        color: var(--red);
+      }
+
+      .flow {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-top: 26px;
+      }
+
+      .flow-step {
+        flex: 1;
+        min-height: 104px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 12px;
+        border: 1px solid #e8eef6;
+        border-radius: 16px;
+        background: #f8fafc;
+        color: var(--ink);
+        font-size: 23px;
+        line-height: 1.08;
+        font-weight: 900;
+        text-align: center;
+        text-transform: uppercase;
+      }
+
+      .flow-arrow {
+        flex: 0 0 34px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--red);
+      }
+
+      .meter {
+        position: relative;
+        z-index: 1;
+        margin-top: 28px;
+        padding: 18px;
+        border: 1px solid #e8eef6;
+        border-radius: 16px;
+        background: #f8fafc;
+      }
+
+      .meter-row {
+        display: grid;
+        grid-template-columns: 210px 1fr 72px;
+        gap: 14px;
+        align-items: center;
+        margin: 10px 0;
+      }
+
+      .meter-label,
+      .meter-value {
+        color: #334155;
+        font-size: 20px;
+        font-weight: 900;
+        text-transform: uppercase;
+      }
+
+      .meter-track {
+        height: 16px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #e2e8f0;
+      }
+
+      .meter-fill {
+        height: 100%;
+        border-radius: inherit;
+        background: var(--red);
+      }
+
+      .meter-fill.blue-fill {
+        background: var(--blue);
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="main"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="43.535"
+      data-fps="25"
+      data-width="1080"
+      data-height="1920"
+    >
+      <video
+        id="source-video"
+        class="clip source-video"
+        data-start="0"
+        data-duration="43.535"
+        data-track-index="0"
+        data-volume="1"
+        data-has-audio="true"
+        src="./assets/input/source.mp4"
+        playsinline
+        preload="auto"
+      ></video>
+
+      <div class="shade"></div>
+      <div class="glass-layer"></div>
+
+      <section id="beat-0" class="clip beat top" data-start="0.000" data-duration="2.400" data-track-index="1" data-intensity="full">
+        <div class="beat-card hero">
+          <div class="kicker">хук</div>
+          <h1>КТО В ДОМЕ?</h1>
+          <div class="desc">Китай показывает: правила уже не диктуются в одиночку.</div>
+          <div class="visual">
+            <img class="ai-art" data-ai-id="beat-0" data-ai-src="./assets/generated/beat-0.png" alt="" />
+            <div class="emoji-unit big red" style="left: 74px; top: 120px;">🐉</div>
+            <div class="route" style="left: 278px; top: 212px; width: 380px;"></div>
+            <div class="emoji-unit big blue" style="right: 74px; top: 120px;">🦅</div>
+            <div class="label" style="left: 110px; bottom: 50px;">вызов гегемонии</div>
+            <div class="label" style="right: 118px; bottom: 50px;">ответ действием</div>
+          </div>
+          <div class="flow">
+            <div class="flow-step">угроза</div>
+            <div class="flow-arrow"></div>
+            <div class="flow-step">игнор</div>
+            <div class="flow-arrow"></div>
+            <div class="flow-step">проход</div>
+          </div>
+          <div class="stamp">режиссер: ключевой хук</div>
+        </div>
+      </section>
+
+      <section id="beat-1" class="clip beat bottom" data-start="4.600" data-duration="2.600" data-track-index="1" data-intensity="medium">
+        <div class="beat-card medium">
+          <div class="kicker">ультиматум</div>
+          <h2>ОРМУЗ ЗАКРЫТ?</h2>
+          <div class="desc">Полная блокада главной энергетической артерии.</div>
+          <div class="visual">
+            <img class="ai-art" data-ai-id="beat-1" data-ai-src="./assets/generated/beat-1.png" alt="" />
+            <div class="axis" style="left: 100px; top: 138px; width: 690px; transform: rotate(-7deg);"></div>
+            <div class="emoji-unit red" style="left: 120px; top: 74px;">🚧</div>
+            <div class="ship" style="left: 430px; top: 126px; transform: rotate(-7deg);"></div>
+            <div class="emoji-unit" style="right: 94px; top: 86px;">🛢️</div>
+            <div class="label" style="right: 76px; bottom: 44px;">blockade line</div>
+          </div>
+          <div class="status-grid">
+            <div class="status alert-status"><b>барьер</b><span>закрыть</span></div>
+            <div class="status"><b>объект</b><span>пролив</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="beat-2" class="clip beat top" data-start="9.400" data-duration="2.000" data-track-index="1" data-intensity="lower">
+        <div class="beat-card lower">
+          <div class="kicker">условия</div>
+          <h2>НИ ОДНО СУДНО</h2>
+          <div class="desc">Ни в порт за нефтью. Ни обратно с ней.</div>
+          <div class="visual" style="min-height: 210px;">
+            <img class="ai-art" data-ai-id="beat-2" data-ai-src="./assets/generated/beat-2.png" alt="" />
+            <div class="emoji-unit red" style="left: 76px; top: 42px;">⛔</div>
+            <div class="strike" style="right: 86px; top: 78px; transform: rotate(-8deg);"></div>
+            <div class="strike" style="right: 114px; top: 138px; width: 260px; transform: rotate(8deg);"></div>
+            <div class="emoji-unit" style="right: 76px; top: 42px;">🚢</div>
+            <div class="label" style="right: 64px; bottom: 36px;">ultimatum</div>
+          </div>
+          <div class="status-grid">
+            <div class="status alert-status"><b>вход</b><span>запрет</span></div>
+            <div class="status alert-status"><b>выход</b><span>запрет</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="beat-3" class="clip beat middle" data-start="15.000" data-duration="2.700" data-track-index="1" data-intensity="medium">
+        <div class="beat-card medium">
+          <div class="kicker">ответ</div>
+          <h2>ПЕКИН ИГНОРИРУЕТ</h2>
+          <div class="desc">Китай предупреждает: танкеры продолжат ходить.</div>
+          <div class="visual">
+            <img class="ai-art" data-ai-id="beat-3" data-ai-src="./assets/generated/beat-3.png" alt="" />
+            <div class="emoji-unit big red" style="left: 74px; top: 72px;">🇨🇳</div>
+            <div class="route" style="left: 290px; top: 140px; width: 410px; transform: rotate(4deg);"></div>
+            <div class="emoji-unit big" style="right: 86px; top: 72px;">🚢</div>
+            <div class="label" style="right: 64px; bottom: 40px;">route stays open</div>
+          </div>
+          <div class="meter">
+            <div class="meter-row"><div class="meter-label">угроза</div><div class="meter-track"><div class="meter-fill" style="width: 82%;"></div></div><div class="meter-value">82%</div></div>
+            <div class="meter-row"><div class="meter-label">подчинение</div><div class="meter-track"><div class="meter-fill blue-fill" style="width: 18%;"></div></div><div class="meter-value">18%</div></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="beat-4" class="clip beat bottom" data-start="23.000" data-duration="3.200" data-track-index="1" data-intensity="full">
+        <div class="beat-card hero">
+          <div class="kicker">перевод</div>
+          <h1>И ЧЁ ТЫ СДЕЛАЕШЬ?</h1>
+          <div class="quote-source">Авторский перевод дипломатического смысла</div>
+          <div class="desc">Дипломатический язык превращается в язык действия.</div>
+          <div class="quote-stage">
+            <img class="ai-art" data-ai-id="beat-4" data-ai-src="./assets/generated/beat-4.png" alt="" />
+            <div class="quote-side left">
+              <div class="emoji-unit red">📄</div>
+              <b>ультиматум</b>
+            </div>
+            <div class="quote-beam"></div>
+            <div class="quote-side right">
+              <div class="emoji-unit blue">🚢</div>
+              <b>проверка</b>
+            </div>
+            <div class="label" style="left: 300px; bottom: 44px;">слова проверяются маршрутом</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="beat-5" class="clip beat top" data-start="29.100" data-duration="3.700" data-track-index="1" data-intensity="medium">
+        <div class="beat-card medium">
+          <div class="kicker">проверка силой</div>
+          <h2>ТАНКЕР ПРОХОДИТ</h2>
+          <div class="desc">Судно идёт через пролив за иранской нефтью.</div>
+          <div class="visual">
+            <img class="ai-art" data-ai-id="beat-5" data-ai-src="./assets/generated/beat-5.png" alt="" />
+            <div class="node" style="left: 80px; top: 146px;"></div>
+            <div class="route" style="left: 142px; top: 184px; width: 610px; transform: rotate(-11deg);"></div>
+            <div class="ship" style="left: 410px; top: 118px; transform: rotate(-11deg) scale(1.05);"></div>
+            <div class="emoji-unit red" style="left: 94px; top: 64px;">⛔</div>
+            <div class="emoji-unit" style="right: 98px; top: 82px;">✅</div>
+            <div class="node blue" style="right: 86px; top: 60px;"></div>
+            <div class="label" style="left: 76px; bottom: 40px;">sanctioned tanker</div>
+          </div>
+          <div class="status-grid">
+            <div class="status"><b>танкер</b><span>идёт</span></div>
+            <div class="status alert-status"><b>барьер</b><span>пробит</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="beat-6" class="clip beat middle" data-start="35.800" data-duration="1.800" data-track-index="1" data-intensity="lower">
+        <div class="beat-card lower">
+          <div class="kicker">итог эпизода</div>
+          <h1>НИКТО НЕ ТРОНУЛ</h1>
+          <div class="desc">Блокада есть на словах. В реальности проход состоялся.</div>
+          <div class="visual">
+            <img class="ai-art" data-ai-id="beat-6" data-ai-src="./assets/generated/beat-6.png" alt="" />
+            <div class="emoji-unit red" style="left: 82px; top: 48px;">⚠️</div>
+            <div class="route" style="left: 250px; top: 122px; width: 360px;"></div>
+            <div class="emoji-unit" style="right: 82px; top: 48px;">🤷</div>
+            <div class="label" style="left: 276px; bottom: 34px;">угроза без действия</div>
+          </div>
+          <div class="status-grid">
+            <div class="status alert-status"><b>угроза</b><span>активна</span></div>
+            <div class="status"><b>действие</b><span>ноль</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="beat-7" class="clip beat bottom" data-start="40.000" data-duration="3.100" data-track-index="1" data-intensity="full">
+        <div class="beat-card hero">
+          <div class="kicker">финальный вывод</div>
+          <h2>НОВАЯ РАССТАНОВКА СИЛ</h2>
+          <div class="desc">Геополитика сегодня читается не по заявлениям, а по тому, кто реально проходит.</div>
+          <div class="visual">
+            <img class="ai-art" data-ai-id="beat-7" data-ai-src="./assets/generated/beat-7.png" alt="" />
+            <div class="emoji-unit big blue" style="left: 70px; top: 86px;">🇺🇸</div>
+            <div class="emoji-unit big" style="left: 330px; top: 86px;">🌍</div>
+            <div class="emoji-unit big red" style="right: 70px; top: 86px;">🌏</div>
+            <div class="route" style="left: 200px; bottom: 74px; width: 520px; transform: rotate(-3deg);"></div>
+            <div class="label" style="left: 260px; bottom: 34px;">multipolar pressure</div>
+          </div>
+          <div class="meter">
+            <div class="meter-row"><div class="meter-label">однополярность</div><div class="meter-track"><div class="meter-fill blue-fill" style="width: 38%;"></div></div><div class="meter-value">↓</div></div>
+            <div class="meter-row"><div class="meter-label">многополярность</div><div class="meter-track"><div class="meter-fill" style="width: 76%;"></div></div><div class="meter-value">↑</div></div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      const beats = gsap.utils.toArray(".beat");
+      const glassLayer = document.querySelector(".glass-layer");
+      const generatedImageIds = new Set(
+        (document.documentElement.dataset.generatedImages || "")
+          .split(",")
+          .map((id) => id.trim())
+          .filter(Boolean),
+      );
+      if (generatedImageIds.size) {
+        document.querySelectorAll(".ai-art").forEach((img) => {
+          if (generatedImageIds.has("*") || generatedImageIds.has(img.dataset.aiId)) {
+            img.src = img.dataset.aiSrc;
+            img.onerror = () => img.remove();
+          }
+        });
+      }
+      const totalDuration = 43.535;
+      const directorRules = {
+        overlayCoverageTarget: 0.5,
+        maxSingleOverlayDuration: 3.7,
+        minCleanVideoGap: 1.2,
+        priority: "avatar_first",
+      };
+      const glassByIntensity = {
+        full: 0.78,
+        medium: 0.62,
+        lower: 0.28,
+      };
+      const overlaySeconds = beats.reduce((sum, beat) => sum + Number(beat.dataset.duration), 0);
+      document.documentElement.dataset.overlayCoverage = (overlaySeconds / totalDuration).toFixed(3);
+
+      beats.forEach((beat) => {
+        const start = Number(beat.dataset.start);
+        const duration = Number(beat.dataset.duration);
+        const intensity = beat.dataset.intensity || "medium";
+        const card = beat.querySelector(".beat-card");
+        const kicker = beat.querySelector(".kicker");
+        const title = beat.querySelector("h1, h2");
+        const desc = beat.querySelector(".desc");
+        const visual = beat.querySelector(".visual");
+        const visualParts = beat.querySelectorAll(".visual > *");
+
+        tl.to(glassLayer, { opacity: glassByIntensity[intensity], duration: 0.16, ease: "power2.out" }, start);
+        tl.fromTo(beat, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.16, ease: "power2.out" }, start);
+        tl.from(card, { opacity: 0, y: 42, scale: 0.985, duration: 0.34, ease: "power3.out" }, start + 0.04);
+        tl.from(kicker, { opacity: 0, y: 12, duration: 0.24, ease: "power2.out" }, start + 0.14);
+        tl.from(title, { opacity: 0, x: -42, duration: 0.34, ease: "power3.out" }, start + 0.22);
+        tl.from(desc, { opacity: 0, y: 20, duration: 0.3, ease: "power2.out" }, start + 0.42);
+        if (visual) {
+          tl.from(visual, { opacity: 0, y: 22, scale: 0.985, duration: 0.34, ease: "power3.out" }, start + 0.52);
+        }
+        if (visualParts.length) {
+          tl.from(visualParts, { opacity: 0, y: 18, scale: 0.92, duration: 0.34, stagger: 0.05, ease: "back.out(1.25)" }, start + 0.72);
+        }
+        tl.to(card, { y: -12, duration: Math.max(0.4, duration - 0.7), ease: "none" }, start + 0.36);
+        tl.to(glassLayer, { opacity: 0, duration: 0.16, ease: "power2.in" }, start + duration - 0.18);
+        tl.to(beat, { autoAlpha: 0, duration: 0.16, ease: "power2.in" }, start + duration - 0.18);
+        tl.set(beat, { autoAlpha: 0 }, start + duration);
+      });
+
+      window.__directorRules = directorRules;
+      window.__timelines.main = tl;
+    </script>
+  </body>
+</html>

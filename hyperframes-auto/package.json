@@ -1,0 +1,20 @@
+{
+  "name": "hyperframes-auto",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "hyperframes preview",
+    "check": "hyperframes lint && hyperframes validate && hyperframes inspect",
+    "render": "hyperframes render",
+    "render:auto": "node scripts/render-auto.mjs",
+    "generate:prompts": "node scripts/generate-image-prompts.mjs",
+    "generate:images": "node scripts/generate-kie-images.mjs",
+    "generate:visuals": "node scripts/generate-image-prompts.mjs && node scripts/generate-kie-images.mjs",
+    "orchestrate:heygen": "node scripts/generate-image-prompts.mjs && node scripts/generate-kie-images.mjs && hyperframes lint && hyperframes validate && hyperframes inspect",
+    "publish": "hyperframes publish"
+  },
+  "dependencies": {
+    "gsap": "3.14.2",
+    "hyperframes": "0.5.7"
+  }
+}
