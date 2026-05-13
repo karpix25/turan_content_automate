@@ -8,10 +8,11 @@
     "render": "hyperframes render",
     "render:auto": "node scripts/render-auto.mjs",
     "prepare:heygen": "node scripts/prepare-heygen-video.mjs",
+    "direct:timeline": "node scripts/director-timeline.mjs",
     "generate:prompts": "node scripts/generate-image-prompts.mjs",
     "generate:images": "node scripts/generate-kie-images.mjs",
     "generate:visuals": "node scripts/generate-image-prompts.mjs && node scripts/generate-kie-images.mjs",
-    "orchestrate:heygen": "node scripts/generate-image-prompts.mjs && node scripts/generate-kie-images.mjs && hyperframes lint && hyperframes validate && hyperframes inspect",
+    "orchestrate:heygen": "node scripts/director-timeline.mjs && node scripts/generate-image-prompts.mjs && node scripts/generate-kie-images.mjs && hyperframes lint && hyperframes validate && hyperframes inspect",
     "publish": "hyperframes publish"
   },
   "dependencies": {

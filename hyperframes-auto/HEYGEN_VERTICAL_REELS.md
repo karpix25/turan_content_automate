@@ -58,20 +58,26 @@ Use this rule for every vertical HeyGen source video in this project.
    ```
 
 2. Build or update the HTML cards from the transcript/scene plan.
-3. Run:
+3. Run the timeline director. It reads the composition duration and word-level transcript if present, then places cutaways around the video with about 50% overlay coverage:
+
+   ```bash
+   npm run direct:timeline
+   ```
+
+4. Run:
 
    ```bash
    npm run generate:prompts
    ```
 
-4. Generate the visual blocks through Kie.ai GPT Image 2:
+5. Generate the visual blocks through Kie.ai GPT Image 2:
 
    ```bash
    KIE_API_KEY=... npm run generate:images
    ```
 
-5. The image generator saves `assets/generated/beat-N.png` and enables those IDs in `data-generated-images`.
-6. Run:
+6. The image generator saves `assets/generated/beat-N.png` and enables those IDs in `data-generated-images`.
+7. Run:
 
    ```bash
    npm run check
@@ -102,3 +108,11 @@ Every source video has its own duration and often its own FPS. Always run `npm r
 - `totalDuration` used by the director coverage calculation
 
 Then the timeline director must place cutaways against the new transcript/scene plan, keeping the same design rules and about 50% overlay coverage.
+
+The timeline director is implemented as:
+
+```bash
+npm run direct:timeline
+```
+
+It updates every `beat-*` section's `data-start` and `data-duration`. If word timings exist in `assets/input/transcript.deepgram.json`, it uses them as anchors; otherwise it falls back to an even distribution across the source duration.

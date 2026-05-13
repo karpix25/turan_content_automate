@@ -65,6 +65,12 @@ npm run prepare:heygen -- --video /absolute/path/to/new-heygen-video.mp4
 
 Then rebuild card timing from the transcript/scene plan and run the image generation pipeline.
 
+Use the timeline director for automatic cutaway placement:
+
+```bash
+npm run direct:timeline
+```
+
 ## Documentation
 
 Full docs: https://hyperframes.heygen.com/introduction

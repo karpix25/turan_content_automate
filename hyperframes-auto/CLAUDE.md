@@ -93,3 +93,4 @@ The default design/process is:
 - the lower visual block is generated as a white-background editorial infographic through Kie.ai GPT Image 2
 - remove low-value meters/status boxes once generated visual art exists
 - new videos must start with `npm run prepare:heygen -- --video /absolute/path/to/new-heygen-video.mp4`; never hand-edit duration/FPS
+- cutaway timing must be recalculated with `npm run direct:timeline`; it uses word-level transcript anchors when available and otherwise distributes cards across the actual duration
