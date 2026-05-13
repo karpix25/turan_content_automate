@@ -7,7 +7,7 @@ from pathlib import Path
 
 # Конфигурация путей
 PROJECT_ROOT = Path(__file__).parent.parent
-REMONTION_DIR = PROJECT_ROOT.parent / "remotion-auto"
+HYPERFRAMES_DIR = PROJECT_ROOT.parent / "hyperframes-auto"
 PIPELINE_SCRIPT = PROJECT_ROOT / "tools" / "smart_montage_pipeline.py"
 
 # Telegram настройки (взяты из твоего .env)
@@ -46,9 +46,9 @@ def main():
         print(f"❌ Input file not found: {input_video}")
         sys.exit(1)
 
-    # 1. Подготовка: Копируем видео в Remotion
+    # 1. Подготовка: Копируем видео в Hyperframes
     print("\n--- STAGE 1: PREPARATION ---")
-    dest_video = REMONTION_DIR / "public" / "input" / "source.mp4"
+    dest_video = HYPERFRAMES_DIR / "assets" / "input" / "source.mp4"
     dest_video.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(input_video, dest_video)
     print(f"Copied {input_video.name} to {dest_video}")
@@ -68,23 +68,42 @@ def main():
         "--llm-model", "openai/gpt-4o-mini"
     ], cwd=PROJECT_ROOT, env=env)
 
-    # 3. Рендер видео (Remotion)
-    print("\n--- STAGE 3: REMOTION RENDERING ---")
-    render_output = REMONTION_DIR / "renders" / "final_video.mp4"
+    # 3. Рендер видео (Hyperframes)
+    print("\n--- STAGE 3: HYPERFRAMES RENDERING ---")
+    render_output = HYPERFRAMES_DIR / "renders" / "final_video.mp4"
     render_output.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Используем npx для запуска рендера
+
     run_command([
-        "npm", "run", "render"
-    ], cwd=REMONTION_DIR)
+        "npm", "run", "prepare:heygen", "--",
+        "--video", str(dest_video),
+    ], cwd=HYPERFRAMES_DIR)
+    run_command([
+        "npm", "run", "apply:scene-plan",
+    ], cwd=HYPERFRAMES_DIR)
+    run_command([
+        "npm", "run", "direct:timeline",
+    ], cwd=HYPERFRAMES_DIR)
+    run_command([
+        "npm", "run", "generate:prompts",
+    ], cwd=HYPERFRAMES_DIR)
+    if os.environ.get("KIE_API_KEY", "").strip():
+        run_command([
+            "npm", "run", "generate:images",
+        ], cwd=HYPERFRAMES_DIR)
+    else:
+        print("⚠️ KIE_API_KEY is not set; rendering with fallback HTML visuals.")
+    run_command([
+        "npm", "run", "render", "--",
+        "--output", str(render_output),
+        "--quality", "standard",
+    ], cwd=HYPERFRAMES_DIR)
 
     # 4. Отправка в Telegram
     print("\n--- STAGE 4: TELEGRAM NOTIFICATION ---")
-    actual_render = REMONTION_DIR / "renders" / "auto-montage.mp4" # Путь из package.json
-    if actual_render.exists():
-        send_to_telegram(actual_render, f"🎬 Видео готово!\nИсходник: {input_video.name}")
+    if render_output.exists():
+        send_to_telegram(render_output, f"🎬 Видео готово!\nИсходник: {input_video.name}")
     else:
-        print(f"❌ Rendered file not found at {actual_render}")
+        print(f"❌ Rendered file not found at {render_output}")
 
 if __name__ == "__main__":
     main()

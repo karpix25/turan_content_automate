@@ -1,11 +1,12 @@
-# Используем Node.js как базу (важно для Remotion)
-FROM node:20-bookworm
+# Используем Node.js 22 как базу (важно для Hyperframes)
+FROM node:22-bookworm
 
 # Устанавливаем системные зависимости (Python, FFmpeg, Chrome deps)
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     ffmpeg \
+    chromium \
     libnss3 \
     libatk1.0-0 \
     libatk-bridge2.0-0 \
@@ -32,9 +33,9 @@ COPY backend/requirements.txt ./backend/
 RUN pip3 install --break-system-packages --no-cache-dir -r hf-montage-test/requirements.txt && \
     pip3 install --break-system-packages --no-cache-dir -r backend/requirements.txt
 
-# Копируем зависимости Remotion
-COPY remotion-auto/package*.json ./remotion-auto/
-RUN cd remotion-auto && npm install
+# Копируем зависимости Hyperframes
+COPY hyperframes-auto/package*.json ./hyperframes-auto/
+RUN cd hyperframes-auto && npm install
 
 # Копируем весь код
 COPY . .

@@ -337,12 +337,12 @@ def _strip_cta_fallback(text: str | None) -> str:
     return re.sub(r"\s+", " ", cleaned).strip()
 
 
-def _run_remotion_pipeline(task_id: int, input_video: str, script: str) -> str | None:
+def _run_hyperframes_pipeline(task_id: int, input_video: str, script: str) -> str | None:
     import subprocess
     import json
-    logging.info(f"Task {task_id}: Starting Remotion pipeline on {input_video}")
+    logging.info(f"Task {task_id}: Starting Hyperframes pipeline on {input_video}")
     montage_script = "/app/hf-montage-test/tools/smart_montage_pipeline.py"
-    remotion_dir = "/app/remotion-auto"
+    hyperframes_dir = "/app/hyperframes-auto"
     scene_plan_index = "/app/hf-montage-test/index.html"
     
     out_dir = os.getenv("OUTPUT_DIR", "./output").strip()
@@ -386,20 +386,56 @@ def _run_remotion_pipeline(task_id: int, input_video: str, script: str) -> str |
             f"Task {task_id}: Scene word cues were missing after planner run. "
             f"Created fallback cues file: {out_words} (scenes={scene_count})"
         )
-            
-    # 2. Run Remotion Render
-    final_output = os.path.join(out_dir, f"remotion_{task_id}.mp4")
+
+    hyperframes_input_dir = os.path.join(hyperframes_dir, "assets", "input")
+    os.makedirs(hyperframes_input_dir, exist_ok=True)
+    shutil.copy2(out_plan, os.path.join(hyperframes_input_dir, "scene-plan.generated.json"))
+    shutil.copy2(out_words, os.path.join(hyperframes_input_dir, "scene-word-cues.generated.json"))
+
+    def run_hf_step(label: str, cmd: list[str]) -> bool:
+        logging.info("Task %s: %s: %s", task_id, label, " ".join(cmd))
+        result = subprocess.run(cmd, cwd=hyperframes_dir, capture_output=True, text=True)
+        if result.returncode != 0:
+            logging.error(
+                "Task %s: %s failed. STDOUT: %s\nSTDERR: %s",
+                task_id,
+                label,
+                result.stdout,
+                result.stderr,
+            )
+            return False
+        if result.stdout:
+            logging.info("Task %s: %s stdout: %s", task_id, label, result.stdout[-4000:])
+        if result.stderr:
+            logging.info("Task %s: %s stderr: %s", task_id, label, result.stderr[-4000:])
+        return True
+
+    # 2. Prepare the vertical HeyGen source and sync duration/FPS.
+    if not run_hf_step("Hyperframes prepare", ["npm", "run", "prepare:heygen", "--", "--video", input_video]):
+        return None
+
+    # 3. Apply scene text to cards and let the timeline director place cutaways.
+    if not run_hf_step("Hyperframes apply scene plan", ["npm", "run", "apply:scene-plan"]):
+        return None
+    if not run_hf_step("Hyperframes timeline director", ["npm", "run", "direct:timeline"]):
+        return None
+    if not run_hf_step("Hyperframes prompt generation", ["npm", "run", "generate:prompts"]):
+        return None
+
+    if (os.getenv("KIE_API_KEY") or "").strip():
+        if not run_hf_step("Hyperframes image generation", ["npm", "run", "generate:images"]):
+            return None
+    else:
+        logging.warning("Task %s: KIE_API_KEY is not configured; Hyperframes will render fallback HTML visuals.", task_id)
+
+    # 4. Run Hyperframes render.
+    final_output = os.path.join(out_dir, f"hyperframes_{task_id}.mp4")
     cmd_render = [
-        "npm", "run", "render:auto", "--",
-        "--video", input_video,
-        "--scene-plan", out_plan,
-        "--word-cues", out_words,
-        "--out", final_output
+        "npm", "run", "render", "--",
+        "--output", final_output,
+        "--quality", "standard",
     ]
-    logging.info(f"Task {task_id}: Running Remotion: {' '.join(cmd_render)}")
-    res_render = subprocess.run(cmd_render, cwd=remotion_dir, capture_output=True, text=True)
-    if res_render.returncode != 0:
-        logging.error(f"Task {task_id}: Remotion failed. STDOUT: {res_render.stdout}\nSTDERR: {res_render.stderr}")
+    if not run_hf_step("Hyperframes render", cmd_render):
         return None
         
     if os.path.exists(final_output):
@@ -1196,14 +1232,14 @@ def process_content_task(task_id: int):
             )
             description_txt_path = _write_avatar_description_file(task_id, final_description_text)
 
-            update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Remotion (AI)...")
-            remotion_output = _run_remotion_pipeline(task_id, local_avatar_video, thumbnail_script)
-            if remotion_output:
-                local_avatar_video = remotion_output
-                logging.info(f"Task {task_id}: Successfully replaced raw video with Remotion output.")
+            update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Hyperframes (AI).")
+            hyperframes_output = _run_hyperframes_pipeline(task_id, local_avatar_video, thumbnail_script)
+            if hyperframes_output:
+                local_avatar_video = hyperframes_output
+                logging.info(f"Task {task_id}: Successfully replaced raw video with Hyperframes output.")
             else:
                 raise Exception(
-                    "Remotion rendering failed for avatar_youtube task. "
+                    "Hyperframes rendering failed for avatar_youtube task. "
                     "Raw HeyGen fallback is disabled by policy."
                 )
 
@@ -1663,38 +1699,28 @@ def process_content_task(task_id: int):
             if not local_avatar_video:
                 raise Exception("Failed to download final video from HeyGen")
 
-            local_avatar_video, broll_meta = _create_short_avatar_broll(
-                base_video_path=local_avatar_video,
-                script_text=script,
-                source_video_path=local_reel_source,
-            )
             if task.type in SHORT_AVATAR_TASK_TYPES:
                 current_meta = dict(task.script_meta or {})
-                current_meta["broll"] = broll_meta
-                task.script_meta = current_meta
-                db.commit()
-                
-            if task.type in SHORT_AVATAR_TASK_TYPES:
-                current_meta = dict(task.script_meta or {})
-                current_meta["remotion"] = {
+                current_meta["broll"] = {
                     "status": "skipped",
-                    "reason": "vertical_heygen_avatar_not_needed",
+                    "reason": "hyperframes_replaces_broll_for_short_avatar",
                 }
                 task.script_meta = current_meta
                 db.commit()
+                
+            # --- Hyperframes AI Rendering ---
+            update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Hyperframes (AI).")
+            hyperframes_output = _run_hyperframes_pipeline(task_id, local_avatar_video, script)
+            if hyperframes_output:
+                local_avatar_video = hyperframes_output
+                logging.info(f"Task {task_id}: Successfully replaced raw video with Hyperframes output.")
             else:
-                # --- Remotion AI Rendering ---
-                update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Remotion (AI)...")
-                remotion_output = _run_remotion_pipeline(task_id, local_avatar_video, script)
-                if remotion_output:
-                    local_avatar_video = remotion_output
-                    logging.info(f"Task {task_id}: Successfully replaced raw video with Remotion output.")
-                else:
-                    raise Exception(
-                        "Remotion rendering failed for avatar_youtube task. "
-                        "Raw HeyGen fallback is disabled by policy."
-                    )
+                raise Exception(
+                    "Hyperframes rendering failed for avatar task. "
+                    "Raw HeyGen fallback is disabled by policy."
+                )
 
+            if task.type not in SHORT_AVATAR_TASK_TYPES:
                 local_avatar_video, insert_meta = _apply_avatar_insert_montage(local_avatar_video)
                 current_meta = dict(task.script_meta or {})
                 current_meta["avatar_insert_montage"] = insert_meta
@@ -1888,7 +1914,7 @@ def process_content_task(task_id: int):
 
                     if task.type in AVATAR_TASK_TYPES:
                         logging.info(
-                            "Task %s: clip=%s account=%s platform=%s slot=%s using Remotion-only output (no plate/CTA overlay)",
+                            "Task %s: clip=%s account=%s platform=%s slot=%s using avatar-only output (no plate/CTA overlay)",
                             task_id,
                             clip_index,
                             account_id,

@@ -1645,18 +1645,18 @@ def main() -> int:
     eprint(f"Injected scene-plan into: {index_path}")
     eprint(f"Injected scene-word-cues into: {index_path}")
 
-    # Auto-sync to remotion-auto/public/input/ so Remotion Studio picks it up immediately
-    remotion_public = Path(__file__).parent.parent.parent / "remotion-auto" / "public" / "input"
-    if remotion_public.exists():
+    # Auto-sync to hyperframes-auto/assets/input/ so Hyperframes preview picks it up immediately.
+    hyperframes_public = Path(__file__).parent.parent.parent / "hyperframes-auto" / "assets" / "input"
+    if hyperframes_public.exists():
         import shutil
-        dest_plan = remotion_public / "scene-plan.generated.json"
-        dest_word_cues = remotion_public / "scene-word-cues.generated.json"
+        dest_plan = hyperframes_public / "scene-plan.generated.json"
+        dest_word_cues = hyperframes_public / "scene-word-cues.generated.json"
         shutil.copy2(out_plan, dest_plan)
         shutil.copy2(out_word_cues, dest_word_cues)
-        eprint(f"Synced to Remotion: {dest_plan}")
-        eprint(f"Synced word cues to Remotion: {dest_word_cues}")
+        eprint(f"Synced to Hyperframes: {dest_plan}")
+        eprint(f"Synced word cues to Hyperframes: {dest_word_cues}")
     else:
-        eprint(f"Note: remotion-auto/public/input not found at {remotion_public}, skipping sync.")
+        eprint(f"Note: hyperframes-auto/assets/input not found at {hyperframes_public}, skipping sync.")
 
     print(
         json.dumps(

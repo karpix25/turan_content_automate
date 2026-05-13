@@ -8,6 +8,7 @@
     "render": "hyperframes render",
     "render:auto": "node scripts/render-auto.mjs",
     "prepare:heygen": "node scripts/prepare-heygen-video.mjs",
+    "apply:scene-plan": "node scripts/apply-scene-plan-to-cards.mjs",
     "direct:timeline": "node scripts/director-timeline.mjs",
     "generate:prompts": "node scripts/generate-image-prompts.mjs",
     "generate:images": "node scripts/generate-kie-images.mjs",
