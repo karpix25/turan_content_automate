@@ -55,18 +55,20 @@ function pickKicker(scene, index) {
 function visualBrief(scene, title, desc) {
   const steps = Array.isArray(scene.steps) ? scene.steps.map(normalize).filter(Boolean).join(" -> ") : "";
   const facts = Array.isArray(scene.facts) ? scene.facts.map((fact) => normalize(fact?.text || fact)).filter(Boolean).join("; ") : "";
-  const bars = Array.isArray(scene.bars)
-    ? scene.bars.map((bar) => `${normalize(bar?.label)} ${Math.round(Number(bar?.value || 0) * 100)}%`).join("; ")
+  const visualElements = Array.isArray(scene.visualElements)
+    ? scene.visualElements.map(normalize).filter(Boolean).join("; ")
     : "";
   return normalize(
     [
-      `Visualize this card as a lower white-background infographic.`,
+      `Visualize this card as a beautiful illustration-first editorial infographic on a light background.`,
       `Title: ${title}.`,
       `Subtitle: ${desc}.`,
       steps ? `Process: ${steps}.` : "",
       facts ? `Facts: ${facts}.` : "",
-      bars ? `Relative indicators: ${bars}.` : "",
-      `Use subject -> action -> obstacle -> result logic.`,
+      visualElements ? `Possible symbolic elements: ${visualElements}.` : "",
+      `Use subject -> action -> obstacle -> result logic as one concrete visual metaphor.`,
+      `Prefer objects, routes, barriers, maps, documents, ships, globes, shields, bridges, chess pieces, and spotlight metaphors.`,
+      `Do not request charts, gauges, percentage rings, dashboards, tables, visible numbers, or readable text.`,
     ].join(" "),
   );
 }

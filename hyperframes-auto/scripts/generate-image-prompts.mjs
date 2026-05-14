@@ -4,12 +4,15 @@ const outputPath = new URL("../assets/generated/prompts.json", import.meta.url);
 const indexPath = new URL("../index.html", import.meta.url);
 
 const STYLE = [
-  "Premium editorial infographic for the lower visual block of a vertical HeyGen Reels card.",
-  "The image must feel like a clean illustration placed under a separate title and subtitle, not a full poster.",
-  "White paper background, subtle light gray grid, bold red accent #b43c34, deep navy #0f172a, restrained blue #1d4f8f.",
-  "Use large readable symbols, premium vector/3D hybrid, strong hierarchy, generous white space, and a polished news-graphics look.",
-  "Show relationships, action, obstacle, and result; make the scene immediately readable without relying on text.",
-  "No tiny text, no long labels, no logos, no photorealistic people, no clutter, no dark background, no cinematic lighting.",
+  "Premium editorial illustrative infographic for the lower visual block of a vertical HeyGen Reels card.",
+  "Create one beautiful 16:9 horizontal illustration that sits under a separate title and subtitle; this image is not a full poster.",
+  "The entire subject must fit inside the 16:9 frame with safe margins, no cropping, no cut-off objects, and a centered composition.",
+  "White paper or very light editorial background, subtle depth, bold red accent #b43c34, deep navy #0f172a, restrained blue #1d4f8f.",
+  "Use a single strong visual metaphor or scene: route, barrier, ship, chessboard, map, document, shield, bridge, globe, spotlight, or other symbolic objects.",
+  "Prefer polished vector/3D hybrid illustration, clean editorial composition, clear foreground/midground/background, generous white space, premium news-magazine quality.",
+  "Show the idea through objects and action, not through data visualization.",
+  "No charts, no gauges, no percentage rings, no dashboards, no UI panels, no tables, no repeated icon grids, no dense diagrams.",
+  "No readable text, no numbers, no percent signs, no captions, no labels, no logos, no emojis, no photorealistic people, no clutter, no dark background.",
 ].join(" ");
 
 function attr(block, name) {
@@ -42,14 +45,28 @@ function inferRole({ kicker, title, desc }) {
 function fallbackVisualBrief({ title, desc, kicker, quoteSource }) {
   const quote = quoteSource ? ` Quote attribution/context: ${quoteSource}.` : "";
   return [
-    `Create a clean visual explanation of this beat.`,
+    `Create an illustration-first visual explanation of this beat.`,
     `Kicker/context: "${kicker || "none"}".`,
     `Title: "${title}".`,
     `Subtitle meaning: "${desc || "none"}".`,
-    "Visualize the central relationship and consequence using symbols, routes, barriers, arrows, gauges, documents, maps, or object metaphors as appropriate.",
-    "The generated image must not repeat the title or subtitle as text.",
+    "Visualize the central relationship and consequence using one main symbolic scene with objects, routes, barriers, documents, maps, or physical metaphors.",
+    "Avoid graph-like output unless the story absolutely requires it, and never use gauges, rings, dashboards, or visible percentages.",
+    "The generated image must not repeat the title or subtitle as text and must not include readable words or numbers.",
     quote,
   ].join(" ");
+}
+
+function roleDirection(role) {
+  const directions = {
+    hook: "Make it a dramatic symbolic opening image with a clear central conflict and cinematic editorial energy.",
+    blockade: "Show a physical blocked route or maritime barrier metaphor, with the path still readable and no chart elements.",
+    response: "Show a decisive action or route continuing through pressure, using opposing objects rather than numbers.",
+    proof: "Show evidence through a concrete scene: a ship crossing, a route confirmed, a magnifier, document, or spotlight.",
+    conclusion: "Show a broad geopolitical metaphor such as a globe, crossroads, balance of forces, or shifted chessboard.",
+    "quote interpretation": "Translate words into action visually, such as a document becoming a route, bridge, or moving vessel.",
+    analysis: "Use a clean visual metaphor that explains cause and effect with one central object scene.",
+  };
+  return directions[role] || directions.analysis;
 }
 
 const html = await readFile(indexPath, "utf8");
@@ -82,7 +99,7 @@ const prompts = BEATS.map((beat) => ({
   file: `${beat.id}.png`,
   aspectRatio: "16:9",
   resolution: "1K",
-  prompt: `${STYLE} Card headline context: "${beat.title}". Beat role: ${beat.role}. Visual brief: ${beat.visualBrief}`,
+  prompt: `${STYLE} Card headline context: "${beat.title}". Beat role: ${beat.role}. Role direction: ${roleDirection(beat.role)} Visual brief: ${beat.visualBrief}`,
 }));
 
 await mkdir(new URL("../assets/generated/", import.meta.url), { recursive: true });
