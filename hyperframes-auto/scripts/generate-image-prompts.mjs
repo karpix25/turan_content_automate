@@ -10,11 +10,13 @@ const STYLE = [
   "Avoid distant wide landscapes, tiny ships, tiny symbols, miniature maps, and excessive empty margins.",
   "The entire subject must fit inside the 1:1 frame with safe margins, no cropping, no cut-off objects, and a centered composition.",
   "White paper or very light editorial background, subtle depth, bold red accent #b43c34, deep navy #0f172a, restrained blue #1d4f8f.",
-  "Use a single strong visual metaphor or scene: route, barrier, ship, chessboard, map, document, shield, bridge, globe, spotlight, or other symbolic objects.",
+  "Use a single strong visual metaphor or scene built from concrete visual anchors: real national flags when countries are named, recognizable flag colors, stylized public figures or human characters, hands, ships, ports, oil barrels, pipelines, documents, stamps, seals, chess pieces, maps, borders, bridges, shields, spotlights, broken walls, arrows, and physical objects.",
   "Prefer polished vector/3D hybrid illustration, clean editorial composition, bold foreground object, simple midground/background, premium news-magazine quality.",
-  "Show the idea through objects and action, not through data visualization.",
+  "Show the idea through characters, objects, motion, confrontation, scale, and action, not through data visualization.",
+  "Characters should be editorial and stylized, not photorealistic portraits; use silhouettes, diplomats, workers, leaders-at-a-distance, guards, captains, or symbolic figures when they clarify the story.",
+  "When a country or geopolitical actor is central, include its flag or flag-colored object as a visual cue, without adding readable text.",
   "No charts, no gauges, no percentage rings, no dashboards, no UI panels, no tables, no repeated icon grids, no dense diagrams.",
-  "No readable text, no numbers, no percent signs, no captions, no labels, no logos, no emojis, no photorealistic people, no clutter, no dark background.",
+  "No readable text, no numbers, no percent signs, no captions, no labels, no logos, no emojis, no clutter, no dark background.",
 ].join(" ");
 
 function attr(block, name) {
@@ -51,7 +53,8 @@ function fallbackVisualBrief({ title, desc, kicker, quoteSource }) {
     `Kicker/context: "${kicker || "none"}".`,
     `Title: "${title}".`,
     `Subtitle meaning: "${desc || "none"}".`,
-    "Visualize the central relationship and consequence using one main symbolic scene with objects, routes, barriers, documents, maps, or physical metaphors.",
+    "Visualize the central relationship and consequence using one main symbolic scene with people, flags, objects, routes, barriers, documents, maps, or physical metaphors.",
+    "Use real-world visual associations whenever possible: national flags, ships, oil infrastructure, official documents, border barriers, negotiations, ports, military checkpoints, business objects, or public figures shown as stylized editorial characters.",
     "Avoid graph-like output unless the story absolutely requires it, and never use gauges, rings, dashboards, or visible percentages.",
     "The generated image must not repeat the title or subtitle as text and must not include readable words or numbers.",
     quote,
@@ -60,13 +63,13 @@ function fallbackVisualBrief({ title, desc, kicker, quoteSource }) {
 
 function roleDirection(role) {
   const directions = {
-    hook: "Make it a dramatic symbolic opening image with a clear central conflict and cinematic editorial energy.",
-    blockade: "Show a physical blocked route or maritime barrier metaphor, with the path still readable and no chart elements.",
-    response: "Show a decisive action or route continuing through pressure, using opposing objects rather than numbers.",
-    proof: "Show evidence through a concrete scene: a ship crossing, a route confirmed, a magnifier, document, or spotlight.",
-    conclusion: "Show a broad geopolitical metaphor such as a globe, crossroads, balance of forces, or shifted chessboard.",
-    "quote interpretation": "Translate words into action visually, such as a document becoming a route, bridge, or moving vessel.",
-    analysis: "Use a clean visual metaphor that explains cause and effect with one central object scene.",
+    hook: "Make it a dramatic symbolic opening image with a clear central conflict, recognizable flags or actors when relevant, and cinematic editorial energy.",
+    blockade: "Show a physical blocked route or maritime barrier metaphor with large ships, flags, oil barrels, ports, chains, checkpoints, or barriers; keep the path readable and avoid chart elements.",
+    response: "Show a decisive action or route continuing through pressure, using opposing flags, people, ships, documents, or physical barriers rather than numbers.",
+    proof: "Show evidence through a concrete scene: a ship crossing, route confirmed, magnifier, document, port, flag, spotlight, or witness-like character.",
+    conclusion: "Show a broad geopolitical metaphor such as a globe, crossroads, balance of forces, shifted chessboard, flags, leaders-at-a-distance, or competing routes.",
+    "quote interpretation": "Translate words into action visually, such as a document becoming a route, bridge, moving vessel, official stamp, or confrontation between characters.",
+    analysis: "Use a clean visual metaphor that explains cause and effect with one central object scene, supported by flags, people, or real-world objects when useful.",
   };
   return directions[role] || directions.analysis;
 }

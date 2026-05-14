@@ -12,6 +12,7 @@ Use this rule for every vertical HeyGen source video in this project.
 ## Director
 
 - Target overlay coverage is about `50%` of the video duration.
+- The director adds about `0.75s` of hold time to each card so viewers can read the slide and visual.
 - Keep clean avatar/video gaps between cutaways when possible.
 - Prefer avatar visibility over excessive slide density.
 - Every overlay must advance the spoken story: hook, conflict, consequence, proof, or conclusion.
@@ -39,6 +40,7 @@ Use this rule for every vertical HeyGen source video in this project.
 - The generated image must:
   - use a square `1:1` composition so the visual can occupy more vertical card space
   - make the main object/metaphor large and readable, filling most of the frame
+  - use stronger real-world associations when useful: national flags, people, ships, ports, oil objects, documents, borders, checkpoints, bridges, shields, and other concrete editorial symbols
   - stay on a white or near-white background
   - match the red/navy editorial style
   - avoid repeating the card headline/subtitle

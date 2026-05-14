@@ -6,7 +6,8 @@ const transcriptPath = new URL("../assets/input/transcript.deepgram.json", impor
 
 const DIRECTOR = {
   overlayCoverageTarget: 0.5,
-  maxSingleOverlayDuration: 3.7,
+  slideHoldExtension: 0.75,
+  maxSingleOverlayDuration: 4.5,
   minSingleOverlayDuration: 1.8,
   minCleanVideoGap: 1.2,
   introOffset: 0,
@@ -116,7 +117,7 @@ if (!sections.length) {
 const targetOverlaySeconds = totalDuration * DIRECTOR.overlayCoverageTarget;
 const rawClipDuration = targetOverlaySeconds / sections.length;
 const clipDuration = clamp(
-  rawClipDuration,
+  rawClipDuration + DIRECTOR.slideHoldExtension,
   DIRECTOR.minSingleOverlayDuration,
   DIRECTOR.maxSingleOverlayDuration,
 );
@@ -136,6 +137,7 @@ console.log("[director-timeline] Updated beat timing:");
 console.log(`  duration: ${totalDuration.toFixed(3)}s`);
 console.log(`  beats: ${sections.length}`);
 console.log(`  clip duration: ${clipDuration.toFixed(3)}s`);
+console.log(`  hold extension: ${DIRECTOR.slideHoldExtension.toFixed(3)}s`);
 console.log(`  overlay coverage: ${(overlaySeconds / totalDuration).toFixed(3)}`);
 console.log(`  transcript anchors: ${words.length ? "yes" : "no"}`);
 console.log(`  starts: ${starts.map((time) => time.toFixed(3)).join(", ")}`);
