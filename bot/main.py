@@ -348,11 +348,11 @@ async def handle_heygen_video_id(message: types.Message):
         source_title = re.sub(r'^[\|\-:—\s]+', '', tail).strip() or None
 
     user_id = str(message.from_user.id)
-    status_message = await message.reply("⏳ Получил HeyGen ID\nЭтап: создаю задачу avatar_youtube.")
+    status_message = await message.reply("⏳ Получил HeyGen ID\nЭтап: создаю задачу и определяю формат ролика.")
     await create_task_in_backend(
         user_id,
         f"heygen:{heygen_video_id}",
-        "avatar_youtube",
+        "avatar_heygen",
         status_message,
         source_title=source_title,
     )
@@ -483,7 +483,7 @@ async def process_choice(callback_query: types.CallbackQuery):
             answer_text = "👤 Запускаю Shorts Аватар..."
         else:
             url = f"https://www.youtube.com/watch?v={identifier}" if platform == "yt" else identifier
-            task_type = "avatar_youtube"
+            task_type = "avatar_horizontal"
             answer_text = "👤 Запускаю создание сценария с аватаром..."
         await callback_query.answer(answer_text)
         

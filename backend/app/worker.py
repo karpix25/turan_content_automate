@@ -107,8 +107,11 @@ rapidapi_yt = RapidAPIYoutubeClient(
 )
 downloader = Downloader(output_dir=(os.getenv("OUTPUT_DIR") or "./output").strip())
 processor = VideoProcessor()
-SHORT_AVATAR_TASK_TYPES = {"avatar_instagram", "avatar_shorts"}
-AVATAR_TASK_TYPES = {"avatar_youtube", *SHORT_AVATAR_TASK_TYPES}
+AVATAR_VERTICAL_TASK_TYPES = {"avatar_vertical", "avatar_instagram", "avatar_shorts"}
+AVATAR_HORIZONTAL_TASK_TYPES = {"avatar_horizontal", "avatar_youtube"}
+AVATAR_READY_HEYGEN_TASK_TYPES = {"avatar_heygen", *AVATAR_VERTICAL_TASK_TYPES, *AVATAR_HORIZONTAL_TASK_TYPES}
+SHORT_AVATAR_TASK_TYPES = AVATAR_VERTICAL_TASK_TYPES
+AVATAR_TASK_TYPES = {*AVATAR_READY_HEYGEN_TASK_TYPES}
 AVATAR_SCRIPT_MIN_MINUTES = int(os.getenv("AVATAR_SCRIPT_MIN_MINUTES", "4"))
 AVATAR_SCRIPT_MAX_MINUTES = int(os.getenv("AVATAR_SCRIPT_MAX_MINUTES", "6"))
 AVATAR_SCRIPT_WPM = int(os.getenv("AVATAR_SCRIPT_WORDS_PER_MINUTE", "110"))
@@ -673,6 +676,36 @@ def process_content_task(task_id: int):
             return inserted_path, insert_meta or {"status": "applied"}
         return base_video_path, insert_meta or {"status": "failed", "reason": "unknown"}
 
+    def _detect_avatar_video_type(video_path: str) -> tuple[str | None, dict]:
+        meta: dict = {
+            "path": video_path,
+            "width": None,
+            "height": None,
+            "detected_orientation": None,
+            "detected_task_type": None,
+        }
+        try:
+            probe = processor._probe_media(video_path)
+            video_stream = processor._get_first_stream(probe, "video")
+            width = int(video_stream.get("width") or 0) if video_stream else 0
+            height = int(video_stream.get("height") or 0) if video_stream else 0
+        except Exception as probe_error:
+            logging.warning("Task %s: failed to probe HeyGen video orientation: %s", task_id, probe_error)
+            meta["error"] = str(probe_error)
+            return None, meta
+
+        meta["width"] = width or None
+        meta["height"] = height or None
+        if width <= 0 or height <= 0:
+            meta["error"] = "missing_dimensions"
+            return None, meta
+
+        is_vertical = height > width
+        detected_task_type = "avatar_vertical" if is_vertical else "avatar_horizontal"
+        meta["detected_orientation"] = "vertical" if is_vertical else "horizontal"
+        meta["detected_task_type"] = detected_task_type
+        return detected_task_type, meta
+
     def _clamp_script_to_char_range(
         *,
         script: str,
@@ -876,11 +909,17 @@ def process_content_task(task_id: int):
             "aspect_ratio": "9:16" if is_short_avatar else "16:9",
         }
         try:
-            thumbnail_prompt = llm.generate_youtube_thumbnail_prompt(
-                factual_outline or "",
-                script_text or "",
-                video_title=(task.source_title or ""),
-            )
+            if is_short_avatar:
+                thumbnail_prompt = llm.generate_vertical_thumbnail_prompt(
+                    (task.source_title or "Главный момент").strip(),
+                    context_text=(script_text or factual_outline or ""),
+                )
+            else:
+                thumbnail_prompt = llm.generate_youtube_thumbnail_prompt(
+                    factual_outline or "",
+                    script_text or "",
+                    video_title=(task.source_title or ""),
+                )
         except Exception as e:
             logging.exception("Task %s: failed to generate thumbnail prompt: %s", task_id, e)
             thumbnail_meta = {
@@ -1307,10 +1346,10 @@ def process_content_task(task_id: int):
             input_videos.extend(path for path, _title in clips)
             input_video_titles.extend(title for _path, title in clips)
 
-        elif task.type == "avatar_youtube" and _extract_heygen_video_id(source_url_raw):
+        elif task.type in AVATAR_READY_HEYGEN_TASK_TYPES and _extract_heygen_video_id(source_url_raw):
             heygen_video_id = _extract_heygen_video_id(source_url_raw)
             if not heygen_video_id:
-                raise Exception("Invalid HeyGen video_id for avatar_youtube task")
+                raise Exception("Invalid HeyGen video_id for avatar task")
 
             update_task_status_message(
                 db,
@@ -1318,7 +1357,7 @@ def process_content_task(task_id: int):
                 stage="HeyGen",
                 detail=f"Получаю уже готовое видео HeyGen по id={heygen_video_id}.",
             )
-            logging.info("Task %s: avatar_youtube using existing HeyGen video_id=%s", task_id, heygen_video_id)
+            logging.info("Task %s: avatar task using existing HeyGen video_id=%s", task_id, heygen_video_id)
 
             final_video_url = asyncio.run(heygen_client.poll_video_status(heygen_video_id))
             if not final_video_url:
@@ -1328,6 +1367,38 @@ def process_content_task(task_id: int):
             local_avatar_video = downloader.download_media(final_video_url, f"heygen_{task_id}")
             if not local_avatar_video:
                 raise Exception("Failed to download existing HeyGen video")
+
+            detected_task_type, detection_meta = _detect_avatar_video_type(local_avatar_video)
+            if detected_task_type and task.type != detected_task_type:
+                previous_type = task.type
+                task.type = detected_task_type
+                existing_meta = dict(task.script_meta or {})
+                existing_meta["heygen_ready_video"] = {
+                    **detection_meta,
+                    "previous_task_type": previous_type,
+                    "source": "heygen_video_id",
+                }
+                task.script_meta = existing_meta
+                db.commit()
+                update_task_status_message(
+                    db,
+                    task,
+                    stage="Формат",
+                    detail=(
+                        "Определил вертикальный HeyGen-ролик; продолжаю vertical pipeline."
+                        if detected_task_type in SHORT_AVATAR_TASK_TYPES
+                        else "Определил горизонтальный HeyGen-ролик; продолжаю horizontal pipeline."
+                    ),
+                )
+            else:
+                existing_meta = dict(task.script_meta or {})
+                existing_meta["heygen_ready_video"] = {
+                    **detection_meta,
+                    "previous_task_type": task.type,
+                    "source": "heygen_video_id",
+                }
+                task.script_meta = existing_meta
+                db.commit()
 
             transcribed_text = ""
             inferred_outline = ""
@@ -1383,16 +1454,30 @@ def process_content_task(task_id: int):
             thumbnail_prompt, thumbnail_meta = _generate_avatar_thumbnail(
                 factual_outline=thumbnail_outline,
                 script_text=thumbnail_script,
-                detail_text="Генерирую обложку YouTube по теме готового HeyGen-видео.",
+                detail_text=(
+                    "Генерирую вертикальную обложку 9:16 по теме готового HeyGen-видео."
+                    if task.type in SHORT_AVATAR_TASK_TYPES
+                    else "Генерирую обложку YouTube по теме готового HeyGen-видео."
+                ),
             )
 
-            hook_text, trigger_title, cta_text, final_description_text = _build_avatar_description_text(
-                script_text=thumbnail_script,
-                factual_outline=thumbnail_outline,
-                source_title=task.source_title,
-                description_template=user.youtube_description_template,
-            )
-            description_txt_path = _write_avatar_description_file(task_id, final_description_text)
+            youtube_description_meta = None
+            if task.type not in SHORT_AVATAR_TASK_TYPES:
+                hook_text, trigger_title, cta_text, final_description_text = _build_avatar_description_text(
+                    script_text=thumbnail_script,
+                    factual_outline=thumbnail_outline,
+                    source_title=task.source_title,
+                    description_template=user.youtube_description_template,
+                )
+                description_txt_path = _write_avatar_description_file(task_id, final_description_text)
+                youtube_description_meta = {
+                    "hook_text": hook_text,
+                    "trigger_title": trigger_title,
+                    "cta_text": cta_text,
+                    "template": (user.youtube_description_template or "").strip(),
+                    "final_text": final_description_text,
+                    "txt_path": description_txt_path,
+                }
 
             update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Hyperframes (AI).")
             hyperframes_output = _run_hyperframes_pipeline(task_id, local_avatar_video, thumbnail_script)
@@ -1401,23 +1486,32 @@ def process_content_task(task_id: int):
                 logging.info(f"Task {task_id}: Successfully replaced raw video with Hyperframes output.")
             else:
                 raise Exception(
-                    "Hyperframes rendering failed for avatar_youtube task. "
+                    "Hyperframes rendering failed for ready HeyGen avatar task. "
                     "Raw HeyGen fallback is disabled by policy."
                 )
 
-            local_avatar_video, insert_meta = _apply_avatar_insert_montage(local_avatar_video)
+            post_hyperframes_meta: dict = {}
+            if task.type in SHORT_AVATAR_TASK_TYPES:
+                thumbnail_image_path = str((thumbnail_meta or {}).get("output_path") or "").strip()
+                local_avatar_video, vertical_cover_meta = _apply_short_avatar_vertical_cover(
+                    local_avatar_video,
+                    thumbnail_script,
+                    cover_image_path=thumbnail_image_path,
+                    cover_prompt=thumbnail_prompt,
+                )
+                post_hyperframes_meta["short_vertical_cover"] = vertical_cover_meta
+            else:
+                local_avatar_video, insert_meta = _apply_avatar_insert_montage(local_avatar_video)
+                post_hyperframes_meta["avatar_insert_montage"] = insert_meta
+
             existing_meta = dict(task.script_meta or {})
-            existing_meta["avatar_insert_montage"] = insert_meta
             existing_meta["thumbnail_prompt"] = thumbnail_prompt
             existing_meta["thumbnail"] = thumbnail_meta
-            existing_meta["youtube_description"] = {
-                "hook_text": hook_text,
-                "trigger_title": trigger_title,
-                "cta_text": cta_text,
-                "template": (user.youtube_description_template or "").strip(),
-                "final_text": final_description_text,
-                "txt_path": description_txt_path,
-            }
+            existing_meta.update(post_hyperframes_meta)
+            if youtube_description_meta:
+                existing_meta["youtube_description"] = youtube_description_meta
+            else:
+                existing_meta.pop("youtube_description", None)
             task.script_meta = existing_meta
             db.commit()
 
@@ -2279,7 +2373,12 @@ def process_content_task(task_id: int):
         if task.type in AVATAR_TASK_TYPES:
             send_yandex_disk_links_to_telegram(task, yandex_uploads_meta)
         if task.type in SHORT_AVATAR_TASK_TYPES and task.output_path:
-            label = "Reels Avatar" if task.type == "avatar_instagram" else "Shorts Avatar"
+            if task.type == "avatar_instagram":
+                label = "Reels Avatar"
+            elif task.type == "avatar_shorts":
+                label = "Shorts Avatar"
+            else:
+                label = "Vertical Avatar"
             update_task_status_message(
                 db,
                 task,
@@ -2317,7 +2416,7 @@ def process_content_task(task_id: int):
             )
             celery_app.send_task("sync_publication_task", args=[task.id])
 
-        # avatar_youtube не публикуется через PostMyPost; файл сохраняется в Яндекс.Диск.
+        # Avatar tasks are not published through PostMyPost; files are saved to Yandex.Disk.
 
         for derived_output in rendered_outputs[1:]:
             derived_task = _upsert_processed_task(
