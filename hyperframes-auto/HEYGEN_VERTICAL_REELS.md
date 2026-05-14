@@ -37,6 +37,8 @@ Use this rule for every vertical HeyGen source video in this project.
 - The lower visual block is the main infographic.
 - Generate this block as an image when possible.
 - The generated image must:
+  - use a square `1:1` composition so the visual can occupy more vertical card space
+  - make the main object/metaphor large and readable, filling most of the frame
   - stay on a white or near-white background
   - match the red/navy editorial style
   - avoid repeating the card headline/subtitle

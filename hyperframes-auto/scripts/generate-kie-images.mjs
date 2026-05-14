@@ -9,7 +9,7 @@ const outputDir = new URL("../assets/generated/", import.meta.url);
 const apiBase = process.env.KIE_API_BASE || "https://api.kie.ai";
 const callbackUrl = process.env.KIE_CALLBACK_URL || "https://example.com/callback";
 const model = process.env.KIE_IMAGE_MODEL || "gpt-image-2-text-to-image";
-const aspectRatio = process.env.KIE_ASPECT_RATIO || "16:9";
+const aspectRatio = process.env.KIE_ASPECT_RATIO || "1:1";
 const resolution = process.env.KIE_RESOLUTION || "1K";
 
 if (!apiKey) {

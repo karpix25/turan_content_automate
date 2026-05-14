@@ -5,11 +5,13 @@ const indexPath = new URL("../index.html", import.meta.url);
 
 const STYLE = [
   "Premium editorial illustrative infographic for the lower visual block of a vertical HeyGen Reels card.",
-  "Create one beautiful 16:9 horizontal illustration that sits under a separate title and subtitle; this image is not a full poster.",
-  "The entire subject must fit inside the 16:9 frame with safe margins, no cropping, no cut-off objects, and a centered composition.",
+  "Create one beautiful 1:1 square illustration that sits under a separate title and subtitle; this image is not a full poster.",
+  "Use a close editorial composition: one large central subject or metaphor should fill 80-90% of the square frame.",
+  "Avoid distant wide landscapes, tiny ships, tiny symbols, miniature maps, and excessive empty margins.",
+  "The entire subject must fit inside the 1:1 frame with safe margins, no cropping, no cut-off objects, and a centered composition.",
   "White paper or very light editorial background, subtle depth, bold red accent #b43c34, deep navy #0f172a, restrained blue #1d4f8f.",
   "Use a single strong visual metaphor or scene: route, barrier, ship, chessboard, map, document, shield, bridge, globe, spotlight, or other symbolic objects.",
-  "Prefer polished vector/3D hybrid illustration, clean editorial composition, clear foreground/midground/background, generous white space, premium news-magazine quality.",
+  "Prefer polished vector/3D hybrid illustration, clean editorial composition, bold foreground object, simple midground/background, premium news-magazine quality.",
   "Show the idea through objects and action, not through data visualization.",
   "No charts, no gauges, no percentage rings, no dashboards, no UI panels, no tables, no repeated icon grids, no dense diagrams.",
   "No readable text, no numbers, no percent signs, no captions, no labels, no logos, no emojis, no photorealistic people, no clutter, no dark background.",
@@ -97,7 +99,7 @@ if (!BEATS.length) {
 const prompts = BEATS.map((beat) => ({
   id: beat.id,
   file: `${beat.id}.png`,
-  aspectRatio: "16:9",
+  aspectRatio: "1:1",
   resolution: "1K",
   prompt: `${STYLE} Card headline context: "${beat.title}". Beat role: ${beat.role}. Role direction: ${roleDirection(beat.role)} Visual brief: ${beat.visualBrief}`,
 }));

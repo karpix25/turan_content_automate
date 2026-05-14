@@ -274,10 +274,12 @@
       .visual {
         position: relative;
         z-index: 1;
-        width: 100%;
-        aspect-ratio: 16 / 9;
+        width: min(100%, 780px);
+        aspect-ratio: 1 / 1;
         height: auto;
-        margin-top: 34px;
+        margin-top: 30px;
+        align-self: center;
+        flex: 0 1 auto;
         border: 1px solid #e9eef5;
         border-radius: 18px;
         background:
@@ -515,10 +517,12 @@
       .quote-stage {
         position: relative;
         z-index: 1;
-        width: 100%;
-        aspect-ratio: 16 / 9;
+        width: min(100%, 720px);
+        aspect-ratio: 1 / 1;
         height: auto;
         margin-top: 32px;
+        align-self: center;
+        flex: 0 1 auto;
         border: 1px solid #e9eef5;
         border-radius: 18px;
         background:
