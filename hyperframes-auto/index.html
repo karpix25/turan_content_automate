@@ -69,6 +69,34 @@
         pointer-events: none;
       }
 
+      .word-subtitle {
+        position: absolute;
+        left: 50%;
+        bottom: 164px;
+        z-index: 6;
+        max-width: 92%;
+        transform: translateX(-50%);
+        color: #fff;
+        font-size: 92px;
+        font-weight: 1000;
+        line-height: 1;
+        letter-spacing: 0;
+        text-align: center;
+        text-transform: uppercase;
+        -webkit-text-stroke: 9px #05070b;
+        paint-order: stroke fill;
+        text-shadow:
+          0 6px 0 #05070b,
+          0 18px 30px rgba(0, 0, 0, 0.42);
+        opacity: 0;
+        pointer-events: none;
+        white-space: nowrap;
+      }
+
+      .word-subtitle.is-visible {
+        opacity: 1;
+      }
+
       .beat {
         position: absolute;
         inset: 0;
@@ -700,6 +728,7 @@
 
       <div class="shade"></div>
       <div class="glass-layer"></div>
+      <div id="word-subtitle" class="word-subtitle"></div>
 
       <section id="beat-0" class="clip beat top" data-start="0.000" data-duration="2.721" data-track-index="1" data-intensity="full">
         <div class="beat-card hero">
@@ -871,8 +900,79 @@
     <script>
       window.__timelines = window.__timelines || {};
       const tl = gsap.timeline({ paused: true });
+      tl.eventCallback("onUpdate", () => updateWordCaption(tl.time()));
       const beats = gsap.utils.toArray(".beat");
       const glassLayer = document.querySelector(".glass-layer");
+      const captionEl = document.getElementById("word-subtitle");
+      let captionWords = [];
+      let captionIndex = 0;
+
+      function normalizeCaptionWord(value) {
+        return String(value || "")
+          .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "")
+          .trim();
+      }
+
+      function extractCaptionWords(payload) {
+        const rawWords = Array.isArray(payload)
+          ? payload
+          : payload?.results?.channels?.[0]?.alternatives?.[0]?.words || [];
+        return rawWords
+          .map((word) => ({
+            text: normalizeCaptionWord(word.punctuated_word || word.text || word.word),
+            start: Number(word.start),
+            end: Number(word.end),
+          }))
+          .filter((word) => word.text && Number.isFinite(word.start) && Number.isFinite(word.end))
+          .sort((a, b) => a.start - b.start);
+      }
+
+      function updateWordCaption(time) {
+        if (!captionEl || !captionWords.length) return;
+
+        while (captionIndex < captionWords.length - 1 && time >= captionWords[captionIndex + 1].start) {
+          captionIndex += 1;
+        }
+        while (captionIndex > 0 && time < captionWords[captionIndex].start) {
+          captionIndex -= 1;
+        }
+
+        const word = captionWords[captionIndex];
+        const next = captionWords[captionIndex + 1];
+        const visibleUntil = next ? Math.min(next.start, word.end + 0.36) : word.end + 0.36;
+        const visible = time >= word.start && time < visibleUntil;
+
+        captionEl.textContent = visible ? word.text : "";
+        captionEl.classList.toggle("is-visible", visible);
+      }
+
+      fetch("./assets/input/transcript.deepgram.json")
+        .then((response) => (response.ok ? response.json() : []))
+        .then((payload) => {
+          captionWords = extractCaptionWords(payload);
+          updateWordCaption(0);
+        })
+        .catch(() => {
+          captionWords = [];
+        });
+
+      function installCaptionSeekBridge() {
+        if (!window.__hf || typeof window.__hf.seek !== "function" || window.__hf.__wordCaptionPatched) {
+          return false;
+        }
+        const originalSeek = window.__hf.seek.bind(window.__hf);
+        window.__hf.seek = (time) => {
+          originalSeek(time);
+          updateWordCaption(Number(time) || 0);
+        };
+        window.__hf.__wordCaptionPatched = true;
+        return true;
+      }
+
+      const captionBridgeTimer = setInterval(() => {
+        if (installCaptionSeekBridge()) clearInterval(captionBridgeTimer);
+      }, 50);
+
       const generatedImageIds = new Set(
         (document.documentElement.dataset.generatedImages || "")
           .split(",")

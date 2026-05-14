@@ -348,6 +348,7 @@ def _run_hyperframes_pipeline(task_id: int, input_video: str, script: str) -> st
     out_dir = os.getenv("OUTPUT_DIR", "./output").strip()
     out_plan = os.path.join(out_dir, f"scene-plan_{task_id}.json")
     out_words = os.path.join(out_dir, f"scene-word-cues_{task_id}.json")
+    out_transcript = os.path.join(out_dir, f"transcript.deepgram_{task_id}.json")
 
     def probe_duration_seconds(path: str) -> float | None:
         if not os.path.exists(path):
@@ -426,6 +427,7 @@ def _run_hyperframes_pipeline(task_id: int, input_video: str, script: str) -> st
         "--video", input_video,
         "--index", scene_plan_index,
         "--out-plan", out_plan,
+        "--out-transcript", out_transcript,
         "--deepgram-intelligence"
     ]
     logging.info(f"Task {task_id}: Running scene planner: {' '.join(cmd_plan)}")
@@ -462,6 +464,10 @@ def _run_hyperframes_pipeline(task_id: int, input_video: str, script: str) -> st
     os.makedirs(hyperframes_input_dir, exist_ok=True)
     shutil.copy2(out_plan, os.path.join(hyperframes_input_dir, "scene-plan.generated.json"))
     shutil.copy2(out_words, os.path.join(hyperframes_input_dir, "scene-word-cues.generated.json"))
+    if os.path.exists(out_transcript):
+        shutil.copy2(out_transcript, os.path.join(hyperframes_input_dir, "transcript.deepgram.json"))
+    else:
+        logging.warning("Task %s: Deepgram transcript file is missing; word captions may be unavailable.", task_id)
 
     def run_hf_step(label: str, cmd: list[str]) -> bool:
         logging.info("Task %s: %s: %s", task_id, label, " ".join(cmd))
