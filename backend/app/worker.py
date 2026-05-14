@@ -507,13 +507,40 @@ def _run_hyperframes_pipeline(task_id: int, input_video: str, script: str) -> st
 
     # 4. Run Hyperframes render.
     final_output = os.path.join(out_dir, f"hyperframes_{task_id}.mp4")
-    cmd_render = [
-        "npm", "run", "render", "--",
-        "--output", final_output,
-        "--quality", "standard",
-    ]
-    logging.info("Task %s: Hyperframes render: %s", task_id, " ".join(cmd_render))
-    render_result = subprocess.run(cmd_render, cwd=hyperframes_dir, capture_output=True, text=True)
+    docker_output = os.path.join(out_dir, f"hyperframes_{task_id}_docker.mp4")
+
+    def render_failure_needs_docker_retry(result) -> bool:
+        combined = f"{result.stdout or ''}\n{result.stderr or ''}".lower()
+        retry_markers = (
+            "epipe",
+            "browsergpumode auto → software",
+            "browsergpumode auto -> software",
+            "webgl unavailable",
+            "beginframe unavailable",
+            "falling back to screenshot mode",
+            "chrome compositor starvation",
+            "streaming encode failed",
+            "ffmpeg exited with code 255",
+        )
+        return any(marker in combined for marker in retry_markers)
+
+    def run_hyperframes_render(label: str, output_path: str, extra_args: list[str] | None = None):
+        cmd = [
+            "npm", "run", "render", "--",
+            "--output", output_path,
+            "--quality", "standard",
+            "--workers", "1",
+            *(extra_args or []),
+        ]
+        logging.info("Task %s: %s: %s", task_id, label, " ".join(cmd))
+        result = subprocess.run(cmd, cwd=hyperframes_dir, capture_output=True, text=True)
+        if result.stdout:
+            logging.info("Task %s: %s stdout: %s", task_id, label, result.stdout[-4000:])
+        if result.stderr:
+            logging.info("Task %s: %s stderr: %s", task_id, label, result.stderr[-4000:])
+        return cmd, result
+
+    cmd_render, render_result = run_hyperframes_render("Hyperframes render", final_output)
     if render_result.returncode != 0:
         logging.error(
             "Task %s: Hyperframes render failed. STDOUT: %s\nSTDERR: %s",
@@ -529,15 +556,52 @@ def _run_hyperframes_pipeline(task_id: int, input_video: str, script: str) -> st
                 render_result.returncode,
             )
             return final_output
+        if render_failure_needs_docker_retry(render_result):
+            logging.warning(
+                "Task %s: Hyperframes render hit a browser/streaming failure. "
+                "Retrying with Docker renderer and one worker.",
+                task_id,
+            )
+            cmd_docker, docker_result = run_hyperframes_render(
+                "Hyperframes render fallback",
+                docker_output,
+                ["--docker"],
+            )
+            if docker_result.returncode == 0 and is_usable_hyperframes_output(docker_output):
+                return docker_output
+            if is_usable_hyperframes_output(docker_output):
+                logging.warning(
+                    "Task %s: Docker render command failed with code %s, but output MP4 is valid. "
+                    "Accepting completed render.",
+                    task_id,
+                    docker_result.returncode,
+                )
+                return docker_output
+            logging.error(
+                "Task %s: Hyperframes Docker fallback failed. STDOUT: %s\nSTDERR: %s",
+                task_id,
+                docker_result.stdout,
+                docker_result.stderr,
+            )
         return None
-
-    if render_result.stdout:
-        logging.info("Task %s: Hyperframes render stdout: %s", task_id, render_result.stdout[-4000:])
-    if render_result.stderr:
-        logging.info("Task %s: Hyperframes render stderr: %s", task_id, render_result.stderr[-4000:])
 
     if is_usable_hyperframes_output(final_output):
         return final_output
+    if render_failure_needs_docker_retry(render_result):
+        logging.warning(
+            "Task %s: Hyperframes render exited successfully but output was not usable after "
+            "a browser/streaming warning. Retrying with Docker renderer.",
+            task_id,
+        )
+        _, docker_result = run_hyperframes_render("Hyperframes render fallback", docker_output, ["--docker"])
+        if is_usable_hyperframes_output(docker_output):
+            return docker_output
+        logging.error(
+            "Task %s: Hyperframes Docker fallback produced no usable output. STDOUT: %s\nSTDERR: %s",
+            task_id,
+            docker_result.stdout,
+            docker_result.stderr,
+        )
     return None
 
 
