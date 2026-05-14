@@ -510,9 +510,9 @@ def _run_hyperframes_pipeline(task_id: int, input_video: str, script: str) -> st
 
     # 4. Run Hyperframes render.
     final_output = os.path.join(out_dir, f"hyperframes_{task_id}.mp4")
-    docker_output = os.path.join(out_dir, f"hyperframes_{task_id}_docker.mp4")
+    retry_output = os.path.join(out_dir, f"hyperframes_{task_id}_retry.mp4")
 
-    def render_failure_needs_docker_retry(result) -> bool:
+    def render_failure_needs_stable_retry(result) -> bool:
         combined = f"{result.stdout or ''}\n{result.stderr or ''}".lower()
         retry_markers = (
             "epipe",
@@ -527,7 +527,28 @@ def _run_hyperframes_pipeline(task_id: int, input_video: str, script: str) -> st
         )
         return any(marker in combined for marker in retry_markers)
 
-    def run_hyperframes_render(label: str, output_path: str, extra_args: list[str] | None = None):
+    def build_stable_render_env() -> dict:
+        env = os.environ.copy()
+        # Streaming encode pipes screenshots directly into ffmpeg. In slow
+        # server-side screenshot mode ffmpeg can close stdin near the end,
+        # which surfaces as Node write EPIPE. Disk-frame encode is slower but
+        # avoids that fragile pipe and works inside containers without Docker.
+        env["PRODUCER_ENABLE_STREAMING_ENCODE"] = "false"
+        env["PRODUCER_ENABLE_CHUNKED_ENCODE"] = env.get("PRODUCER_ENABLE_CHUNKED_ENCODE", "true")
+        env["PRODUCER_CHUNK_SIZE_FRAMES"] = env.get("PRODUCER_CHUNK_SIZE_FRAMES", "180")
+        env["PRODUCER_FORCE_SCREENSHOT"] = env.get("PRODUCER_FORCE_SCREENSHOT", "true")
+        env["PRODUCER_BROWSER_GPU_MODE"] = env.get("PRODUCER_BROWSER_GPU_MODE", "software")
+        env["FFMPEG_ENCODE_TIMEOUT_MS"] = env.get("FFMPEG_ENCODE_TIMEOUT_MS", "1800000")
+        env["FFMPEG_PROCESS_TIMEOUT_MS"] = env.get("FFMPEG_PROCESS_TIMEOUT_MS", "1800000")
+        return env
+
+    def run_hyperframes_render(
+        label: str,
+        output_path: str,
+        extra_args: list[str] | None = None,
+        *,
+        stable: bool = True,
+    ):
         cmd = [
             "npm", "run", "render", "--",
             "--output", output_path,
@@ -536,7 +557,13 @@ def _run_hyperframes_pipeline(task_id: int, input_video: str, script: str) -> st
             *(extra_args or []),
         ]
         logging.info("Task %s: %s: %s", task_id, label, " ".join(cmd))
-        result = subprocess.run(cmd, cwd=hyperframes_dir, capture_output=True, text=True)
+        result = subprocess.run(
+            cmd,
+            cwd=hyperframes_dir,
+            capture_output=True,
+            text=True,
+            env=build_stable_render_env() if stable else None,
+        )
         if result.stdout:
             logging.info("Task %s: %s stdout: %s", task_id, label, result.stdout[-4000:])
         if result.stderr:
@@ -559,51 +586,47 @@ def _run_hyperframes_pipeline(task_id: int, input_video: str, script: str) -> st
                 render_result.returncode,
             )
             return final_output
-        if render_failure_needs_docker_retry(render_result):
+        if render_failure_needs_stable_retry(render_result):
             logging.warning(
                 "Task %s: Hyperframes render hit a browser/streaming failure. "
-                "Retrying with Docker renderer and one worker.",
+                "Retrying with stable disk-frame renderer and one worker.",
                 task_id,
             )
-            cmd_docker, docker_result = run_hyperframes_render(
-                "Hyperframes render fallback",
-                docker_output,
-                ["--docker"],
-            )
-            if docker_result.returncode == 0 and is_usable_hyperframes_output(docker_output):
-                return docker_output
-            if is_usable_hyperframes_output(docker_output):
+            _, retry_result = run_hyperframes_render("Hyperframes render fallback", retry_output)
+            if retry_result.returncode == 0 and is_usable_hyperframes_output(retry_output):
+                return retry_output
+            if is_usable_hyperframes_output(retry_output):
                 logging.warning(
-                    "Task %s: Docker render command failed with code %s, but output MP4 is valid. "
+                    "Task %s: Stable render command failed with code %s, but output MP4 is valid. "
                     "Accepting completed render.",
                     task_id,
-                    docker_result.returncode,
+                    retry_result.returncode,
                 )
-                return docker_output
+                return retry_output
             logging.error(
-                "Task %s: Hyperframes Docker fallback failed. STDOUT: %s\nSTDERR: %s",
+                "Task %s: Hyperframes stable fallback failed. STDOUT: %s\nSTDERR: %s",
                 task_id,
-                docker_result.stdout,
-                docker_result.stderr,
+                retry_result.stdout,
+                retry_result.stderr,
             )
         return None
 
     if is_usable_hyperframes_output(final_output):
         return final_output
-    if render_failure_needs_docker_retry(render_result):
+    if render_failure_needs_stable_retry(render_result):
         logging.warning(
             "Task %s: Hyperframes render exited successfully but output was not usable after "
-            "a browser/streaming warning. Retrying with Docker renderer.",
+            "a browser/streaming warning. Retrying with stable disk-frame renderer.",
             task_id,
         )
-        _, docker_result = run_hyperframes_render("Hyperframes render fallback", docker_output, ["--docker"])
-        if is_usable_hyperframes_output(docker_output):
-            return docker_output
+        _, retry_result = run_hyperframes_render("Hyperframes render fallback", retry_output)
+        if is_usable_hyperframes_output(retry_output):
+            return retry_output
         logging.error(
-            "Task %s: Hyperframes Docker fallback produced no usable output. STDOUT: %s\nSTDERR: %s",
+            "Task %s: Hyperframes stable fallback produced no usable output. STDOUT: %s\nSTDERR: %s",
             task_id,
-            docker_result.stdout,
-            docker_result.stderr,
+            retry_result.stdout,
+            retry_result.stderr,
         )
     return None
 
