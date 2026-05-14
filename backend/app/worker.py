@@ -348,6 +348,77 @@ def _run_hyperframes_pipeline(task_id: int, input_video: str, script: str) -> st
     out_dir = os.getenv("OUTPUT_DIR", "./output").strip()
     out_plan = os.path.join(out_dir, f"scene-plan_{task_id}.json")
     out_words = os.path.join(out_dir, f"scene-word-cues_{task_id}.json")
+
+    def probe_duration_seconds(path: str) -> float | None:
+        if not os.path.exists(path):
+            return None
+        try:
+            probe = subprocess.run(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    path,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            if probe.returncode != 0:
+                logging.warning(
+                    "Task %s: ffprobe duration failed for %s. STDERR: %s",
+                    task_id,
+                    path,
+                    probe.stderr[-1000:],
+                )
+                return None
+            duration = float((probe.stdout or "").strip() or 0)
+            return duration if duration > 0 else None
+        except Exception as exc:
+            logging.warning("Task %s: Failed to probe duration for %s: %s", task_id, path, exc)
+            return None
+
+    expected_render_duration = probe_duration_seconds(input_video)
+
+    def is_usable_hyperframes_output(path: str) -> bool:
+        if not os.path.exists(path):
+            return False
+        try:
+            file_size = os.path.getsize(path)
+        except OSError:
+            return False
+        if file_size < 128 * 1024:
+            logging.warning("Task %s: Hyperframes output is too small: %s bytes", task_id, file_size)
+            return False
+
+        actual_duration = probe_duration_seconds(path)
+        if actual_duration is None:
+            return False
+
+        if expected_render_duration and expected_render_duration > 1:
+            min_duration = max(1.0, expected_render_duration * 0.90)
+            if actual_duration < min_duration:
+                logging.warning(
+                    "Task %s: Hyperframes output duration is too short: %.3fs < %.3fs expected minimum",
+                    task_id,
+                    actual_duration,
+                    min_duration,
+                )
+                return False
+
+        logging.info(
+            "Task %s: Hyperframes output validated: path=%s size=%s duration=%.3fs expected=%.3fs",
+            task_id,
+            path,
+            file_size,
+            actual_duration,
+            expected_render_duration or 0,
+        )
+        return True
     
     # 1. Run AI Scene Planner
     cmd_plan = [
@@ -435,10 +506,31 @@ def _run_hyperframes_pipeline(task_id: int, input_video: str, script: str) -> st
         "--output", final_output,
         "--quality", "standard",
     ]
-    if not run_hf_step("Hyperframes render", cmd_render):
+    logging.info("Task %s: Hyperframes render: %s", task_id, " ".join(cmd_render))
+    render_result = subprocess.run(cmd_render, cwd=hyperframes_dir, capture_output=True, text=True)
+    if render_result.returncode != 0:
+        logging.error(
+            "Task %s: Hyperframes render failed. STDOUT: %s\nSTDERR: %s",
+            task_id,
+            render_result.stdout,
+            render_result.stderr,
+        )
+        if is_usable_hyperframes_output(final_output):
+            logging.warning(
+                "Task %s: Hyperframes render command failed with code %s, but output MP4 is valid. "
+                "Accepting completed render.",
+                task_id,
+                render_result.returncode,
+            )
+            return final_output
         return None
-        
-    if os.path.exists(final_output):
+
+    if render_result.stdout:
+        logging.info("Task %s: Hyperframes render stdout: %s", task_id, render_result.stdout[-4000:])
+    if render_result.stderr:
+        logging.info("Task %s: Hyperframes render stderr: %s", task_id, render_result.stderr[-4000:])
+
+    if is_usable_hyperframes_output(final_output):
         return final_output
     return None
 
