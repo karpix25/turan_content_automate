@@ -989,12 +989,14 @@ GENERIC_SCENE_TEXTS = {
     "смысловой блок",
     "ключевая мысль",
     "важный момент",
+    "важная мысль",
     "тема",
     "хук",
     "контекст",
     "анализ",
     "итог",
     "фокус",
+    "сфокусируйтесь на важном",
     "hook",
     "context",
     "analysis",
@@ -1015,6 +1017,8 @@ def _is_generic_scene_text(value: str) -> bool:
     if re.fullmatch(r"показатель\s*\d+", compact):
         return True
     if compact.startswith("глубокая аналитическая мысль"):
+        return True
+    if "сфокус" in compact and "важн" in compact:
         return True
     return False
 
@@ -1179,6 +1183,71 @@ def _norm_string_list(value: Any, *, max_items: int, max_chars: int, max_words: 
         if len(out) >= max_items:
             break
     return out
+
+
+def _derive_anchor_words_from_text(text: str, limit: int = 4) -> list[str]:
+    source = normalize_plain_text(text)
+    if not source:
+        return []
+
+    anchors: list[str] = []
+    seen: set[str] = set()
+
+    for sentence in split_sentences(source):
+        phrase = phrase_from_sentence(sentence, 4)
+        if phrase and not _is_generic_scene_text(phrase):
+            key = phrase.lower()
+            if key not in seen:
+                seen.add(key)
+                anchors.append(normalize_scene_text(phrase, 40, 5))
+                if len(anchors) >= limit:
+                    return anchors
+
+    for keyword in extract_keywords(source, limit * 2):
+        key = keyword.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        anchors.append(normalize_scene_text(keyword, 40, 5))
+        if len(anchors) >= limit:
+            break
+
+    return anchors
+
+
+def _repair_scene_plan_metadata(scenes: list[dict[str, Any]], utterances: list[dict[str, Any]]) -> None:
+    for scene in scenes:
+        try:
+            start = float(scene.get("start", 0.0))
+            end = float(scene.get("end", start))
+        except (TypeError, ValueError):
+            continue
+
+        window_text = _scene_window_text(utterances, start, end)
+        source_text = normalize_plain_text(str(scene.get("sourceText") or "")) or window_text
+        repair_source = normalize_plain_text(" ".join([source_text, window_text]))
+
+        anchors = scene.get("anchorWords") if isinstance(scene.get("anchorWords"), list) else []
+        clean_anchors = _norm_string_list(anchors, max_items=5, max_chars=40, max_words=5)
+        if len(clean_anchors) < 2:
+            for anchor in _derive_anchor_words_from_text(repair_source, limit=5):
+                if anchor.lower() not in {x.lower() for x in clean_anchors}:
+                    clean_anchors.append(anchor)
+                if len(clean_anchors) >= 2:
+                    break
+        scene["anchorWords"] = clean_anchors[:5]
+
+        subtitle = normalize_scene_text(str(scene.get("subtitle") or ""), 90, 12)
+        if _is_generic_scene_text(subtitle) or len(subtitle.split()) < 4:
+            sentences = split_sentences(source_text or window_text)
+            replacement = ""
+            for sentence in sentences:
+                candidate = normalize_scene_text(sentence, 90, 12)
+                if candidate and not _is_generic_scene_text(candidate) and len(candidate.split()) >= 4:
+                    replacement = candidate
+                    break
+            if replacement:
+                scene["subtitle"] = replacement
 
 
 def validate_scene_plan_quality(scenes: list[dict[str, Any]], duration: float) -> None:
@@ -1418,6 +1487,7 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
     if not fixed:
         raise RuntimeError("LLM returned scenes, but none survived timing normalization")
 
+    _repair_scene_plan_metadata(fixed, utterances_for_norm)
     validate_scene_plan_quality(fixed, duration)
 
     # Build chapter metadata so viewer always sees topic context.
@@ -1634,16 +1704,22 @@ def main() -> int:
     eprint(f"Duration used for scene plan: {duration}s")
 
     sentences = extract_sentences(transcript_payload, utterances)
+    block_min_sentences = args.block_min_sentences
+    block_max_sentences = args.block_max_sentences
+    if duration <= 35 and len(sentences) >= 4 and args.block_min_sentences == 5 and args.block_max_sentences == 10:
+        block_min_sentences = 1
+        block_max_sentences = 2
+
     semantic_blocks = build_semantic_blocks(
         sentences=sentences,
-        min_sentences=args.block_min_sentences,
-        max_sentences=args.block_max_sentences,
+        min_sentences=block_min_sentences,
+        max_sentences=block_max_sentences,
         max_blocks=args.max_scenes,
     )
     out_semantic_blocks.write_text(json.dumps(semantic_blocks, ensure_ascii=False, indent=2), encoding="utf-8")
     eprint(
         f"Built semantic blocks: {len(semantic_blocks)} "
-        f"(sentences={len(sentences)}, size={args.block_min_sentences}-{args.block_max_sentences})"
+        f"(sentences={len(sentences)}, size={block_min_sentences}-{block_max_sentences})"
     )
     eprint(f"Saved semantic blocks: {out_semantic_blocks}")
 
