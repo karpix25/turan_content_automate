@@ -17,6 +17,12 @@ function normalize(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
+function readDuration(html) {
+  const match = html.match(/<div\s+id="main"[\s\S]*?data-duration="([^"]+)"/);
+  const duration = Number(match?.[1]);
+  return Number.isFinite(duration) && duration > 0 ? duration : 9999;
+}
+
 function isGeneric(value) {
   const text = normalize(value).toLowerCase();
   if (!text) return true;
@@ -59,11 +65,11 @@ function sceneTitleCandidates(scene, index) {
   const steps = Array.isArray(scene.steps) ? scene.steps.map(normalize).filter(Boolean) : [];
   const bars = Array.isArray(scene.bars) ? scene.bars.map((bar) => normalize(bar?.label || bar)).filter(Boolean) : [];
   return uniq([
-    scene.headline,
     scene.title,
+    scene.headline,
     titleLines[0],
-    scene.keyword,
     scene.opener,
+    scene.keyword,
     titleLines[1],
     facts[0],
     steps[0],
@@ -84,8 +90,11 @@ function sceneDescCandidates(scene) {
   const steps = Array.isArray(scene.steps) ? scene.steps.map(normalize).filter(Boolean) : [];
   const bars = Array.isArray(scene.bars) ? scene.bars.map((bar) => normalize(bar?.label || bar)).filter(Boolean) : [];
   return uniq([
+    scene.subtitle,
     scene.main,
     scene.insight,
+    scene.sourceText,
+    scene.visualIdea,
     titleLines[1],
     scene.cta,
     scene.keyword,
@@ -101,7 +110,6 @@ function sceneDescCandidates(scene) {
     bars[3],
     titleLines[0],
     scene.opener,
-    "Ключевой смысл этого фрагмента.",
   ]);
 }
 
@@ -109,36 +117,27 @@ function pickKicker(scene, index) {
   return compactTitle(scene.blockName || scene.mode || scene.keyword || `сцена ${index + 1}`, `сцена ${index + 1}`).toLowerCase();
 }
 
-const FALLBACK_TITLES = [
-  "ГЛАВНЫЙ РИСК",
-  "ЧТО МЕНЯЕТСЯ",
-  "ПОЧЕМУ ЭТО ВАЖНО",
-  "ЧТО ДЕЛАТЬ",
-  "НОВАЯ РЕАЛЬНОСТЬ",
-  "КЛЮЧЕВОЙ ВЫВОД",
-  "ГДЕ ОШИБКА",
-  "ЧТО ВИДИТ ЗРИТЕЛЬ",
-];
-
 function pickCardContent(scenes, cardIndex, totalCards, usedTitles) {
-  const sceneIndex = Math.min(scenes.length - 1, Math.floor((cardIndex * scenes.length) / Math.max(1, totalCards)));
+  const sceneIndex = cardIndex;
   const scene = scenes[sceneIndex] || {};
-  const variantIndex = Math.max(0, cardIndex - Math.floor((sceneIndex * totalCards) / Math.max(1, scenes.length)));
-  const titles = uniq([...sceneTitleCandidates(scene, cardIndex), ...sceneDescCandidates(scene), ...FALLBACK_TITLES]);
+  if (!scene || !Object.keys(scene).length) {
+    throw new Error(`No scene for card index ${cardIndex}`);
+  }
+  const titles = uniq([...sceneTitleCandidates(scene, cardIndex), ...sceneDescCandidates(scene)]);
   const descs = sceneDescCandidates(scene);
-  let rawTitle = titles[variantIndex % titles.length] || titles[0] || FALLBACK_TITLES[cardIndex % FALLBACK_TITLES.length];
+  let rawTitle = titles[0];
+  if (!rawTitle) throw new Error(`Scene ${sceneIndex} has no usable title`);
   if (usedTitles.has(normalize(rawTitle).toLowerCase())) {
-    rawTitle =
-      titles.find((candidate) => !usedTitles.has(normalize(candidate).toLowerCase())) ||
-      FALLBACK_TITLES.find((candidate) => !usedTitles.has(normalize(candidate).toLowerCase())) ||
-      rawTitle;
+    rawTitle = titles.find((candidate) => !usedTitles.has(normalize(candidate).toLowerCase()));
+    if (!rawTitle) throw new Error(`Scene ${sceneIndex} repeats title and has no alternate title`);
   }
-  let rawDesc = descs[variantIndex % descs.length] || descs[0] || "Ключевой смысл этого фрагмента.";
+  let rawDesc = descs[0];
+  if (!rawDesc) throw new Error(`Scene ${sceneIndex} has no usable subtitle/description`);
   if (normalize(rawDesc).toLowerCase() === normalize(rawTitle).toLowerCase()) {
-    rawDesc = descs[(variantIndex + 1) % descs.length] || scene.insight || scene.cta || rawDesc;
+    rawDesc = descs.find((candidate) => normalize(candidate).toLowerCase() !== normalize(rawTitle).toLowerCase());
   }
-  if (isGeneric(rawDesc)) {
-    rawDesc = descs.find((candidate) => !isGeneric(candidate) && normalize(candidate).toLowerCase() !== normalize(rawTitle).toLowerCase()) || "Ключевая мысль этого фрагмента.";
+  if (!rawDesc || isGeneric(rawDesc)) {
+    throw new Error(`Scene ${sceneIndex} has weak subtitle/description`);
   }
   return {
     scene,
@@ -151,6 +150,7 @@ function pickCardContent(scenes, cardIndex, totalCards, usedTitles) {
 function visualBrief(scene, title, desc) {
   const steps = Array.isArray(scene.steps) ? scene.steps.map(normalize).filter(Boolean).join(" -> ") : "";
   const facts = Array.isArray(scene.facts) ? scene.facts.map((fact) => normalize(fact?.text || fact)).filter(Boolean).join("; ") : "";
+  const anchorWords = Array.isArray(scene.anchorWords) ? scene.anchorWords.map(normalize).filter(Boolean).join("; ") : "";
   const visualElements = Array.isArray(scene.visualElements)
     ? scene.visualElements.map(normalize).filter(Boolean).join("; ")
     : "";
@@ -159,6 +159,8 @@ function visualBrief(scene, title, desc) {
       `Visualize this card as a beautiful illustration-first editorial infographic on a light background.`,
       `Title: ${title}.`,
       `Subtitle: ${desc}.`,
+      anchorWords ? `Speech anchor words: ${anchorWords}.` : "",
+      scene.visualIdea ? `Core visual idea: ${normalize(scene.visualIdea)}.` : "",
       steps ? `Process: ${steps}.` : "",
       facts ? `Facts: ${facts}.` : "",
       visualElements ? `Possible symbolic elements: ${visualElements}.` : "",
@@ -174,6 +176,13 @@ function updateFirst(block, pattern, replacement) {
   return block.replace(pattern, replacement);
 }
 
+function setAttr(block, name, value) {
+  const escaped = escapeHtml(value);
+  const pattern = new RegExp(`\\s${name}="[^"]*"`, "i");
+  if (pattern.test(block)) return block.replace(pattern, ` ${name}="${escaped}"`);
+  return block.replace(/<section\b/i, `<section ${name}="${escaped}"`);
+}
+
 if (!existsSync(scenePlanPath)) {
   console.log("[apply-scene-plan-to-cards] No scene plan found, keeping existing cards.");
   process.exit(0);
@@ -187,14 +196,25 @@ if (!Array.isArray(scenes) || !scenes.length) {
 
 let html = await readFile(indexPath, "utf8");
 const sectionMatches = [...html.matchAll(/<section\b[\s\S]*?<\/section>/gi)].filter((match) => /id="beat-\d+"/.test(match[0]));
+const duration = readDuration(html);
 const usedTitles = new Set();
 
 sectionMatches.forEach((match, index) => {
+  if (index >= scenes.length) {
+    let disabledBlock = match[0];
+    disabledBlock = setAttr(disabledBlock, "data-disabled-card", "true");
+    disabledBlock = setAttr(disabledBlock, "data-start", String(duration + 999));
+    disabledBlock = setAttr(disabledBlock, "data-duration", "0.001");
+    html = html.replace(match[0], disabledBlock);
+    return;
+  }
+
   const { scene, title, desc, kicker } = pickCardContent(scenes, index, sectionMatches.length, usedTitles);
   usedTitles.add(normalize(title).toLowerCase());
   const brief = visualBrief(scene, title, desc);
 
   let block = match[0];
+  block = setAttr(block, "data-disabled-card", "false");
   if (block.includes("data-visual-brief=")) {
     block = block.replace(/data-visual-brief="[^"]*"/, `data-visual-brief="${escapeHtml(brief)}"`);
   } else {
@@ -207,4 +227,4 @@ sectionMatches.forEach((match, index) => {
 });
 
 await writeFile(indexPath, html);
-console.log(`[apply-scene-plan-to-cards] Updated ${sectionMatches.length} cards from ${scenes.length} scene(s).`);
+console.log(`[apply-scene-plan-to-cards] Updated ${Math.min(sectionMatches.length, scenes.length)} active card(s) from ${scenes.length} scene(s).`);

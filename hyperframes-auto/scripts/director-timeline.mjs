@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 
 const indexPath = new URL("../index.html", import.meta.url);
 const transcriptPath = new URL("../assets/input/transcript.deepgram.json", import.meta.url);
+const scenePlanPath = new URL("../assets/input/scene-plan.generated.json", import.meta.url);
 
 const DIRECTOR = {
   overlayCoverageTarget: 0.5,
@@ -24,10 +25,13 @@ function readDuration(html) {
 }
 
 function getBeatSections(html) {
-  return [...html.matchAll(/<section\b[^>]*id="(beat-\d+)"[\s\S]*?<\/section>/g)].map((match) => ({
-    id: match[1],
-    block: match[0],
-  }));
+  return [...html.matchAll(/<section\b[^>]*id="(beat-\d+)"[\s\S]*?<\/section>/g)]
+    .map((match) => ({
+      id: match[1],
+      block: match[0],
+      disabled: /data-disabled-card="true"/.test(match[0]),
+    }))
+    .filter((section) => !section.disabled);
 }
 
 function clamp(value, min, max) {
@@ -41,14 +45,32 @@ function cleanWord(value) {
 async function readWords() {
   if (!existsSync(transcriptPath)) return [];
   const parsed = JSON.parse(await readFile(transcriptPath, "utf8"));
-  if (!Array.isArray(parsed)) return [];
-  return parsed
+  let rawWords = parsed;
+  if (!Array.isArray(rawWords)) {
+    const channels = parsed.results?.channels || [];
+    const alternatives = channels[0]?.alternatives || [];
+    rawWords = alternatives[0]?.words || [];
+  }
+  if (!Array.isArray(rawWords)) return [];
+  return rawWords
     .map((word) => ({
-      text: cleanWord(word.text),
+      text: cleanWord(word.punctuated_word || word.text || word.word),
       start: Number(word.start),
       end: Number(word.end),
     }))
     .filter((word) => word.text && Number.isFinite(word.start) && Number.isFinite(word.end));
+}
+
+async function readScenePlanTimings() {
+  if (!existsSync(scenePlanPath)) return [];
+  const scenes = JSON.parse(await readFile(scenePlanPath, "utf8"));
+  if (!Array.isArray(scenes)) return [];
+  return scenes
+    .map((scene) => ({
+      start: Number(scene.start),
+      end: Number(scene.end),
+    }))
+    .filter((scene) => Number.isFinite(scene.start) && Number.isFinite(scene.end) && scene.end > scene.start);
 }
 
 function pickTranscriptAnchors(words, beatCount, totalDuration) {
@@ -122,22 +144,31 @@ const clipDuration = clamp(
   DIRECTOR.maxSingleOverlayDuration,
 );
 const words = await readWords();
-const anchors = pickTranscriptAnchors(words, sections.length, totalDuration);
-const starts = normalizeStarts(anchors, sections.length, clipDuration, totalDuration);
+const sceneTimings = await readScenePlanTimings();
+const useSceneTimings = sceneTimings.length >= sections.length;
+const anchors = useSceneTimings ? [] : pickTranscriptAnchors(words, sections.length, totalDuration);
+const starts = useSceneTimings
+  ? sceneTimings.slice(0, sections.length).map((scene) => clamp(scene.start, 0, Math.max(0, totalDuration - 0.5)))
+  : normalizeStarts(anchors, sections.length, clipDuration, totalDuration);
 
 let nextHtml = html;
+let overlaySeconds = 0;
 sections.forEach((section, index) => {
-  nextHtml = nextHtml.replace(section.block, updateSectionTiming(section, starts[index], clipDuration));
+  const sectionDuration = useSceneTimings
+    ? clamp(sceneTimings[index].end - sceneTimings[index].start, DIRECTOR.minSingleOverlayDuration, DIRECTOR.maxSingleOverlayDuration)
+    : clipDuration;
+  overlaySeconds += sectionDuration;
+  nextHtml = nextHtml.replace(section.block, updateSectionTiming(section, starts[index], sectionDuration));
 });
 
 await writeFile(indexPath, nextHtml);
 
-const overlaySeconds = clipDuration * sections.length;
 console.log("[director-timeline] Updated beat timing:");
 console.log(`  duration: ${totalDuration.toFixed(3)}s`);
 console.log(`  beats: ${sections.length}`);
 console.log(`  clip duration: ${clipDuration.toFixed(3)}s`);
 console.log(`  hold extension: ${DIRECTOR.slideHoldExtension.toFixed(3)}s`);
 console.log(`  overlay coverage: ${(overlaySeconds / totalDuration).toFixed(3)}`);
+console.log(`  scene-plan timings: ${useSceneTimings ? "yes" : "no"}`);
 console.log(`  transcript anchors: ${words.length ? "yes" : "no"}`);
 console.log(`  starts: ${starts.map((time) => time.toFixed(3)).join(", ")}`);

@@ -800,7 +800,7 @@ def build_llm_prompt_payload(
     ]
 
     return {
-        "goal": "Действуй как профессиональный режиссер монтажа. Твоя задача — составить 'Edit Plan' (монтажный план) для вертикального экспертного видео. Определи, где контент заслуживает полноэкранного визуала (KEEP + Full), где достаточно боковой панели (KEEP + Side), а где графика будет мешать (например, на фальстартах или запинках).",
+        "goal": "Действуй как профессиональный режиссер монтажа и смысловой редактор. Твоя задача — извлечь из речи спикера конкретные смысловые beats для вертикального экспертного видео. Каждый beat должен быть привязан к реальным словам из транскрипта и иметь ясный заголовок, подзаголовок и визуальную метафору для иллюстрации.",
         "philosophy": {
             "KEEP_SIDE": "Используй для блоков ХУК и КОНТЕКСТ. Лицо диктора должно быть открыто. Это моменты установления контакта.",
             "KEEP_FULL": "Используй для блоков АНАЛИЗ, РИСКИ, РЕШЕНИЕ. Это 'мясо' ролика. Перекрывай диктора полностью, чтобы зритель впился глазами в цифры и инфографику.",
@@ -810,10 +810,11 @@ def build_llm_prompt_payload(
         "constraints": {
             "duration_seconds": duration,
             "max_scenes": max_scenes,
-            "scene_min_seconds": 6.5,
-            "scene_max_seconds": 25.0,
-            "visual_density": "60-70%",
-            "block_names": ["ХУК", "КОНТЕКСТ", "АНАЛИЗ", "РИСКИ", "РЕШЕНИЕ", "ИТОГ"],
+            "target_scenes": "Для видео короче 35 секунд верни 4-6 beats. Для длинных видео верни 5-8 beats. Не возвращай один общий beat, если в речи есть несколько отдельных мыслей.",
+            "scene_min_seconds": 2.0,
+            "scene_max_seconds": 5.5,
+            "visual_density": "Карточка должна появляться на сильной фразе, а не закрывать весь ролик.",
+            "block_names": ["ПРОБЛЕМА", "ПРИЧИНА", "ПОВОРОТ", "ДЕЙСТВИЕ", "РИСК", "ВЫВОД"],
             "editorial_strategy": {
                 "philosophy": "МЕНЬШЕ — ЭТО БОЛЬШЕ. Аватар должен быть виден 70% времени. Плашка — это акцент, а не фон.",
                 "selection_criteria": "Выбирай только САМЫЕ важные моменты: факты, цифры, ключевые инсайты. Пропускай вводные слова, шутки, воду и общие рассуждения.",
@@ -835,20 +836,26 @@ def build_llm_prompt_payload(
                 "expert_tone": "Используй терминологию только из исходного транскрипта и semantic_blocks. Не добавляй чужую предметную область.",
                 "no_verbatim_transcript": True,
                 "focus_on_essence": True,
+                "no_generic_titles": "Запрещены общие заголовки вроде 'ГЛАВНЫЙ РИСК', 'ЧТО МЕНЯЕТСЯ', 'ФОКУС НА ГЛАВНОМ', если в них нет конкретного смысла из речи.",
+                "anchor_required": "Каждый beat обязан иметь 2-5 anchorWords — точные слова или короткие фразы из транскрипта, по которым понятно, почему этот beat существует.",
+                "visual_required": "Каждый beat обязан иметь visualIdea и visualElements. Они должны вытекать из темы, а не быть абстрактными графиками.",
             },
         },
         "required_output_json_shape": {
             "scenes": [
                 {
                     "start": 0.0,
-                    "end": 8.5,
-                    "blockName": "ХУК",
-                    "reason": "Вводная часть, устанавливаем контакт (Layout: Side)",
-                    "mode": "mini",
-                    "opener": "Тезис блока в 3-6 слов",
-                    "titleLines": ["Заголовок 1", "Заголовок 2", "Заголовок 3", "Заголовок 4"],
-                    "steps": ["Шаг 1", "Шаг 2", "Шаг 3"],
-                    "insight": "Глубокая аналитическая мысль"
+                    "end": 3.8,
+                    "blockName": "ПРОБЛЕМА",
+                    "mode": "full",
+                    "anchorWords": ["точные слова из транскрипта", "еще одна якорная фраза"],
+                    "sourceText": "короткая цитата/пересказ фразы из этого окна",
+                    "title": "КОНКРЕТНЫЙ ЗАГОЛОВОК",
+                    "subtitle": "ясное объяснение смысла в 5-10 слов",
+                    "opener": "короткий триггер 3-5 слов",
+                    "insight": "почему этот момент важен",
+                    "visualIdea": "одна конкретная визуальная метафора",
+                    "visualElements": ["объект 1", "объект 2", "действие/конфликт"]
                 }
             ]
         },
@@ -886,44 +893,36 @@ def generate_scene_plan_llm(
     )
 
     system_prompt = """
-Ты — элитный контент-мейкер и режиссер монтажа. Твоя задача — превратить разговорное видео в серию "ударных" текстовых графических сцен (слайдов и плашек). То время, где нет сцен, остается чистым видео со спикером.
+Ты — элитный смысловой редактор и режиссер монтажа. Верни монтажный план как набор конкретных смысловых beats, строго основанных на транскрипте.
 
-ГЛАВНЫЕ ПРАВИЛА ТАЙМИНГА И РЕЖИМОВ (mode):
-1. ЧИСТЫЙ ХУК: Строго запрещено ставить любые сцены в первые 10-15 секунд видео. Спикер должен смотреть в глаза зрителю и произнести хук без графики. Первая сцена может начаться только после 15 секунды.
-2. Используй ТОЛЬКО два режима: "full" (крупная плашка) и "mini" (маленькая плашка).
-3. СТАРТ БЛОКА = mode "full": новая тема/глава должна начинаться крупной плашкой на 2-4 секунды.
-4. ЦИФРЫ И ФАКТЫ = mode "mini": важные цифры и факты внутри блока — маленькой плашкой, не перекрывая лицо.
+ЖЕСТКИЕ ПРАВИЛА:
+1. Каждый scene — один отдельный смысл: проблема, причина, поворот, действие, риск или вывод.
+2. Для видео короче 35 секунд верни 4-6 scenes, если в речи есть 4+ отдельных мысли. Не склеивай весь ролик в одну сцену.
+3. start/end должны попадать в реальный момент речи, где звучат anchorWords. Длительность сцены 2.0-5.5 секунд.
+4. title: 2-5 слов, конкретный, без воды. Запрещены общие фразы: "ГЛАВНЫЙ РИСК", "ЧТО МЕНЯЕТСЯ", "ФОКУС НА ГЛАВНОМ", "НОВАЯ РЕАЛЬНОСТЬ", если они не содержат предметный смысл.
+5. subtitle: 5-10 слов, объясняет мысль title человечески.
+6. anchorWords: 2-5 точных слов/коротких фраз из транскрипта. Это якоря, которые доказывают, что сцена привязана к речи.
+7. visualIdea: одна конкретная визуальная метафора для KIE-иллюстрации.
+8. visualElements: 3-6 конкретных объектов/персонажей/действий, которые можно нарисовать. Не используй графики, если речь не про данные/проценты.
+9. Не добавляй чужую предметную область. Если в речи нет проливов, танкеров, стран, флагов, санкций, портов или войны — не упоминай их.
+10. Ответ — только валидный JSON. Никакого Markdown.
 
-ПРАВИЛА ТЕКСТА:
-- ТЕКСТ (title): Строго 3-6 слов. Это заголовок, который можно прочитать за 2 секунды. "бьет в лоб".
-- OPENER: Строго 3-6 слов. Это короткий триггер смыслового блока, переформулируй мысль, не копируй первое предложение дословно.
-- subtitle НЕ использовать вообще.
-- INSIGHT: Глубокая мысль или конкретная цифра для mini/full.
-
-ОТБОР МОМЕНТОВ:
-- Выбирай только самые эмоциональные или фактологические пики.
-- Сцена должна длиться 3-6 секунд.
-- Между сценами — МИНИМУМ 10-15 секунд чистого видео (без сцен), чтобы зритель отдыхал и смотрел на спикера.
-
-ФОРМАТ ОТВЕТА — только валидный JSON:
+ФОРМАТ:
 {
   "scenes": [
     {
-      "start": 15.0,
-      "end": 19.0,
-      "blockName": "КРИТИЧНО",
+      "start": 0.0,
+      "end": 3.8,
+      "blockName": "ПРОБЛЕМА",
       "mode": "full",
-      "title": "ФНС ЗАКРЫВАЕТ СХЕМЫ",
-      "opener": "VPN БОЛЬШЕ НЕ СПАСАЕТ"
-    },
-    {
-      "start": 35.0,
-      "end": 40.0,
-      "blockName": "ШТРАФЫ",
-      "mode": "mini",
-      "title": "ШТРАФ ДО 40%",
-      "opener": "ШТРАФЫ УЖЕ ПРИЛЕТАЮТ",
-      "insight": "Доказано в 90% судов"
+      "anchorWords": ["убыточна", "не масштабируется"],
+      "sourceText": "фраза из транскрипта, на которой основан beat",
+      "title": "МОДЕЛЬ НЕ СХОДИТСЯ",
+      "subtitle": "цифры показывают, что система не работает",
+      "opener": "цифры уже говорят",
+      "insight": "если модель не масштабируется, ее нельзя чинить косметикой",
+      "visualIdea": "сломанный бизнес-механизм с красной трещиной и человеком перед выбором",
+      "visualElements": ["сломанный механизм", "красная трещина", "предприниматель", "таблица с убытком без текста"]
     }
   ]
 }
@@ -1164,6 +1163,66 @@ def _build_scene_opener(
     return _normalize_opener_text(_default_chapter_title(block_name)) or "Ключевая мысль"
 
 
+def _norm_string_list(value: Any, *, max_items: int, max_chars: int, max_words: int | None = None) -> list[str]:
+    items = value if isinstance(value, list) else []
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in items:
+        text = normalize_scene_text(str(raw), max_chars, max_words)
+        if _is_generic_scene_text(text):
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(text)
+        if len(out) >= max_items:
+            break
+    return out
+
+
+def validate_scene_plan_quality(scenes: list[dict[str, Any]], duration: float) -> None:
+    if not scenes:
+        raise RuntimeError("LLM scene-plan is empty; refusing to render fallback cards")
+
+    min_required = 1
+    if duration <= 35:
+        min_required = 4
+    elif duration <= 75:
+        min_required = 5
+    if len(scenes) < min_required:
+        raise RuntimeError(
+            f"LLM scene-plan returned only {len(scenes)} scene(s); expected at least {min_required} for duration={duration}s"
+        )
+
+    errors: list[str] = []
+    seen_titles: set[str] = set()
+    for idx, scene in enumerate(scenes):
+        label = f"scene[{idx}]"
+        title = normalize_plain_text(str(scene.get("title") or ""))
+        subtitle = normalize_plain_text(str(scene.get("subtitle") or ""))
+        visual_idea = normalize_plain_text(str(scene.get("visualIdea") or ""))
+        anchor_words = scene.get("anchorWords") if isinstance(scene.get("anchorWords"), list) else []
+        visual_elements = scene.get("visualElements") if isinstance(scene.get("visualElements"), list) else []
+
+        if _is_generic_scene_text(title) or len(title.split()) < 2:
+            errors.append(f"{label} has weak title: {title!r}")
+        if title.lower() in seen_titles:
+            errors.append(f"{label} repeats title: {title!r}")
+        seen_titles.add(title.lower())
+        if _is_generic_scene_text(subtitle) or len(subtitle.split()) < 4:
+            errors.append(f"{label} has weak subtitle: {subtitle!r}")
+        if len([x for x in anchor_words if normalize_plain_text(str(x))]) < 2:
+            errors.append(f"{label} needs at least 2 anchorWords")
+        if _is_generic_scene_text(visual_idea) or len(visual_idea.split()) < 5:
+            errors.append(f"{label} has weak visualIdea: {visual_idea!r}")
+        if len([x for x in visual_elements if normalize_plain_text(str(x))]) < 3:
+            errors.append(f"{label} needs at least 3 visualElements")
+
+    if errors:
+        raise RuntimeError("LLM scene-plan failed quality gate: " + " | ".join(errors[:12]))
+
+
 def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str, Any]]:
     raw_scenes = raw.get("scenes")
     if not isinstance(raw_scenes, list):
@@ -1213,26 +1272,8 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
         window_text = _scene_window_text(utterances_for_norm, start, end)
         semantic_fallback = _build_semantic_fallback(window_text, block_name)
         
-        # ГАРАНТИРОВАННЫЙ БУФЕР: Первый слайд не раньше 4-й секунды
-        if not norm:
-            if start < 4.0:
-                start = 4.0
-        else:
-            prev_end = norm[-1]["end"]
-            if start < prev_end + 8.0:
-                start = prev_end + 8.0
-
-        # FALLBACK ДАННЫХ: если LLM вернула шаблон, берём осмысленный текст из окна utterances.
         title_from_raw = str(item.get("title") or "").strip()
         title = title_from_raw
-        if _is_generic_scene_text(title):
-            t_lines = item.get("titleLines") or []
-            if t_lines and isinstance(t_lines, list):
-                title = " ".join([str(x) for x in t_lines if str(x) != "Смысловой блок"]).strip()
-        if _is_generic_scene_text(title):
-            title = str(item.get("keyword") or "").strip()
-        if _is_generic_scene_text(title):
-            title = semantic_fallback["title"]
 
         if start >= duration:
             continue
@@ -1274,24 +1315,37 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
             for f in raw_facts
             if str(f).strip()
         ][:3]
-        if not facts:
-            facts = semantic_fallback["facts"][:2]
+        anchor_words = _norm_string_list(
+            item.get("anchorWords"),
+            max_items=5,
+            max_chars=40,
+            max_words=5,
+        )
+        visual_elements = _norm_string_list(
+            item.get("visualElements"),
+            max_items=6,
+            max_chars=80,
+            max_words=10,
+        )
+        visual_idea = normalize_scene_text(
+            str(item.get("visualIdea") or ""), 220, 28
+        )
+        source_text = normalize_scene_text(
+            str(item.get("sourceText") or window_text or ""), 220, 28
+        )
+        subtitle = normalize_scene_text(
+            str(item.get("subtitle") or ""), 90, 12
+        )
 
         insight = normalize_scene_text(
             str(item.get("insight") or ""), TEXT_LIMITS["insight"], WORD_LIMITS["insight"]
         )
-        if _is_generic_scene_text(insight):
-            insight = semantic_fallback["insight"]
         cta = normalize_scene_text(
             str(item.get("cta") or ""), TEXT_LIMITS["cta"], WORD_LIMITS["cta"]
         )
-        if _is_generic_scene_text(cta):
-            cta = semantic_fallback["cta"]
         keyword = normalize_scene_text(
             str(item.get("keyword") or title or ""), TEXT_LIMITS["keyword"], WORD_LIMITS["keyword"]
         )
-        if _is_generic_scene_text(keyword):
-            keyword = semantic_fallback["keyword"]
         opener = _build_scene_opener(
             raw_item=item,
             title=title,
@@ -1318,27 +1372,26 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
             and "Объяснить" not in str(x)
             and not _is_generic_scene_text(str(x))
         ][:3]
-        # Supplement steps from facts if empty
-        if not steps and facts:
-            steps = facts[:2]
-        if not steps:
-            steps = semantic_fallback["steps"][:2]
-
         scene = {
             "start": round(start, 2),
             "end": round(end, 2),
             "blockName": str(item.get("blockName") or "АНАЛИЗ"),
             "mode": mode,
             "title": title,
+            "subtitle": subtitle,
             "value": chart_value,
             "unit": unit,
             "facts": facts,
+            "anchorWords": anchor_words,
+            "sourceText": source_text,
+            "visualIdea": visual_idea,
+            "visualElements": visual_elements,
             # Legacy fields
             "titleLines": title_lines,
             "steps": steps,
             "insight": insight,
-            "cta": cta or semantic_fallback["cta"],
-            "keyword": keyword or semantic_fallback["keyword"],
+            "cta": cta,
+            "keyword": keyword,
             "opener": opener,
             "bars": _norm_bars(item.get("bars")),
             "_i": i,
@@ -1347,30 +1400,11 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
 
     norm.sort(key=lambda x: (x["start"], x["_i"]))
     if not norm:
-        return [
-            {
-                "start": 0.0,
-                "end": round(duration, 2),
-                "mode": "full",
-                "opener": "Проверка сценария",
-                "titleLines": ["Сцена пустая", "Проверьте LLM", "Проверьте модель", "Повторите запуск"],
-                "steps": ["1. Проверить ключ", "2. Проверить модель", "3. Повторить запуск"],
-                "insight": "LLM вернул пустой scene-plan.",
-                "cta": "Проверьте конфиг и перезапустите",
-                "keyword": "диагностика",
-                "bars": [
-                    {"label": "Хук", "value": 0.4},
-                    {"label": "Суть", "value": 0.5},
-                    {"label": "Кейс", "value": 0.45},
-                    {"label": "CTA", "value": 0.6},
-                ],
-            }
-        ]
+        raise RuntimeError("LLM returned no valid scenes after normalization")
 
     fixed: list[dict[str, Any]] = []
-    cursor = 0.0
     for scene in norm:
-        start = max(cursor, scene["start"])
+        start = max(0.0, scene["start"])
         end = max(start + 1.2, scene["end"])
         end = min(duration, end)
         if end - start < 1.2:
@@ -1380,33 +1414,11 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
         clean["end"] = round(end, 2)
         clean.pop("_i", None)
         fixed.append(clean)
-        cursor = end
-        if cursor >= duration - 0.01:
-            break
 
     if not fixed:
-        fixed = [
-            {
-                "start": 0.0,
-                "end": round(duration, 2),
-                "mode": "full",
-                "opener": "Проверка таймингов",
-                "titleLines": ["Сцена пустая", "Проверьте JSON", "Проверьте тайминг", "Повторите запуск"],
-                "steps": ["1. Проверить JSON", "2. Проверить тайминги", "3. Повторить запуск"],
-                "insight": "После нормализации не осталось валидных сцен.",
-                "cta": "Перезапустить pipeline",
-                "keyword": "структура",
-                "bars": [
-                    {"label": "Хук", "value": 0.4},
-                    {"label": "Суть", "value": 0.5},
-                    {"label": "Кейс", "value": 0.45},
-                    {"label": "CTA", "value": 0.6},
-                ],
-            }
-        ]
+        raise RuntimeError("LLM returned scenes, but none survived timing normalization")
 
-    fixed[0]["start"] = 0.0
-    fixed[-1]["end"] = round(duration, 2)
+    validate_scene_plan_quality(fixed, duration)
 
     # Build chapter metadata so viewer always sees topic context.
     chapter_idx = 0
@@ -1636,31 +1648,24 @@ def main() -> int:
     eprint(f"Saved semantic blocks: {out_semantic_blocks}")
 
     if args.skip_llm:
-        eprint("Generating fallback scene-plan (LLM skipped) ...")
+        eprint("Generating deterministic scene-plan because --skip-llm was explicitly requested ...")
         scenes = build_fallback_scene_plan(utterances, semantic_blocks, duration, args.max_scenes)
     else:
-        try:
-            eprint(f"Generating LLM scene-plan with model={args.llm_model} ...")
-            raw_plan = generate_scene_plan_llm(
-                utterances=utterances,
-                semantic_blocks=semantic_blocks,
-                deepgram_payload=transcript_payload,
-                duration=duration,
-                max_scenes=args.max_scenes,
-                llm_model=args.llm_model,
-                timeout_sec=args.timeout,
-            )
-            if isinstance(raw_plan, dict):
-                raw_plan["_utterances"] = utterances
-            scenes = normalize_scene_plan(raw_plan, duration)
-            if scene_plan_uses_fallback_copy(scenes):
-                eprint("LLM scene-plan used generic fallback copy. Rebuilding scenes directly from transcript ...")
-                scenes = build_fallback_scene_plan(utterances, semantic_blocks, duration, args.max_scenes)
-        except Exception as err:
-            if args.strict_llm:
-                raise
-            eprint(f"LLM generation failed ({err}). Falling back to deterministic planner ...")
-            scenes = build_fallback_scene_plan(utterances, semantic_blocks, duration, args.max_scenes)
+        eprint(f"Generating strict LLM scene-plan with model={args.llm_model} ...")
+        raw_plan = generate_scene_plan_llm(
+            utterances=utterances,
+            semantic_blocks=semantic_blocks,
+            deepgram_payload=transcript_payload,
+            duration=duration,
+            max_scenes=args.max_scenes,
+            llm_model=args.llm_model,
+            timeout_sec=args.timeout,
+        )
+        if isinstance(raw_plan, dict):
+            raw_plan["_utterances"] = utterances
+        scenes = normalize_scene_plan(raw_plan, duration)
+        if scene_plan_uses_fallback_copy(scenes):
+            raise RuntimeError("LLM scene-plan used generic copy; refusing to render fallback cards")
 
     out_plan.write_text(json.dumps(scenes, ensure_ascii=False, indent=2), encoding="utf-8")
     scene_word_cues = extract_word_cues(transcript_payload, scenes)

@@ -82,6 +82,7 @@ const BEATS = sectionMatches
   .map(([block]) => {
     const id = attr(block, "id");
     if (!id || !block.includes("beat-card")) return null;
+    if (attr(block, "data-disabled-card") === "true") return null;
     const kicker = text(block, "kicker");
     const title = text(block, "title");
     const desc = text(block, "desc");
