@@ -1286,10 +1286,7 @@ def validate_scene_plan_quality(scenes: list[dict[str, Any]], duration: float) -
         raise RuntimeError("LLM scene-plan is empty; refusing to render fallback cards")
 
     min_required = 1
-    if duration <= 35:
-        min_required = 4
-    elif duration <= 75:
-        min_required = 5
+    min_required = _min_required_scene_count(duration)
     if len(scenes) < min_required:
         raise RuntimeError(
             f"LLM scene-plan returned only {len(scenes)} scene(s); expected at least {min_required} for duration={duration}s"
@@ -1328,6 +1325,105 @@ def validate_scene_plan_quality(scenes: list[dict[str, Any]], duration: float) -
 
     if errors:
         raise RuntimeError("LLM scene-plan failed quality gate: " + " | ".join(errors[:12]))
+
+
+def _min_required_scene_count(duration: float) -> int:
+    if duration <= 35:
+        return 4
+    if duration <= 75:
+        return 5
+    return 1
+
+
+def _scene_overlaps_existing(start: float, end: float, scenes: list[dict[str, Any]]) -> bool:
+    for scene in scenes:
+        try:
+            cur_start = float(scene.get("start", 0.0))
+            cur_end = float(scene.get("end", cur_start))
+        except (TypeError, ValueError):
+            continue
+        if max(start, cur_start) < min(end, cur_end):
+            return True
+    return False
+
+
+def _build_repair_scene_from_utterance(utterance: dict[str, Any], index: int, duration: float) -> dict[str, Any] | None:
+    text = normalize_plain_text(str(utterance.get("text") or ""))
+    if not text:
+        return None
+    try:
+        start = float(utterance.get("start", 0.0))
+        end = float(utterance.get("end", start + 4.0))
+    except (TypeError, ValueError):
+        return None
+    if end <= start:
+        end = start + 4.0
+    end = min(duration, max(start + 2.0, end))
+    if end <= start:
+        return None
+
+    keywords = extract_keywords(text, 5)
+    title_source = phrase_from_sentence(text, 5)
+    title = normalize_scene_text(title_source, 40, 6)
+    subtitle = normalize_scene_text(text, 90, 12)
+    visual_seed = " ".join(keywords[:3]) if keywords else title
+    visual_elements = keywords[:4] or [title, "человек", "выбор"]
+    while len(visual_elements) < 3:
+        visual_elements.append(["человек", "документ", "решение"][len(visual_elements)])
+
+    return {
+        "start": round(start, 2),
+        "end": round(end, 2),
+        "blockName": "ДОПОЛНЕНИЕ",
+        "mode": "full" if index % 2 == 0 else "mini",
+        "title": title,
+        "subtitle": subtitle,
+        "value": None,
+        "unit": "%",
+        "facts": [subtitle],
+        "anchorWords": _derive_anchor_words_from_text(text, limit=5),
+        "sourceText": normalize_scene_text(text, 220, 28),
+        "referenceEssence": normalize_scene_text(text, 180, 24),
+        "hookText": "",
+        "hookPromise": "",
+        "visualIdea": normalize_scene_text(
+            f"Реалистичная экспертная иллюстрация про {visual_seed}: человек сталкивается с выбором и видит последствие решения",
+            220,
+            28,
+        ),
+        "visualType": "illustration",
+        "visualElements": visual_elements[:6],
+        "titleLines": [title],
+        "steps": [subtitle],
+        "insight": subtitle,
+        "cta": "",
+        "keyword": normalize_scene_text(" ".join(keywords[:2]) or title, TEXT_LIMITS["keyword"], WORD_LIMITS["keyword"]),
+        "opener": title,
+        "bars": _norm_bars([]),
+    }
+
+
+def _ensure_min_scene_count(scenes: list[dict[str, Any]], utterances: list[dict[str, Any]], duration: float) -> None:
+    min_required = _min_required_scene_count(duration)
+    if len(scenes) >= min_required or not utterances:
+        return
+
+    candidates = sorted(
+        utterances,
+        key=lambda item: len(normalize_plain_text(str(item.get("text") or ""))),
+        reverse=True,
+    )
+    for utterance in candidates:
+        if len(scenes) >= min_required:
+            break
+        scene = _build_repair_scene_from_utterance(utterance, len(scenes), duration)
+        if not scene:
+            continue
+        if _scene_overlaps_existing(float(scene["start"]), float(scene["end"]), scenes):
+            continue
+        scenes.append(scene)
+
+    scenes.sort(key=lambda item: float(item.get("start", 0.0)))
 
 
 def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str, Any]]:
@@ -1545,6 +1641,7 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
     if not fixed:
         raise RuntimeError("LLM returned scenes, but none survived timing normalization")
 
+    _ensure_min_scene_count(fixed, utterances_for_norm, duration)
     _repair_scene_plan_metadata(fixed, utterances_for_norm)
     validate_scene_plan_quality(fixed, duration)
 
