@@ -1264,7 +1264,7 @@ def _repair_scene_plan_metadata(scenes: list[dict[str, Any]], utterances: list[d
             if replacement:
                 scene["subtitle"] = replacement
 
-        if idx == 0:
+        if index == 0:
             hook_text = normalize_scene_text(str(scene.get("hookText") or ""), 64, 8)
             if _is_generic_scene_text(hook_text) or len(hook_text.split()) < 2:
                 scene["hookText"] = normalize_scene_text(
@@ -1318,7 +1318,7 @@ def validate_scene_plan_quality(scenes: list[dict[str, Any]], duration: float) -
             errors.append(f"{label} has weak visualIdea: {visual_idea!r}")
         if len([x for x in visual_elements if normalize_plain_text(str(x))]) < 3:
             errors.append(f"{label} needs at least 3 visualElements")
-        if index == 0:
+        if idx == 0:
             hook_text = normalize_plain_text(str(scene.get("hookText") or ""))
             hook_promise = normalize_plain_text(str(scene.get("hookPromise") or ""))
             if _is_generic_scene_text(hook_text) or len(hook_text.split()) < 2:
