@@ -1729,7 +1729,30 @@ def process_content_task(task_id: int):
                     target_duration_seconds=target_duration_seconds,
                 )
                 if not script:
-                    raise Exception("Failed to generate short Avatar script")
+                    logging.warning(
+                        "Task %s: short Avatar script rewrite returned empty; retrying once. "
+                        "cleaned_chars=%s target=%s range=%s-%s",
+                        task_id,
+                        count_script_chars(cleaned_reels_transcript),
+                        target_chars,
+                        min_chars,
+                        max_chars,
+                    )
+                    script = llm.rewrite_reels_avatar_script(
+                        cleaned_transcript=cleaned_reels_transcript,
+                        style_profile=style_profile,
+                        target_chars=target_chars,
+                        min_chars=min_chars,
+                        max_chars=max_chars,
+                        voice_chars_per_second=chars_per_second or None,
+                        target_duration_seconds=target_duration_seconds,
+                    )
+                if not script:
+                    logging.warning(
+                        "Task %s: short Avatar script rewrite failed twice; using cleaned transcript fallback.",
+                        task_id,
+                    )
+                    script = cleaned_reels_transcript
                 word_count = llm.estimate_word_count(script)
                 char_count = count_script_chars(script)
                 if char_count < min_chars or char_count > max_chars:

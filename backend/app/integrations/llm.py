@@ -40,7 +40,15 @@ class LLMClient:
                 response = client.post(f"{self.BASE_URL}/chat/completions", headers=self.headers, json=payload)
                 response.raise_for_status()
                 data = response.json()
-                return data["choices"][0]["message"]["content"]
+                choices = data.get("choices") or []
+                if not choices:
+                    logger.error("OpenRouter response has no choices: %s", str(data)[:1200])
+                    return None
+                content = ((choices[0].get("message") or {}).get("content") or "").strip()
+                if not content:
+                    logger.error("OpenRouter response has empty content: %s", str(data)[:1200])
+                    return None
+                return content
         except Exception as e:
             logger.error(f"OpenRouter request failed: {e}")
             return None
