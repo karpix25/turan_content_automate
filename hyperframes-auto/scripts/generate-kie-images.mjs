@@ -15,6 +15,7 @@ const jobTimeoutMs = Math.max(
   60_000,
   Number(process.env.KIE_JOB_TIMEOUT_MS || 15 * 60 * 1000),
 );
+const concurrency = Math.max(1, Number(process.env.KIE_CONCURRENCY || 3));
 
 if (!apiKey) {
   console.error("Missing KIE_API_KEY. Run: KIE_API_KEY=... npm run generate:images");
@@ -96,7 +97,7 @@ function getResultUrl(body) {
   return null;
 }
 
-async function waitForImage(taskId) {
+async function waitForImage(taskId, label) {
   const deadline = Date.now() + jobTimeoutMs;
   let attempt = 0;
   while (Date.now() < deadline) {
@@ -110,7 +111,7 @@ async function waitForImage(taskId) {
     const progress = details.data?.progress ?? details.progress;
     const failMsg = details.data?.failMsg || details.failMsg || "";
     const url = getResultUrl(details);
-    console.log(`  status=${status || "unknown"} progress=${progress ?? "?"}`);
+    console.log(`  ${label} status=${status || "unknown"} progress=${progress ?? "?"}`);
 
     if (url) return url;
     if (["failed", "error", "failure", "fail"].includes(String(status).toLowerCase())) {
@@ -130,40 +131,77 @@ async function download(url, fileName) {
   return filePath;
 }
 
+async function runPool(items, limit, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function runWorker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await worker(items[index], index);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, () => runWorker()),
+  );
+  return results;
+}
+
+async function createImageTask(job) {
+  console.log(`Creating ${job.id}...`);
+  const created = await kieFetch("/api/v1/jobs/createTask", {
+    method: "POST",
+    body: JSON.stringify({
+      model,
+      callBackUrl: callbackUrl,
+      input: {
+        prompt: job.prompt,
+        aspect_ratio: job.aspectRatio || aspectRatio,
+        resolution: job.resolution || resolution,
+      },
+    }),
+  });
+
+  const taskId = getTaskId(created);
+  if (!taskId) throw new Error(`No task id for ${job.id}: ${JSON.stringify(created)}`);
+  console.log(`  ${job.id} taskId=${taskId}`);
+  return { job, taskId };
+}
+
 const successfulIds = new Set();
 const failedJobs = [];
 
-for (const job of jobs) {
-  console.log(`Generating ${job.id}...`);
+console.log(`Generating ${jobs.length} KIE image(s) with concurrency=${concurrency}`);
+
+const createdTasks = await runPool(jobs, concurrency, async (job) => {
   try {
-    const created = await kieFetch("/api/v1/jobs/createTask", {
-      method: "POST",
-      body: JSON.stringify({
-        model,
-        callBackUrl: callbackUrl,
-        input: {
-          prompt: job.prompt,
-          aspect_ratio: job.aspectRatio || aspectRatio,
-          resolution: job.resolution || resolution,
-        },
-      }),
-    });
+    return await createImageTask(job);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    failedJobs.push({ id: job.id, error: message });
+    console.error(`  ${job.id} failed=${message}`);
+    return null;
+  }
+});
 
-    const taskId = getTaskId(created);
-    if (!taskId) throw new Error(`No task id for ${job.id}: ${JSON.stringify(created)}`);
-    console.log(`  taskId=${taskId}`);
+const readyTasks = createdTasks.filter(Boolean);
 
-    const imageUrl = await waitForImage(taskId);
-    console.log(`  imageUrl=${imageUrl}`);
+await runPool(readyTasks, concurrency, async ({ job, taskId }) => {
+  console.log(`Waiting ${job.id}...`);
+  try {
+    const imageUrl = await waitForImage(taskId, job.id);
+    console.log(`  ${job.id} imageUrl=${imageUrl}`);
     const saved = await download(imageUrl, job.file);
     successfulIds.add(job.id);
     console.log(`Saved ${path.relative(projectRoot.pathname, saved)}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     failedJobs.push({ id: job.id, error: message });
-    console.error(`  failed=${message}`);
+    console.error(`  ${job.id} failed=${message}`);
   }
-}
+});
 
 if (!successfulIds.size) {
   throw new Error(`No KIE images were generated. Failures: ${failedJobs.map((item) => `${item.id}: ${item.error}`).join(" | ")}`);
