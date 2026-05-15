@@ -16,8 +16,9 @@ const STYLE = [
   "Characters should be editorial and stylized, not photorealistic portraits; use silhouettes, diplomats, workers, leaders-at-a-distance, guards, captains, or symbolic figures when they clarify the story.",
   "Use national flags, geopolitics, ships, ports, straits, oil barrels, pipelines, military objects, maps, or country-colored props only when the beat text explicitly names a country, route, sea, port, war, sanctions, energy, or geopolitics.",
   "Never invent a country, strait, maritime route, ship, flag, oil topic, or geopolitical conflict if it is not present in the beat context.",
-  "No charts, no gauges, no percentage rings, no dashboards, no UI panels, no tables, no repeated icon grids, no dense diagrams.",
-  "No readable text, no numbers, no percent signs, no captions, no labels, no logos, no emojis, no clutter, no dark background.",
+  "No charts, no gauges, no percentage rings, no repeated icon grids, no dense diagrams unless the beat explicitly asks for a realistic interface, document, screenshot, table, or checklist.",
+  "Do not generate readable text in ordinary illustrations. Readable text is allowed only when the visual brief explicitly asks for a realistic interface, document, screenshot, table, email, or checklist, and then only as short object labels, not the main title/subtitle.",
+  "No logos, no emojis, no clutter, no dark background.",
 ].join(" ");
 
 function attr(block, name) {
@@ -58,7 +59,7 @@ function fallbackVisualBrief({ title, desc, kicker, quoteSource }) {
     "Use real-world visual associations only from this exact beat: people, products, tools, money, documents, screens, marketplaces, offices, factories, public spaces, or other concrete objects named or strongly implied by the text.",
     "Do not introduce ships, ports, straits, country flags, maps, oil infrastructure, military checkpoints, or geopolitics unless this exact beat explicitly mentions them.",
     "Avoid graph-like output unless the story absolutely requires it, and never use gauges, rings, dashboards, or visible percentages.",
-    "The generated image must not repeat the title or subtitle as text and must not include readable words or numbers.",
+    "The generated image must not repeat the title or subtitle as text. Readable text is allowed only if this beat is a realistic interface/document/screenshot/table/checklist, and then only as short labels inside the object.",
     quote,
   ].join(" ");
 }

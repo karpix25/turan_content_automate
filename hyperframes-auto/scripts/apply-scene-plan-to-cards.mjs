@@ -45,6 +45,13 @@ function compactTitle(value, fallback) {
   return words.length > 5 ? words.slice(0, 5).join(" ") : clean;
 }
 
+function compactHook(value, fallback) {
+  const clean = normalize(value || fallback).replace(/[.!?…]+$/g, "");
+  if (!clean) return "ВАЖНЫЙ ПОВОРОТ";
+  const words = clean.split(" ");
+  return words.length > 8 ? words.slice(0, 8).join(" ") : clean;
+}
+
 function uniq(values) {
   const seen = new Set();
   return values
@@ -117,6 +124,24 @@ function pickKicker(scene, index) {
   return compactTitle(scene.blockName || scene.mode || scene.keyword || `сцена ${index + 1}`, `сцена ${index + 1}`).toLowerCase();
 }
 
+function pickHookContent(scenes) {
+  const first = scenes[0] || {};
+  const hookTitle = compactHook(
+    first.hookText || first.opener || first.title || first.keyword,
+    first.title || "ВАЖНЫЙ ПОВОРОТ",
+  ).toUpperCase();
+  const hookPromise = normalize(
+    first.hookPromise ||
+      first.referenceEssence ||
+      first.subtitle ||
+      first.insight ||
+      first.sourceText ||
+      "Сейчас станет понятно, где ломается привычная логика",
+  );
+  const hookKicker = compactTitle(first.blockName || "хук", "хук").toLowerCase();
+  return { hookTitle, hookPromise, hookKicker };
+}
+
 function pickCardContent(scenes, cardIndex, totalCards, usedTitles) {
   const sceneIndex = cardIndex;
   const scene = scenes[sceneIndex] || {};
@@ -154,11 +179,18 @@ function visualBrief(scene, title, desc) {
   const visualElements = Array.isArray(scene.visualElements)
     ? scene.visualElements.map(normalize).filter(Boolean).join("; ")
     : "";
+  const visualType = normalize(scene.visualType || "illustration").toLowerCase();
+  const isRealisticTextObject = ["realistic_interface", "realistic_document", "realistic_screenshot"].includes(visualType);
+  const textPolicy = isRealisticTextObject
+    ? `This is a ${visualType} visual: readable text is allowed only as short, realistic UI/document labels that belong inside the object. Keep labels brief, legible, and topic-specific; do not put the main headline/subtitle into the image.`
+    : `This is an illustration/metaphor visual: no readable text, no numbers, no percent signs, no captions, no labels, no logos, no emojis inside the generated image.`;
   return normalize(
     [
       `Visualize this card as a beautiful illustration-first editorial infographic on a light background.`,
+      `Visual type: ${visualType}.`,
       `Title: ${title}.`,
       `Subtitle: ${desc}.`,
+      scene.referenceEssence ? `Reference essence to preserve in our own words: ${normalize(scene.referenceEssence)}.` : "",
       anchorWords ? `Speech anchor words: ${anchorWords}.` : "",
       scene.visualIdea ? `Core visual idea: ${normalize(scene.visualIdea)}.` : "",
       steps ? `Process: ${steps}.` : "",
@@ -167,7 +199,7 @@ function visualBrief(scene, title, desc) {
       `Use subject -> action -> obstacle -> result logic as one concrete visual metaphor that matches this exact topic.`,
       `Choose objects, people, places, products, documents, tools, screens, money, flags, or other real-world anchors only when they are clearly supported by the title/subtitle/facts.`,
       `Do not introduce unrelated geopolitics, straits, ships, ports, maps, oil barrels, military imagery, or country flags unless this exact scene mentions them.`,
-      `Do not request charts, gauges, percentage rings, dashboards, tables, visible numbers, or readable text.`,
+      textPolicy,
     ].join(" "),
   );
 }
@@ -198,13 +230,20 @@ let html = await readFile(indexPath, "utf8");
 const sectionMatches = [...html.matchAll(/<section\b[\s\S]*?<\/section>/gi)].filter((match) => /id="beat-\d+"/.test(match[0]));
 const duration = readDuration(html);
 const usedTitles = new Set();
+const hook = pickHookContent(scenes);
+
+html = html
+  .replace(/(<div id="hook-kicker" class="hook-kicker">)[\s\S]*?(<\/div>)/, `$1${escapeHtml(hook.hookKicker)}$2`)
+  .replace(/(<div id="hook-title" class="hook-title">)[\s\S]*?(<\/div>)/, `$1${escapeHtml(hook.hookTitle)}$2`)
+  .replace(/(<div id="hook-promise" class="hook-promise">)[\s\S]*?(<\/div>)/, `$1${escapeHtml(hook.hookPromise)}$2`);
 
 sectionMatches.forEach((match, index) => {
   if (index >= scenes.length) {
     let disabledBlock = match[0];
     disabledBlock = setAttr(disabledBlock, "data-disabled-card", "true");
-    disabledBlock = setAttr(disabledBlock, "data-start", String(duration + 999));
+    disabledBlock = setAttr(disabledBlock, "data-start", String(duration + 999 + index * 0.01));
     disabledBlock = setAttr(disabledBlock, "data-duration", "0.001");
+    disabledBlock = setAttr(disabledBlock, "data-track-index", String(100 + index));
     html = html.replace(match[0], disabledBlock);
     return;
   }

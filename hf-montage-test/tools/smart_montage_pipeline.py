@@ -801,6 +801,7 @@ def build_llm_prompt_payload(
 
     return {
         "goal": "Действуй как профессиональный режиссер монтажа и смысловой редактор. Твоя задача — извлечь из речи спикера конкретные смысловые beats для вертикального экспертного видео. Каждый beat должен быть привязан к реальным словам из транскрипта и иметь ясный заголовок, подзаголовок и визуальную метафору для иллюстрации.",
+        "reference_adaptation_rule": "Не придумывай новую тему. Повтори суть референса/речи своими словами в нашем экспертном стиле: конкретно, резко, без копирования формулировок и без добавления чужой предметной области.",
         "philosophy": {
             "KEEP_SIDE": "Используй для блоков ХУК и КОНТЕКСТ. Лицо диктора должно быть открыто. Это моменты установления контакта.",
             "KEEP_FULL": "Используй для блоков АНАЛИЗ, РИСКИ, РЕШЕНИЕ. Это 'мясо' ролика. Перекрывай диктора полностью, чтобы зритель впился глазами в цифры и инфографику.",
@@ -839,6 +840,8 @@ def build_llm_prompt_payload(
                 "no_generic_titles": "Запрещены общие заголовки вроде 'ГЛАВНЫЙ РИСК', 'ЧТО МЕНЯЕТСЯ', 'ФОКУС НА ГЛАВНОМ', если в них нет конкретного смысла из речи.",
                 "anchor_required": "Каждый beat обязан иметь 2-5 anchorWords — точные слова или короткие фразы из транскрипта, по которым понятно, почему этот beat существует.",
                 "visual_required": "Каждый beat обязан иметь visualIdea и visualElements. Они должны вытекать из темы, а не быть абстрактными графиками.",
+                "hook_required": "Первая scene обязана иметь hookText и hookPromise для первых 1-3 секунд. Hook — это не пересказ, а scroll-stopper: конфликт, боль или сильное обещание, основанные на речи.",
+                "visual_text_policy": "Для обычных иллюстраций и метафор не проси текст внутри картинки. Для реалистичных интерфейсов, документов, писем, таблиц и чек-листов короткий текст внутри изображения разрешен, если он является частью объекта."
             },
         },
         "required_output_json_shape": {
@@ -850,11 +853,15 @@ def build_llm_prompt_payload(
                     "mode": "full",
                     "anchorWords": ["точные слова из транскрипта", "еще одна якорная фраза"],
                     "sourceText": "короткая цитата/пересказ фразы из этого окна",
+                    "referenceEssence": "какую суть референса этот beat повторяет своими словами",
+                    "hookText": "сильная фраза для первых секунд, только для первой сцены",
+                    "hookPromise": "что зритель поймет или избежит, только для первой сцены",
                     "title": "КОНКРЕТНЫЙ ЗАГОЛОВОК",
                     "subtitle": "ясное объяснение смысла в 5-10 слов",
                     "opener": "короткий триггер 3-5 слов",
                     "insight": "почему этот момент важен",
                     "visualIdea": "одна конкретная визуальная метафора",
+                    "visualType": "illustration | realistic_interface | realistic_document | realistic_screenshot",
                     "visualElements": ["объект 1", "объект 2", "действие/конфликт"]
                 }
             ]
@@ -902,10 +909,14 @@ def generate_scene_plan_llm(
 4. title: 2-5 слов, конкретный, без воды. Запрещены общие фразы: "ГЛАВНЫЙ РИСК", "ЧТО МЕНЯЕТСЯ", "ФОКУС НА ГЛАВНОМ", "НОВАЯ РЕАЛЬНОСТЬ", если они не содержат предметный смысл.
 5. subtitle: 5-10 слов, объясняет мысль title человечески.
 6. anchorWords: 2-5 точных слов/коротких фраз из транскрипта. Это якоря, которые доказывают, что сцена привязана к речи.
-7. visualIdea: одна конкретная визуальная метафора для KIE-иллюстрации.
-8. visualElements: 3-6 конкретных объектов/персонажей/действий, которые можно нарисовать. Не используй графики, если речь не про данные/проценты.
-9. Не добавляй чужую предметную область. Если в речи нет проливов, танкеров, стран, флагов, санкций, портов или войны — не упоминай их.
-10. Ответ — только валидный JSON. Никакого Markdown.
+7. Первая scene обязана иметь hookText и hookPromise. Это первые 1-3 секунды: боль, конфликт или сильное обещание, чтобы зритель не свайпнул.
+8. referenceEssence: коротко объясни, какую суть исходной речи/референса ты повторяешь своими словами. Не копируй формулировку, сохраняй смысл.
+9. visualIdea: одна конкретная визуальная метафора для KIE-иллюстрации.
+10. visualType: "illustration" для обычных метафор; "realistic_interface", "realistic_document" или "realistic_screenshot", если нужен реалистичный скрин/документ.
+11. visualElements: 3-6 конкретных объектов/персонажей/действий, которые можно нарисовать. Не используй графики, если речь не про данные/проценты.
+12. Для обычной illustration запрещен текст внутри картинки. Для realistic_interface/document/screenshot разрешены короткие UI/document labels как часть объекта.
+13. Не добавляй чужую предметную область. Если в речи нет проливов, танкеров, стран, флагов, санкций, портов или войны — не упоминай их.
+14. Ответ — только валидный JSON. Никакого Markdown.
 
 ФОРМАТ:
 {
@@ -917,11 +928,15 @@ def generate_scene_plan_llm(
       "mode": "full",
       "anchorWords": ["убыточна", "не масштабируется"],
       "sourceText": "фраза из транскрипта, на которой основан beat",
+      "referenceEssence": "спикер объясняет, что старую модель нельзя чинить косметикой",
+      "hookText": "НЕ ЧИНИ ТО, ЧТО НЕ МАСШТАБИРУЕТСЯ",
+      "hookPromise": "за 20 секунд поймете, где теряется рост",
       "title": "МОДЕЛЬ НЕ СХОДИТСЯ",
       "subtitle": "цифры показывают, что система не работает",
       "opener": "цифры уже говорят",
       "insight": "если модель не масштабируется, ее нельзя чинить косметикой",
       "visualIdea": "сломанный бизнес-механизм с красной трещиной и человеком перед выбором",
+      "visualType": "illustration",
       "visualElements": ["сломанный механизм", "красная трещина", "предприниматель", "таблица с убытком без текста"]
     }
   ]
@@ -1216,7 +1231,7 @@ def _derive_anchor_words_from_text(text: str, limit: int = 4) -> list[str]:
 
 
 def _repair_scene_plan_metadata(scenes: list[dict[str, Any]], utterances: list[dict[str, Any]]) -> None:
-    for scene in scenes:
+    for index, scene in enumerate(scenes):
         try:
             start = float(scene.get("start", 0.0))
             end = float(scene.get("end", start))
@@ -1248,6 +1263,22 @@ def _repair_scene_plan_metadata(scenes: list[dict[str, Any]], utterances: list[d
                     break
             if replacement:
                 scene["subtitle"] = replacement
+
+        if idx == 0:
+            hook_text = normalize_scene_text(str(scene.get("hookText") or ""), 64, 8)
+            if _is_generic_scene_text(hook_text) or len(hook_text.split()) < 2:
+                scene["hookText"] = normalize_scene_text(
+                    str(scene.get("title") or scene.get("opener") or scene.get("subtitle") or ""),
+                    64,
+                    8,
+                )
+            hook_promise = normalize_scene_text(str(scene.get("hookPromise") or ""), 96, 12)
+            if _is_generic_scene_text(hook_promise) or len(hook_promise.split()) < 4:
+                scene["hookPromise"] = normalize_scene_text(
+                    str(scene.get("subtitle") or scene.get("insight") or source_text or window_text),
+                    96,
+                    12,
+                )
 
 
 def validate_scene_plan_quality(scenes: list[dict[str, Any]], duration: float) -> None:
@@ -1287,6 +1318,13 @@ def validate_scene_plan_quality(scenes: list[dict[str, Any]], duration: float) -
             errors.append(f"{label} has weak visualIdea: {visual_idea!r}")
         if len([x for x in visual_elements if normalize_plain_text(str(x))]) < 3:
             errors.append(f"{label} needs at least 3 visualElements")
+        if index == 0:
+            hook_text = normalize_plain_text(str(scene.get("hookText") or ""))
+            hook_promise = normalize_plain_text(str(scene.get("hookPromise") or ""))
+            if _is_generic_scene_text(hook_text) or len(hook_text.split()) < 2:
+                errors.append(f"{label} has weak hookText: {hook_text!r}")
+            if _is_generic_scene_text(hook_promise) or len(hook_promise.split()) < 4:
+                errors.append(f"{label} has weak hookPromise: {hook_promise!r}")
 
     if errors:
         raise RuntimeError("LLM scene-plan failed quality gate: " + " | ".join(errors[:12]))
@@ -1399,6 +1437,22 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
         visual_idea = normalize_scene_text(
             str(item.get("visualIdea") or ""), 220, 28
         )
+        visual_type_raw = normalize_plain_text(str(item.get("visualType") or "illustration")).lower()
+        visual_type = visual_type_raw if visual_type_raw in {
+            "illustration",
+            "realistic_interface",
+            "realistic_document",
+            "realistic_screenshot",
+        } else "illustration"
+        reference_essence = normalize_scene_text(
+            str(item.get("referenceEssence") or ""), 180, 24
+        )
+        hook_text = normalize_scene_text(
+            str(item.get("hookText") or ""), 64, 8
+        )
+        hook_promise = normalize_scene_text(
+            str(item.get("hookPromise") or ""), 96, 12
+        )
         source_text = normalize_scene_text(
             str(item.get("sourceText") or window_text or ""), 220, 28
         )
@@ -1453,7 +1507,11 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
             "facts": facts,
             "anchorWords": anchor_words,
             "sourceText": source_text,
+            "referenceEssence": reference_essence,
+            "hookText": hook_text,
+            "hookPromise": hook_promise,
             "visualIdea": visual_idea,
+            "visualType": visual_type,
             "visualElements": visual_elements,
             # Legacy fields
             "titleLines": title_lines,

@@ -97,6 +97,64 @@
         opacity: 1;
       }
 
+      .hook-overlay {
+        position: absolute;
+        left: 58px;
+        right: 58px;
+        top: 118px;
+        z-index: 5;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 18px;
+        padding: 0;
+        pointer-events: none;
+        opacity: 0;
+        visibility: hidden;
+      }
+
+      .hook-kicker {
+        display: inline-flex;
+        align-items: center;
+        min-height: 48px;
+        padding: 10px 16px;
+        border-radius: 999px;
+        background: rgba(180, 60, 52, 0.94);
+        color: #fff;
+        font-size: 25px;
+        font-weight: 1000;
+        line-height: 1;
+        text-transform: uppercase;
+        box-shadow: 0 18px 44px rgba(15, 23, 42, 0.28);
+      }
+
+      .hook-title {
+        max-width: 920px;
+        padding: 18px 22px 20px;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.96);
+        color: var(--ink);
+        font-size: 78px;
+        font-weight: 1000;
+        line-height: 0.92;
+        letter-spacing: 0;
+        text-transform: uppercase;
+        box-shadow: 0 24px 70px rgba(15, 23, 42, 0.24);
+      }
+
+      .hook-promise {
+        max-width: 820px;
+        padding: 12px 16px;
+        border-radius: 14px;
+        background: rgba(15, 23, 42, 0.88);
+        color: #fff;
+        font-size: 33px;
+        font-weight: 900;
+        line-height: 1.12;
+        text-transform: uppercase;
+        box-shadow: 0 18px 48px rgba(15, 23, 42, 0.26);
+      }
+
       .beat {
         position: absolute;
         inset: 0;
@@ -712,8 +770,8 @@
       id="main"
       data-composition-id="main"
       data-start="0"
-      data-duration="43.535"
-      data-fps="25"
+      data-duration="26.370"
+      data-fps="30"
       data-width="1080"
       data-height="1920"
     >
@@ -721,7 +779,7 @@
         id="source-video"
         class="clip source-video"
         data-start="0"
-        data-duration="43.535"
+        data-duration="26.370"
         data-track-index="0"
         data-volume="1"
         data-has-audio="true"
@@ -733,12 +791,17 @@
       <div class="shade"></div>
       <div class="glass-layer"></div>
       <div id="word-subtitle" class="word-subtitle"></div>
+      <div id="hook-overlay" class="hook-overlay">
+        <div id="hook-kicker" class="hook-kicker">проблема</div>
+        <div id="hook-title" class="hook-title">ЕСЛИ ЦИФРЫ ПОКАЗЫВАЮТ</div>
+        <div id="hook-promise" class="hook-promise">Цифры показывают, что бизнес-модель убыточна и не масштабируется.</div>
+      </div>
 
-      <section id="beat-0" class="clip beat top" data-start="0.000" data-duration="2.721" data-track-index="1" data-intensity="full">
+      <section data-disabled-card="false" data-visual-brief="Visualize this card as a beautiful illustration-first editorial infographic on a light background. Visual type: illustration. Title: МОДЕЛЬ НЕ РАБОТАЕТ. Subtitle: Цифры показывают, что бизнес-модель убыточна и не масштабируется.. Speech anchor words: модель убыточна; не масштабируется. Core visual idea: Сломанный механизм с красной трещиной, показывающий убыток.. Possible symbolic elements: сломанный механизм; красная трещина; график убытка; человек, смотрящий на механизм. Use subject -&gt; action -&gt; obstacle -&gt; result logic as one concrete visual metaphor that matches this exact topic. Choose objects, people, places, products, documents, tools, screens, money, flags, or other real-world anchors only when they are clearly supported by the title/subtitle/facts. Do not introduce unrelated geopolitics, straits, ships, ports, maps, oil barrels, military imagery, or country flags unless this exact scene mentions them. This is an illustration/metaphor visual: no readable text, no numbers, no percent signs, no captions, no labels, no logos, no emojis inside the generated image." id="beat-0" class="clip beat top" data-start="2.550" data-duration="4.500" data-track-index="1" data-intensity="full">
         <div class="beat-card hero">
-          <div class="kicker">хук</div>
-          <h1>КТО В ДОМЕ?</h1>
-          <div class="desc">Китай показывает: правила уже не диктуются в одиночку.</div>
+          <div class="kicker">проблема</div>
+          <h1>МОДЕЛЬ НЕ РАБОТАЕТ</h1>
+          <div class="desc">Цифры показывают, что бизнес-модель убыточна и не масштабируется.</div>
           <div class="visual">
             <img class="ai-art" data-ai-id="beat-0" data-ai-src="./assets/generated/beat-0.png" alt="" />
             <div class="emoji-unit big red" style="left: 74px; top: 120px;">🐉</div>
@@ -758,11 +821,11 @@
         </div>
       </section>
 
-      <section id="beat-1" class="clip beat bottom" data-start="5.680" data-duration="2.721" data-track-index="1" data-intensity="medium">
+      <section data-disabled-card="false" data-visual-brief="Visualize this card as a beautiful illustration-first editorial infographic on a light background. Visual type: illustration. Title: СОЗДАЙТЕ БУДУЩЕЕ. Subtitle: Сосредоточьтесь на одном вопросе: создании вашего будущего.. Speech anchor words: 1 вопросом; вашего будущего. Core visual idea: Человек, строящий мост в будущее из кубиков.. Possible symbolic elements: человек; строительные блоки; мост; горизонт будущего. Use subject -&gt; action -&gt; obstacle -&gt; result logic as one concrete visual metaphor that matches this exact topic. Choose objects, people, places, products, documents, tools, screens, money, flags, or other real-world anchors only when they are clearly supported by the title/subtitle/facts. Do not introduce unrelated geopolitics, straits, ships, ports, maps, oil barrels, military imagery, or country flags unless this exact scene mentions them. This is an illustration/metaphor visual: no readable text, no numbers, no percent signs, no captions, no labels, no logos, no emojis inside the generated image." id="beat-1" class="clip beat bottom" data-start="14.880" data-duration="4.010" data-track-index="1" data-intensity="medium">
         <div class="beat-card medium">
-          <div class="kicker">ультиматум</div>
-          <h2>ОРМУЗ ЗАКРЫТ?</h2>
-          <div class="desc">Полная блокада главной энергетической артерии.</div>
+          <div class="kicker">действие</div>
+          <h2>СОЗДАЙТЕ БУДУЩЕЕ</h2>
+          <div class="desc">Сосредоточьтесь на одном вопросе: создании вашего будущего.</div>
           <div class="visual">
             <img class="ai-art" data-ai-id="beat-1" data-ai-src="./assets/generated/beat-1.png" alt="" />
             <div class="axis" style="left: 100px; top: 138px; width: 690px; transform: rotate(-7deg);"></div>
@@ -778,11 +841,11 @@
         </div>
       </section>
 
-      <section id="beat-2" class="clip beat top" data-start="10.880" data-duration="2.721" data-track-index="1" data-intensity="lower">
+      <section data-disabled-card="false" data-visual-brief="Visualize this card as a beautiful illustration-first editorial infographic on a light background. Visual type: illustration. Title: ИЩИТЕ НОВЫЕ ПУТИ. Subtitle: Найдите новый сегмент аудитории или разработайте новый подпродукт.. Speech anchor words: новый сегмент; новый подпродукт. Core visual idea: Человек с лупой, исследующий карту с разными путями.. Possible symbolic elements: человек с лупой; карта; разные пути; знаки вопроса. Use subject -&gt; action -&gt; obstacle -&gt; result logic as one concrete visual metaphor that matches this exact topic. Choose objects, people, places, products, documents, tools, screens, money, flags, or other real-world anchors only when they are clearly supported by the title/subtitle/facts. Do not introduce unrelated geopolitics, straits, ships, ports, maps, oil barrels, military imagery, or country flags unless this exact scene mentions them. This is an illustration/metaphor visual: no readable text, no numbers, no percent signs, no captions, no labels, no logos, no emojis inside the generated image." id="beat-2" class="clip beat top" data-start="18.960" data-duration="3.680" data-track-index="1" data-intensity="lower">
         <div class="beat-card lower">
-          <div class="kicker">условия</div>
-          <h2>НИ ОДНО СУДНО</h2>
-          <div class="desc">Ни в порт за нефтью. Ни обратно с ней.</div>
+          <div class="kicker">действие</div>
+          <h2>ИЩИТЕ НОВЫЕ ПУТИ</h2>
+          <div class="desc">Найдите новый сегмент аудитории или разработайте новый подпродукт.</div>
           <div class="visual">
             <img class="ai-art" data-ai-id="beat-2" data-ai-src="./assets/generated/beat-2.png" alt="" />
             <div class="emoji-unit red" style="left: 76px; top: 42px;">⛔</div>
@@ -798,11 +861,11 @@
         </div>
       </section>
 
-      <section id="beat-3" class="clip beat middle" data-start="15.745" data-duration="2.721" data-track-index="1" data-intensity="medium">
+      <section data-disabled-card="false" data-visual-brief="Visualize this card as a beautiful illustration-first editorial infographic on a light background. Visual type: illustration. Title: СОХРАНИТЕ ЭКСПЕРТИЗУ. Subtitle: Обязательно сохраняйте свою ключевую экспертизу при изменениях.. Speech anchor words: сохраняйте; ключевую экспертизу. Core visual idea: Человек, держащий в руках светящийся кристалл экспертизы.. Possible symbolic elements: человек; светящийся кристалл; фундамент; инструменты. Use subject -&gt; action -&gt; obstacle -&gt; result logic as one concrete visual metaphor that matches this exact topic. Choose objects, people, places, products, documents, tools, screens, money, flags, or other real-world anchors only when they are clearly supported by the title/subtitle/facts. Do not introduce unrelated geopolitics, straits, ships, ports, maps, oil barrels, military imagery, or country flags unless this exact scene mentions them. This is an illustration/metaphor visual: no readable text, no numbers, no percent signs, no captions, no labels, no logos, no emojis inside the generated image." id="beat-3" class="clip beat middle" data-start="22.640" data-duration="3.730" data-track-index="1" data-intensity="medium">
         <div class="beat-card medium">
-          <div class="kicker">ответ</div>
-          <h2>ПЕКИН ИГНОРИРУЕТ</h2>
-          <div class="desc">Китай предупреждает: танкеры продолжат ходить.</div>
+          <div class="kicker">вывод</div>
+          <h2>СОХРАНИТЕ ЭКСПЕРТИЗУ</h2>
+          <div class="desc">Обязательно сохраняйте свою ключевую экспертизу при изменениях.</div>
           <div class="visual">
             <img class="ai-art" data-ai-id="beat-3" data-ai-src="./assets/generated/beat-3.png" alt="" />
             <div class="emoji-unit big red" style="left: 74px; top: 72px;">🇨🇳</div>
@@ -817,12 +880,12 @@
         </div>
       </section>
 
-      <section id="beat-4" class="clip beat bottom" data-start="21.825" data-duration="2.721" data-track-index="1" data-intensity="full">
+      <section data-disabled-card="true" data-visual-brief="Visualize this card as a beautiful illustration-first editorial infographic on a light background. Title: НЕ ИДИТЕ ЗАВТРА НА РАБОТУ.. Subtitle: Просто поверьте сам лично через это проходил. Process: не идите завтра на работу -&gt; Просто поверьте сам лично через это проходил. Facts: не идите завтра на работу; Просто поверьте сам лично через это проходил. Use subject -&gt; action -&gt; obstacle -&gt; result logic as one concrete visual metaphor that matches this exact topic. Choose objects, people, places, products, documents, tools, screens, money, flags, or other real-world anchors only when they are clearly supported by the title/subtitle/facts. Do not introduce unrelated geopolitics, straits, ships, ports, maps, oil barrels, military imagery, or country flags unless this exact scene mentions them. Do not request charts, gauges, percentage rings, dashboards, tables, visible numbers, or readable text." id="beat-4" class="clip beat bottom" data-start="1025.4099999999999" data-duration="0.001" data-track-index="104" data-intensity="full">
         <div class="beat-card hero">
-          <div class="kicker">перевод</div>
-          <h1>И ЧЁ ТЫ СДЕЛАЕШЬ?</h1>
+          <div class="kicker">решение</div>
+          <h1>НЕ ИДИТЕ ЗАВТРА НА РАБОТУ.</h1>
           <div class="quote-source">Авторский перевод дипломатического смысла</div>
-          <div class="desc">Дипломатический язык превращается в язык действия.</div>
+          <div class="desc">Просто поверьте сам лично через это проходил</div>
           <div class="quote-stage">
             <img class="ai-art" data-ai-id="beat-4" data-ai-src="./assets/generated/beat-4.png" alt="" />
             <div class="quote-side left">
@@ -839,11 +902,11 @@
         </div>
       </section>
 
-      <section id="beat-5" class="clip beat top" data-start="26.795" data-duration="2.721" data-track-index="1" data-intensity="medium">
+      <section data-disabled-card="true" data-visual-brief="Visualize this card as a beautiful illustration-first editorial infographic on a light background. Title: ЗАНИМАТЬСЯ ТОЛЬКО ВОПРОСОМ СОЗДАНИЕМ ВАШЕГО. Subtitle: ФОКУС НА ГЛАВНОМ. Process: не идите завтра на работу -&gt; Просто поверьте сам лично через это проходил. Facts: не идите завтра на работу; Просто поверьте сам лично через это проходил. Use subject -&gt; action -&gt; obstacle -&gt; result logic as one concrete visual metaphor that matches this exact topic. Choose objects, people, places, products, documents, tools, screens, money, flags, or other real-world anchors only when they are clearly supported by the title/subtitle/facts. Do not introduce unrelated geopolitics, straits, ships, ports, maps, oil barrels, military imagery, or country flags unless this exact scene mentions them. Do not request charts, gauges, percentage rings, dashboards, tables, visible numbers, or readable text." id="beat-5" class="clip beat top" data-start="1025.4199999999998" data-duration="0.001" data-track-index="105" data-intensity="medium">
         <div class="beat-card medium">
-          <div class="kicker">проверка силой</div>
-          <h2>ТАНКЕР ПРОХОДИТ</h2>
-          <div class="desc">Судно идёт через пролив за иранской нефтью.</div>
+          <div class="kicker">решение</div>
+          <h2>ЗАНИМАТЬСЯ ТОЛЬКО ВОПРОСОМ СОЗДАНИЕМ ВАШЕГО</h2>
+          <div class="desc">ФОКУС НА ГЛАВНОМ</div>
           <div class="visual">
             <img class="ai-art" data-ai-id="beat-5" data-ai-src="./assets/generated/beat-5.png" alt="" />
             <div class="node" style="left: 80px; top: 146px;"></div>
@@ -861,11 +924,11 @@
         </div>
       </section>
 
-      <section id="beat-6" class="clip beat middle" data-start="32.350" data-duration="2.721" data-track-index="1" data-intensity="lower">
+      <section data-disabled-card="true" data-visual-brief="Visualize this card as a beautiful illustration-first editorial infographic on a light background. Title: ГЛАВНЫЙ РИСК. Subtitle: не идите завтра на работу. Просто поверьте, я сам лично через это проходил.. Process: не идите завтра на работу -&gt; Просто поверьте сам лично через это проходил. Facts: не идите завтра на работу; Просто поверьте сам лично через это проходил. Use subject -&gt; action -&gt; obstacle -&gt; result logic as one concrete visual metaphor that matches this exact topic. Choose objects, people, places, products, documents, tools, screens, money, flags, or other real-world anchors only when they are clearly supported by the title/subtitle/facts. Do not introduce unrelated geopolitics, straits, ships, ports, maps, oil barrels, military imagery, or country flags unless this exact scene mentions them. Do not request charts, gauges, percentage rings, dashboards, tables, visible numbers, or readable text." id="beat-6" class="clip beat middle" data-start="1025.4299999999998" data-duration="0.001" data-track-index="106" data-intensity="lower">
         <div class="beat-card lower">
-          <div class="kicker">итог эпизода</div>
-          <h1>НИКТО НЕ ТРОНУЛ</h1>
-          <div class="desc">Блокада есть на словах. В реальности проход состоялся.</div>
+          <div class="kicker">решение</div>
+          <h1>ГЛАВНЫЙ РИСК</h1>
+          <div class="desc">не идите завтра на работу. Просто поверьте, я сам лично через это проходил.</div>
           <div class="visual">
             <img class="ai-art" data-ai-id="beat-6" data-ai-src="./assets/generated/beat-6.png" alt="" />
             <div class="emoji-unit red" style="left: 82px; top: 48px;">⚠️</div>
@@ -880,11 +943,11 @@
         </div>
       </section>
 
-      <section id="beat-7" class="clip beat bottom" data-start="38.030" data-duration="2.721" data-track-index="1" data-intensity="full">
+      <section data-disabled-card="true" data-visual-brief="Visualize this card as a beautiful illustration-first editorial infographic on a light background. Title: ЧТО МЕНЯЕТСЯ. Subtitle: заниматься только вопросом созданием вашего будущего. Process: не идите завтра на работу -&gt; Просто поверьте сам лично через это проходил. Facts: не идите завтра на работу; Просто поверьте сам лично через это проходил. Use subject -&gt; action -&gt; obstacle -&gt; result logic as one concrete visual metaphor that matches this exact topic. Choose objects, people, places, products, documents, tools, screens, money, flags, or other real-world anchors only when they are clearly supported by the title/subtitle/facts. Do not introduce unrelated geopolitics, straits, ships, ports, maps, oil barrels, military imagery, or country flags unless this exact scene mentions them. Do not request charts, gauges, percentage rings, dashboards, tables, visible numbers, or readable text." id="beat-7" class="clip beat bottom" data-start="1025.4399999999998" data-duration="0.001" data-track-index="107" data-intensity="full">
         <div class="beat-card hero">
-          <div class="kicker">финальный вывод</div>
-          <h2>НОВАЯ РАССТАНОВКА СИЛ</h2>
-          <div class="desc">Геополитика сегодня читается не по заявлениям, а по тому, кто реально проходит.</div>
+          <div class="kicker">решение</div>
+          <h2>ЧТО МЕНЯЕТСЯ</h2>
+          <div class="desc">заниматься только вопросом созданием вашего будущего</div>
           <div class="visual">
             <img class="ai-art" data-ai-id="beat-7" data-ai-src="./assets/generated/beat-7.png" alt="" />
             <div class="emoji-unit big blue" style="left: 70px; top: 86px;">🇺🇸</div>
@@ -905,8 +968,9 @@
       window.__timelines = window.__timelines || {};
       const tl = gsap.timeline({ paused: true });
       tl.eventCallback("onUpdate", () => updateWordCaption(tl.time()));
-      const beats = gsap.utils.toArray(".beat");
+      const beats = gsap.utils.toArray(".beat:not([data-disabled-card='true'])");
       const glassLayer = document.querySelector(".glass-layer");
+      const hookOverlay = document.getElementById("hook-overlay");
       const captionEl = document.getElementById("word-subtitle");
       let captionWords = [];
       let captionIndex = 0;
@@ -992,7 +1056,7 @@
           }
         });
       }
-      const totalDuration = 43.535;
+      const totalDuration = 26.370;
       const directorRules = {
         overlayCoverageTarget: 0.5,
         maxSingleOverlayDuration: 3.7,
@@ -1006,6 +1070,18 @@
       };
       const overlaySeconds = beats.reduce((sum, beat) => sum + Number(beat.dataset.duration), 0);
       document.documentElement.dataset.overlayCoverage = (overlaySeconds / totalDuration).toFixed(3);
+
+      if (hookOverlay) {
+        const hookTitle = hookOverlay.querySelector(".hook-title");
+        const hookPromise = hookOverlay.querySelector(".hook-promise");
+        const hookKicker = hookOverlay.querySelector(".hook-kicker");
+        tl.set(hookOverlay, { autoAlpha: 0 }, 0);
+        tl.to(glassLayer, { opacity: 0.32, duration: 0.12, ease: "power2.out" }, 0);
+        tl.fromTo(hookOverlay, { autoAlpha: 0, y: -18 }, { autoAlpha: 1, y: 0, duration: 0.18, ease: "power3.out" }, 0.05);
+        tl.from([hookKicker, hookTitle, hookPromise], { opacity: 0, y: 22, duration: 0.28, stagger: 0.06, ease: "power3.out" }, 0.12);
+        tl.to(hookOverlay, { autoAlpha: 0, y: -18, duration: 0.18, ease: "power2.in" }, 2.25);
+        tl.set(hookOverlay, { autoAlpha: 0 }, 2.45);
+      }
 
       beats.forEach((beat) => {
         const start = Number(beat.dataset.start);

@@ -11,6 +11,7 @@ const DIRECTOR = {
   maxSingleOverlayDuration: 4.5,
   minSingleOverlayDuration: 1.8,
   minCleanVideoGap: 1.2,
+  hookReservedSeconds: 2.55,
   introOffset: 0,
   outroSafeTail: 0.35,
 };
@@ -148,7 +149,13 @@ const sceneTimings = await readScenePlanTimings();
 const useSceneTimings = sceneTimings.length >= sections.length;
 const anchors = useSceneTimings ? [] : pickTranscriptAnchors(words, sections.length, totalDuration);
 const starts = useSceneTimings
-  ? sceneTimings.slice(0, sections.length).map((scene) => clamp(scene.start, 0, Math.max(0, totalDuration - 0.5)))
+  ? sceneTimings.slice(0, sections.length).map((scene, index) =>
+      clamp(
+        Math.max(scene.start, index === 0 ? DIRECTOR.hookReservedSeconds : 0),
+        0,
+        Math.max(0, totalDuration - 0.5),
+      ),
+    )
   : normalizeStarts(anchors, sections.length, clipDuration, totalDuration);
 
 let nextHtml = html;
