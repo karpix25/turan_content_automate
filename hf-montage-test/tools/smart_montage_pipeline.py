@@ -1011,6 +1011,12 @@ def _is_generic_scene_text(value: str) -> bool:
         return True
     if "смыслов" in compact and "блок" in compact:
         return True
+    if re.fullmatch(r"шаг\s*\d+", compact):
+        return True
+    if re.fullmatch(r"показатель\s*\d+", compact):
+        return True
+    if compact.startswith("глубокая аналитическая мысль"):
+        return True
     return False
 
 
@@ -1434,6 +1440,24 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
     return fixed
 
 
+def scene_plan_uses_fallback_copy(scenes: list[dict[str, Any]]) -> bool:
+    if not scenes:
+        return True
+    weak = 0
+    for scene in scenes:
+        title = str(scene.get("title") or "")
+        insight = str(scene.get("insight") or "")
+        facts = scene.get("facts") if isinstance(scene.get("facts"), list) else []
+        steps = scene.get("steps") if isinstance(scene.get("steps"), list) else []
+        bars = scene.get("bars") if isinstance(scene.get("bars"), list) else []
+        generic_facts = not facts or all(_is_generic_scene_text(str(f)) for f in facts)
+        generic_steps = not steps or all(_is_generic_scene_text(str(s)) for s in steps)
+        generic_bars = not bars or all(_is_generic_scene_text(str((b or {}).get("label") if isinstance(b, dict) else b)) for b in bars)
+        if _is_generic_scene_text(title) and (_is_generic_scene_text(insight) or generic_facts) and (generic_steps or generic_bars):
+            weak += 1
+    return weak >= max(1, math.ceil(len(scenes) * 0.5))
+
+
 def inject_scene_plan_into_index(index_path: Path, scenes: list[dict[str, Any]]) -> None:
     html = index_path.read_text(encoding="utf-8")
     plan_json = json.dumps(scenes, ensure_ascii=False, indent=2)
@@ -1629,6 +1653,9 @@ def main() -> int:
             if isinstance(raw_plan, dict):
                 raw_plan["_utterances"] = utterances
             scenes = normalize_scene_plan(raw_plan, duration)
+            if scene_plan_uses_fallback_copy(scenes):
+                eprint("LLM scene-plan used generic fallback copy. Rebuilding scenes directly from transcript ...")
+                scenes = build_fallback_scene_plan(utterances, semantic_blocks, duration, args.max_scenes)
         except Exception as err:
             if args.strict_llm:
                 raise

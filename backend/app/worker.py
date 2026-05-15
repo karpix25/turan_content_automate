@@ -340,7 +340,12 @@ def _strip_cta_fallback(text: str | None) -> str:
     return re.sub(r"\s+", " ", cleaned).strip()
 
 
-def _run_hyperframes_pipeline(task_id: int, input_video: str, script: str) -> str | None:
+def _run_hyperframes_pipeline(
+    task_id: int,
+    input_video: str,
+    script: str,
+    transcript_json_path: str | None = None,
+) -> str | None:
     import subprocess
     import json
     logging.info(f"Task {task_id}: Starting Hyperframes pipeline on {input_video}")
@@ -433,6 +438,8 @@ def _run_hyperframes_pipeline(task_id: int, input_video: str, script: str) -> st
         "--out-transcript", out_transcript,
         "--deepgram-intelligence"
     ]
+    if transcript_json_path and os.path.exists(transcript_json_path):
+        cmd_plan.extend(["--reuse-transcript", transcript_json_path])
     logging.info(f"Task {task_id}: Running scene planner: {' '.join(cmd_plan)}")
     res = subprocess.run(cmd_plan, capture_output=True, text=True)
     if res.returncode != 0:
@@ -1425,37 +1432,71 @@ def process_content_task(task_id: int):
 
             transcribed_text = ""
             inferred_outline = ""
-            if ENABLE_HEYGEN_READY_TRANSCRIBE and deepgram_client.is_configured:
-                update_task_status_message(
-                    db,
-                    task,
-                    stage="Сценарий",
-                    detail="Транскрибирую готовое видео через Deepgram для точного хука и темы обложки.",
+            heygen_transcript_path = ""
+            if not ENABLE_HEYGEN_READY_TRANSCRIBE:
+                raise Exception("AVATAR_HEYGEN_READY_TRANSCRIBE must be enabled for HeyGen ID avatar tasks")
+            if not deepgram_client.is_configured:
+                raise Exception("DEEPGRAM_API_KEY is required for HeyGen ID avatar tasks")
+
+            update_task_status_message(
+                db,
+                task,
+                stage="Сценарий",
+                detail="Транскрибирую готовое HeyGen-видео и беру тему перебивок из речи аватара.",
+            )
+            try:
+                transcript_payload = deepgram_client.transcribe_media(local_avatar_video) or {}
+                transcribed_text = (deepgram_client.extract_transcript_text(transcript_payload) or "").strip()
+            except Exception as transcribe_error:
+                logging.warning(
+                    "Task %s: Deepgram transcription failed for existing HeyGen video: %s",
+                    task_id,
+                    transcribe_error,
                 )
-                try:
-                    transcribed_text = (deepgram_client.transcribe_media_text(local_avatar_video) or "").strip()
-                except Exception as transcribe_error:
-                    logging.warning(
-                        "Task %s: Deepgram transcription failed for existing HeyGen video: %s",
-                        task_id,
-                        transcribe_error,
-                    )
-                    transcribed_text = ""
-                if transcribed_text:
-                    try:
-                        inferred_outline = (llm.generate_factual_outline(transcribed_text) or "").strip()
-                    except Exception as outline_error:
-                        logging.warning(
-                            "Task %s: factual outline generation from Deepgram transcript failed: %s",
-                            task_id,
-                            outline_error,
-                        )
-                        inferred_outline = ""
-                    if not (task.script_text or "").strip():
-                        task.script_text = transcribed_text
-                    if inferred_outline and not (task.factual_outline or "").strip():
-                        task.factual_outline = inferred_outline
-                    db.commit()
+                transcript_payload = {}
+                transcribed_text = ""
+            if not transcribed_text:
+                raise Exception("Failed to transcribe existing HeyGen video; refusing to use fallback avatar context")
+
+            heygen_transcript_path = os.path.join(
+                os.getenv("OUTPUT_DIR", "./output").strip(),
+                f"heygen_transcript_{task_id}.json",
+            )
+            os.makedirs(os.path.dirname(heygen_transcript_path), exist_ok=True)
+            try:
+                import json
+
+                with open(heygen_transcript_path, "w", encoding="utf-8") as fp:
+                    json.dump(transcript_payload, fp, ensure_ascii=False, indent=2)
+            except Exception as transcript_save_error:
+                logging.warning(
+                    "Task %s: failed to save HeyGen transcript JSON for reuse: %s",
+                    task_id,
+                    transcript_save_error,
+                )
+                heygen_transcript_path = ""
+
+            try:
+                inferred_outline = (llm.generate_factual_outline(transcribed_text) or "").strip()
+            except Exception as outline_error:
+                logging.warning(
+                    "Task %s: factual outline generation from Deepgram transcript failed: %s",
+                    task_id,
+                    outline_error,
+                )
+                inferred_outline = ""
+            task.script_text = transcribed_text
+            if inferred_outline:
+                task.factual_outline = inferred_outline
+            existing_meta = dict(task.script_meta or {})
+            existing_meta["heygen_ready_video"] = {
+                **dict(existing_meta.get("heygen_ready_video") or {}),
+                "transcript_source": "deepgram_avatar_video",
+                "transcript_path": heygen_transcript_path or None,
+                "transcript_char_count": len(transcribed_text),
+            }
+            task.script_meta = existing_meta
+            db.commit()
 
             thumbnail_outline = (
                 inferred_outline
@@ -1503,7 +1544,12 @@ def process_content_task(task_id: int):
                 }
 
             update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Hyperframes (AI).")
-            hyperframes_output = _run_hyperframes_pipeline(task_id, local_avatar_video, thumbnail_script)
+            hyperframes_output = _run_hyperframes_pipeline(
+                task_id,
+                local_avatar_video,
+                thumbnail_script,
+                transcript_json_path=heygen_transcript_path or None,
+            )
             if hyperframes_output:
                 local_avatar_video = hyperframes_output
                 logging.info(f"Task {task_id}: Successfully replaced raw video with Hyperframes output.")

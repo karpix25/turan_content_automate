@@ -17,7 +17,28 @@ class DeepgramClient:
     def is_configured(self) -> bool:
         return bool(self.api_key)
 
-    def transcribe_media_text(self, media_path: str) -> Optional[str]:
+    def extract_transcript_text(self, data: dict) -> Optional[str]:
+        results = (data or {}).get("results") or {}
+        utterances = results.get("utterances") or []
+        texts: list[str] = []
+        for utt in utterances:
+            text = (utt.get("transcript") or "").strip()
+            if text:
+                texts.append(text)
+        if texts:
+            return " ".join(texts).strip()
+
+        channels = results.get("channels") or []
+        alternatives = (channels[0].get("alternatives") if channels else None) or []
+        if not alternatives:
+            return None
+        transcript = (alternatives[0].get("transcript") or "").strip()
+        return transcript or None
+
+    def _extract_transcript_text(self, data: dict) -> Optional[str]:
+        return self.extract_transcript_text(data)
+
+    def transcribe_media(self, media_path: str) -> Optional[dict]:
         if not self.is_configured:
             return None
         if not media_path or not os.path.isfile(media_path):
@@ -49,19 +70,10 @@ class DeepgramClient:
         except Exception:
             return None
 
-        results = (data or {}).get("results") or {}
-        utterances = results.get("utterances") or []
-        texts: list[str] = []
-        for utt in utterances:
-            text = (utt.get("transcript") or "").strip()
-            if text:
-                texts.append(text)
-        if texts:
-            return " ".join(texts).strip()
+        return data
 
-        channels = results.get("channels") or []
-        alternatives = (channels[0].get("alternatives") if channels else None) or []
-        if not alternatives:
+    def transcribe_media_text(self, media_path: str) -> Optional[str]:
+        data = self.transcribe_media(media_path)
+        if not data:
             return None
-        transcript = (alternatives[0].get("transcript") or "").strip()
-        return transcript or None
+        return self._extract_transcript_text(data)
