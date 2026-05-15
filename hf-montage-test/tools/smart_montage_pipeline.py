@@ -743,6 +743,8 @@ def build_llm_prompt_payload(
     deepgram_payload: dict[str, Any],
     duration: float,
     max_scenes: int,
+    target_scene_count: int,
+    overlay_coverage_percent: int,
 ) -> dict[str, Any]:
     summary = ((deepgram_payload.get("results", {}).get("summary") or {}).get("short") or "").strip()
     topics_segments = (
@@ -811,7 +813,9 @@ def build_llm_prompt_payload(
         "constraints": {
             "duration_seconds": duration,
             "max_scenes": max_scenes,
-            "target_scenes": "Для видео короче 35 секунд верни 4-6 beats. Для длинных видео верни 5-8 beats. Не возвращай один общий beat, если в речи есть несколько отдельных мыслей.",
+            "overlay_coverage_percent": overlay_coverage_percent,
+            "target_scene_count": target_scene_count,
+            "target_scenes": f"Верни ровно {target_scene_count} scenes, если в речи есть столько отдельных мыслей. Процент перебивок задан пользователем: {overlay_coverage_percent}%. Не возвращай меньше сцен без крайней причины.",
             "scene_min_seconds": 2.0,
             "scene_max_seconds": 5.5,
             "visual_density": "Карточка должна появляться на сильной фразе, а не закрывать весь ролик.",
@@ -880,6 +884,8 @@ def generate_scene_plan_llm(
     deepgram_payload: dict[str, Any],
     duration: float,
     max_scenes: int,
+    target_scene_count: int,
+    overlay_coverage_percent: int,
     llm_model: str,
     timeout_sec: int,
 ) -> dict[str, Any]:
@@ -897,6 +903,8 @@ def generate_scene_plan_llm(
         deepgram_payload=deepgram_payload,
         duration=duration,
         max_scenes=max_scenes,
+        target_scene_count=target_scene_count,
+        overlay_coverage_percent=overlay_coverage_percent,
     )
 
     system_prompt = """
@@ -904,7 +912,7 @@ def generate_scene_plan_llm(
 
 ЖЕСТКИЕ ПРАВИЛА:
 1. Каждый scene — один отдельный смысл: проблема, причина, поворот, действие, риск или вывод.
-2. Для видео короче 35 секунд верни 4-6 scenes, если в речи есть 4+ отдельных мысли. Не склеивай весь ролик в одну сцену.
+2. Верни количество scenes, заданное в constraints.target_scene_count. Это число рассчитано из пользовательской настройки процента перебивок. Не склеивай весь ролик в слишком малое количество сцен.
 3. start/end должны попадать в реальный момент речи, где звучат anchorWords. Длительность сцены 2.0-5.5 секунд.
 4. title: 2-5 слов, конкретный, без воды. Запрещены общие фразы: "ГЛАВНЫЙ РИСК", "ЧТО МЕНЯЕТСЯ", "ФОКУС НА ГЛАВНОМ", "НОВАЯ РЕАЛЬНОСТЬ", если они не содержат предметный смысл.
 5. subtitle: 5-10 слов, объясняет мысль title человечески.
@@ -1327,12 +1335,31 @@ def validate_scene_plan_quality(scenes: list[dict[str, Any]], duration: float) -
         raise RuntimeError("LLM scene-plan failed quality gate: " + " | ".join(errors[:12]))
 
 
-def _min_required_scene_count(duration: float) -> int:
+def _base_min_required_scene_count(duration: float) -> int:
     if duration <= 35:
         return 4
     if duration <= 75:
         return 5
     return 1
+
+
+def _min_required_scene_count(duration: float, target_scene_count: int | None = None) -> int:
+    base = _base_min_required_scene_count(duration)
+    if target_scene_count and target_scene_count > 0:
+        return max(base, int(target_scene_count))
+    return base
+
+
+def _target_scene_count_from_coverage(duration: float, overlay_coverage_percent: int, max_scenes: int) -> int:
+    coverage = max(0, min(100, int(overlay_coverage_percent)))
+    if coverage <= 0:
+        return 0
+    target_overlay_seconds = duration * (coverage / 100.0)
+    # Cards usually hold 3.5-4.5 seconds. Use 4.1s as the planning average.
+    estimated = int(math.ceil(target_overlay_seconds / 4.1))
+    base = _base_min_required_scene_count(duration)
+    upper = max(1, int(max_scenes or 8))
+    return max(1, min(upper, max(base, estimated)))
 
 
 def _scene_overlaps_existing(start: float, end: float, scenes: list[dict[str, Any]]) -> bool:
@@ -1403,8 +1430,13 @@ def _build_repair_scene_from_utterance(utterance: dict[str, Any], index: int, du
     }
 
 
-def _ensure_min_scene_count(scenes: list[dict[str, Any]], utterances: list[dict[str, Any]], duration: float) -> None:
-    min_required = _min_required_scene_count(duration)
+def _ensure_min_scene_count(
+    scenes: list[dict[str, Any]],
+    utterances: list[dict[str, Any]],
+    duration: float,
+    target_scene_count: int | None = None,
+) -> None:
+    min_required = _min_required_scene_count(duration, target_scene_count)
     if len(scenes) >= min_required or not utterances:
         return
 
@@ -1421,6 +1453,23 @@ def _ensure_min_scene_count(scenes: list[dict[str, Any]], utterances: list[dict[
             continue
         if _scene_overlaps_existing(float(scene["start"]), float(scene["end"]), scenes):
             continue
+        seen_titles = {
+            normalize_plain_text(str(existing.get("title") or "")).lower()
+            for existing in scenes
+        }
+        title_key = normalize_plain_text(str(scene.get("title") or "")).lower()
+        if title_key in seen_titles:
+            anchors = _derive_anchor_words_from_text(str(scene.get("sourceText") or ""), limit=3)
+            replacement = " ".join(anchors[:2]) if len(anchors) >= 2 else ""
+            scene["title"] = normalize_scene_text(
+                replacement or f"Новый аспект {len(scenes) + 1}",
+                40,
+                6,
+            )
+            if normalize_plain_text(str(scene.get("title") or "")).lower() in seen_titles:
+                scene["title"] = normalize_scene_text(f"Новый аспект {len(scenes) + 1}", 40, 6)
+            scene["titleLines"] = [scene["title"]]
+            scene["opener"] = scene["title"]
         scenes.append(scene)
 
     scenes.sort(key=lambda item: float(item.get("start", 0.0)))
@@ -1434,6 +1483,10 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
     utterances_for_norm = raw.get("_utterances")
     if not isinstance(utterances_for_norm, list):
         utterances_for_norm = []
+    try:
+        target_scene_count = int(raw.get("_target_scene_count") or 0)
+    except (TypeError, ValueError):
+        target_scene_count = 0
 
     norm: list[dict[str, Any]] = []
     for i, item in enumerate(raw_scenes):
@@ -1641,7 +1694,7 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
     if not fixed:
         raise RuntimeError("LLM returned scenes, but none survived timing normalization")
 
-    _ensure_min_scene_count(fixed, utterances_for_norm, duration)
+    _ensure_min_scene_count(fixed, utterances_for_norm, duration, target_scene_count)
     _repair_scene_plan_metadata(fixed, utterances_for_norm)
     validate_scene_plan_quality(fixed, duration)
 
@@ -1758,6 +1811,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--deepgram-model", default="nova-3", help="Deepgram model (default: nova-3)")
     parser.add_argument("--llm-model", default=os.environ.get("LLM_MODEL", "gpt-4o-mini"), help="LLM model")
     parser.add_argument("--max-scenes", type=int, default=8, help="Upper bound on scenes count")
+    parser.add_argument(
+        "--overlay-coverage-percent",
+        type=int,
+        default=int(os.environ.get("HYPERFRAMES_OVERLAY_COVERAGE_PERCENT", "50") or 50),
+        help="Target cutaway coverage percent used to choose scene count (default: 50)",
+    )
     parser.add_argument("--duration", type=float, default=0.0, help="Force composition duration (seconds)")
     parser.add_argument("--timeout", type=int, default=1800, help="HTTP timeout in seconds")
     parser.add_argument("--utt-split", type=float, default=0.65, help="Deepgram utterance split in seconds")
@@ -1859,11 +1918,29 @@ def main() -> int:
     eprint(f"Duration used for scene plan: {duration}s")
 
     sentences = extract_sentences(transcript_payload, utterances)
+    overlay_coverage_percent = max(0, min(100, int(args.overlay_coverage_percent or 0)))
+    target_scene_count = _target_scene_count_from_coverage(
+        duration=duration,
+        overlay_coverage_percent=overlay_coverage_percent,
+        max_scenes=args.max_scenes,
+    )
+    eprint(
+        f"Target scene count from coverage: {target_scene_count} "
+        f"(coverage={overlay_coverage_percent}%, max={args.max_scenes})"
+    )
     block_min_sentences = args.block_min_sentences
     block_max_sentences = args.block_max_sentences
     if duration <= 35 and len(sentences) >= 4 and args.block_min_sentences == 5 and args.block_max_sentences == 10:
         block_min_sentences = 1
         block_max_sentences = 2
+    elif (
+        target_scene_count > 0
+        and len(sentences) >= target_scene_count
+        and args.block_min_sentences == 5
+        and args.block_max_sentences == 10
+    ):
+        block_min_sentences = 1
+        block_max_sentences = max(2, math.ceil(len(sentences) / target_scene_count))
 
     semantic_blocks = build_semantic_blocks(
         sentences=sentences,
@@ -1889,11 +1966,14 @@ def main() -> int:
             deepgram_payload=transcript_payload,
             duration=duration,
             max_scenes=args.max_scenes,
+            target_scene_count=target_scene_count,
+            overlay_coverage_percent=overlay_coverage_percent,
             llm_model=args.llm_model,
             timeout_sec=args.timeout,
         )
         if isinstance(raw_plan, dict):
             raw_plan["_utterances"] = utterances
+            raw_plan["_target_scene_count"] = target_scene_count
         scenes = normalize_scene_plan(raw_plan, duration)
         if scene_plan_uses_fallback_copy(scenes):
             raise RuntimeError("LLM scene-plan used generic copy; refusing to render fallback cards")

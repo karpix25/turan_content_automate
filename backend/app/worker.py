@@ -345,6 +345,7 @@ def _run_hyperframes_pipeline(
     input_video: str,
     script: str,
     transcript_json_path: str | None = None,
+    overlay_coverage_percent: int = 50,
 ) -> str | None:
     import subprocess
     import json
@@ -392,6 +393,7 @@ def _run_hyperframes_pipeline(
             return None
 
     expected_render_duration = probe_duration_seconds(input_video)
+    overlay_coverage_percent = max(0, min(100, int(overlay_coverage_percent or 0)))
 
     def is_usable_hyperframes_output(path: str) -> bool:
         if not os.path.exists(path):
@@ -436,6 +438,7 @@ def _run_hyperframes_pipeline(
         "--index", scene_plan_index,
         "--out-plan", out_plan,
         "--out-transcript", out_transcript,
+        "--overlay-coverage-percent", str(overlay_coverage_percent),
         "--deepgram-intelligence"
     ]
     if transcript_json_path and os.path.exists(transcript_json_path):
@@ -479,9 +482,14 @@ def _run_hyperframes_pipeline(
     else:
         logging.warning("Task %s: Deepgram transcript file is missing; word captions may be unavailable.", task_id)
 
+    def build_hf_env() -> dict:
+        env = os.environ.copy()
+        env["HYPERFRAMES_OVERLAY_COVERAGE_PERCENT"] = str(overlay_coverage_percent)
+        return env
+
     def run_hf_step(label: str, cmd: list[str]) -> bool:
         logging.info("Task %s: %s: %s", task_id, label, " ".join(cmd))
-        result = subprocess.run(cmd, cwd=hyperframes_dir, capture_output=True, text=True)
+        result = subprocess.run(cmd, cwd=hyperframes_dir, capture_output=True, text=True, env=build_hf_env())
         if result.returncode != 0:
             logging.error(
                 "Task %s: %s failed. STDOUT: %s\nSTDERR: %s",
@@ -536,6 +544,7 @@ def _run_hyperframes_pipeline(
 
     def build_stable_render_env() -> dict:
         env = os.environ.copy()
+        env["HYPERFRAMES_OVERLAY_COVERAGE_PERCENT"] = str(overlay_coverage_percent)
         # Streaming encode pipes screenshots directly into ffmpeg. In slow
         # server-side screenshot mode ffmpeg can close stdin near the end,
         # which surfaces as Node write EPIPE. Disk-frame encode is slower but
@@ -1549,6 +1558,7 @@ def process_content_task(task_id: int):
                 local_avatar_video,
                 thumbnail_script,
                 transcript_json_path=heygen_transcript_path or None,
+                overlay_coverage_percent=int(getattr(user, "reels_broll_coverage_percent", 50) or 50),
             )
             if hyperframes_output:
                 local_avatar_video = hyperframes_output
@@ -2058,7 +2068,12 @@ def process_content_task(task_id: int):
                 
             # --- Hyperframes AI Rendering ---
             update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Hyperframes (AI).")
-            hyperframes_output = _run_hyperframes_pipeline(task_id, local_avatar_video, script)
+            hyperframes_output = _run_hyperframes_pipeline(
+                task_id,
+                local_avatar_video,
+                script,
+                overlay_coverage_percent=int(getattr(user, "reels_broll_coverage_percent", 50) or 50),
+            )
             if hyperframes_output:
                 local_avatar_video = hyperframes_output
                 logging.info(f"Task {task_id}: Successfully replaced raw video with Hyperframes output.")

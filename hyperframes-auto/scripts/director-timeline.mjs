@@ -6,7 +6,10 @@ const transcriptPath = new URL("../assets/input/transcript.deepgram.json", impor
 const scenePlanPath = new URL("../assets/input/scene-plan.generated.json", import.meta.url);
 
 const DIRECTOR = {
-  overlayCoverageTarget: 0.5,
+  overlayCoverageTarget: Math.max(
+    0,
+    Math.min(1, Number(process.env.HYPERFRAMES_OVERLAY_COVERAGE_PERCENT || 50) / 100),
+  ),
   slideHoldExtension: 0.75,
   maxSingleOverlayDuration: 4.5,
   minSingleOverlayDuration: 1.8,
