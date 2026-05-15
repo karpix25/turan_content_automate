@@ -11,6 +11,10 @@ const callbackUrl = process.env.KIE_CALLBACK_URL || "https://example.com/callbac
 const model = process.env.KIE_IMAGE_MODEL || "gpt-image-2-text-to-image";
 const aspectRatio = process.env.KIE_ASPECT_RATIO || "1:1";
 const resolution = process.env.KIE_RESOLUTION || "1K";
+const jobTimeoutMs = Math.max(
+  60_000,
+  Number(process.env.KIE_JOB_TIMEOUT_MS || 15 * 60 * 1000),
+);
 
 if (!apiKey) {
   console.error("Missing KIE_API_KEY. Run: KIE_API_KEY=... npm run generate:images");
@@ -93,7 +97,7 @@ function getResultUrl(body) {
 }
 
 async function waitForImage(taskId) {
-  const deadline = Date.now() + 10 * 60 * 1000;
+  const deadline = Date.now() + jobTimeoutMs;
   let attempt = 0;
   while (Date.now() < deadline) {
     const delay = Math.min(30000, 3000 + attempt * 2000);
@@ -114,7 +118,7 @@ async function waitForImage(taskId) {
     }
   }
 
-  throw new Error(`Timed out waiting for task ${taskId}`);
+  throw new Error(`Timed out waiting for task ${taskId} after ${Math.round(jobTimeoutMs / 1000)}s`);
 }
 
 async function download(url, fileName) {
@@ -126,29 +130,43 @@ async function download(url, fileName) {
   return filePath;
 }
 
+const successfulIds = new Set();
+const failedJobs = [];
+
 for (const job of jobs) {
   console.log(`Generating ${job.id}...`);
-  const created = await kieFetch("/api/v1/jobs/createTask", {
-    method: "POST",
-    body: JSON.stringify({
-      model,
-      callBackUrl: callbackUrl,
-      input: {
-        prompt: job.prompt,
-        aspect_ratio: job.aspectRatio || aspectRatio,
-        resolution: job.resolution || resolution,
-      },
-    }),
-  });
+  try {
+    const created = await kieFetch("/api/v1/jobs/createTask", {
+      method: "POST",
+      body: JSON.stringify({
+        model,
+        callBackUrl: callbackUrl,
+        input: {
+          prompt: job.prompt,
+          aspect_ratio: job.aspectRatio || aspectRatio,
+          resolution: job.resolution || resolution,
+        },
+      }),
+    });
 
-  const taskId = getTaskId(created);
-  if (!taskId) throw new Error(`No task id for ${job.id}: ${JSON.stringify(created)}`);
-  console.log(`  taskId=${taskId}`);
+    const taskId = getTaskId(created);
+    if (!taskId) throw new Error(`No task id for ${job.id}: ${JSON.stringify(created)}`);
+    console.log(`  taskId=${taskId}`);
 
-  const imageUrl = await waitForImage(taskId);
-  console.log(`  imageUrl=${imageUrl}`);
-  const saved = await download(imageUrl, job.file);
-  console.log(`Saved ${path.relative(projectRoot.pathname, saved)}`);
+    const imageUrl = await waitForImage(taskId);
+    console.log(`  imageUrl=${imageUrl}`);
+    const saved = await download(imageUrl, job.file);
+    successfulIds.add(job.id);
+    console.log(`Saved ${path.relative(projectRoot.pathname, saved)}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    failedJobs.push({ id: job.id, error: message });
+    console.error(`  failed=${message}`);
+  }
+}
+
+if (!successfulIds.size) {
+  throw new Error(`No KIE images were generated. Failures: ${failedJobs.map((item) => `${item.id}: ${item.error}`).join(" | ")}`);
 }
 
 const indexHtml = await readFile(indexPath, "utf8");
@@ -159,10 +177,13 @@ const currentIds = new Set(
     .map((id) => id.trim())
     .filter(Boolean),
 );
-jobs.forEach((job) => currentIds.add(job.id));
+successfulIds.forEach((id) => currentIds.add(id));
 const nextIds = [...currentIds].sort().join(",");
 const nextHtml = currentMatch
   ? indexHtml.replace(/data-generated-images="[^"]*"/, `data-generated-images="${nextIds}"`)
   : indexHtml.replace("<html ", `<html data-generated-images="${nextIds}" `);
 await writeFile(indexPath, nextHtml);
 console.log(`Enabled generated image layers: ${nextIds}`);
+if (failedJobs.length) {
+  console.warn(`Skipped ${failedJobs.length} failed image(s): ${failedJobs.map((item) => item.id).join(", ")}`);
+}
