@@ -1693,7 +1693,22 @@ def process_content_task(task_id: int):
             update_task_status_message(db, task, stage="Сценарий", detail="Выделяю ключевые факты (Gemini 2.5 Pro).")
             outline = llm.generate_factual_outline(transcript)
             if not outline:
-                raise Exception("Failed to generate factual outline for Avatar task")
+                logging.warning(
+                    "Task %s: factual outline generation returned empty; retrying once. transcript_chars=%s",
+                    task_id,
+                    count_script_chars(transcript),
+                )
+                outline = llm.generate_factual_outline(transcript)
+            if not outline:
+                logging.warning(
+                    "Task %s: factual outline generation failed twice; using transcript fallback outline.",
+                    task_id,
+                )
+                outline = (
+                    "FACTUAL OUTLINE FALLBACK\n"
+                    "OpenRouter/Gemini did not return an outline. Use this cleaned transcript as the factual source:\n"
+                    f"{transcript}"
+                )
             task.factual_outline = outline
             db.commit()
             
@@ -1808,7 +1823,26 @@ def process_content_task(task_id: int):
                     max_chars=max_chars,
                 )
                 if not script:
-                    raise Exception("Failed to generate styled script for Avatar task")
+                    logging.warning(
+                        "Task %s: styled Avatar script generation returned empty; retrying once.",
+                        task_id,
+                    )
+                    script = llm.rewrite_to_script(
+                        structured_source,
+                        style_profile,
+                        min_minutes=target_duration_minutes if target_chars else AVATAR_SCRIPT_MIN_MINUTES,
+                        max_minutes=target_duration_minutes if target_chars else AVATAR_SCRIPT_MAX_MINUTES,
+                        words_per_minute=AVATAR_SCRIPT_WPM,
+                        target_chars=target_chars,
+                        min_chars=min_chars,
+                        max_chars=max_chars,
+                    )
+                if not script:
+                    logging.warning(
+                        "Task %s: styled Avatar script generation failed twice; using structured source fallback.",
+                        task_id,
+                    )
+                    script = structured_source
 
                 word_count = llm.estimate_word_count(script)
                 char_count = count_script_chars(script)
