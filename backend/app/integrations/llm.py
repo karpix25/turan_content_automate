@@ -33,6 +33,13 @@ class LLMClient:
             "messages": messages,
             "temperature": temperature
         }
+        gemini_provider = os.getenv("OPENROUTER_GEMINI_PROVIDER", "google-vertex/global").strip()
+        if "gemini" in (self.model_id or "").lower() and gemini_provider:
+            payload["provider"] = {
+                "order": [gemini_provider],
+                "only": [gemini_provider],
+                "allow_fallbacks": False,
+            }
         timeout_seconds = float(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "180"))
         
         try:
