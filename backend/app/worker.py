@@ -358,6 +358,7 @@ def _run_hyperframes_pipeline(
     out_plan = os.path.join(out_dir, f"scene-plan_{task_id}.json")
     out_words = os.path.join(out_dir, f"scene-word-cues_{task_id}.json")
     out_transcript = os.path.join(out_dir, f"transcript.deepgram_{task_id}.json")
+    script_context_path = os.path.join(out_dir, f"scenario_context_{task_id}.txt")
 
     def probe_duration_seconds(path: str) -> float | None:
         if not os.path.exists(path):
@@ -441,6 +442,12 @@ def _run_hyperframes_pipeline(
         "--overlay-coverage-percent", str(overlay_coverage_percent),
         "--deepgram-intelligence"
     ]
+    clean_script_context = re.sub(r"\s+", " ", (script or "")).strip()
+    if clean_script_context:
+        os.makedirs(os.path.dirname(script_context_path), exist_ok=True)
+        with open(script_context_path, "w", encoding="utf-8") as fp:
+            fp.write(clean_script_context)
+        cmd_plan.extend(["--script-text-file", script_context_path])
     if transcript_json_path and os.path.exists(transcript_json_path):
         cmd_plan.extend(["--reuse-transcript", transcript_json_path])
     logging.info(f"Task {task_id}: Running scene planner: {' '.join(cmd_plan)}")
@@ -1080,13 +1087,16 @@ def process_content_task(task_id: int):
         *,
         source_video_path: str,
         clip_title: str | None,
+        context_text: str | None = None,
         clip_index: int,
     ) -> tuple[str, dict]:
         clean_title = (clip_title or "").strip()
+        clean_context = re.sub(r"\s+", " ", (context_text or "")).strip()
         meta: dict = {
             "status": "skipped",
             "reason": None,
             "clip_title": clean_title,
+            "context_char_count": len(clean_context),
             "prompt": None,
             "image_path": None,
             "intro_duration_seconds": VERTICAL_THUMBNAIL_INTRO_SECONDS,
@@ -1096,8 +1106,8 @@ def process_content_task(task_id: int):
         if task.type in AVATAR_TASK_TYPES:
             meta["reason"] = "avatar_not_applicable"
             return source_video_path, meta
-        if not clean_title:
-            meta["reason"] = "clip_title_empty"
+        if not clean_title and not clean_context:
+            meta["reason"] = "clip_title_and_context_empty"
             return source_video_path, meta
 
         references = (
@@ -1137,7 +1147,7 @@ def process_content_task(task_id: int):
             detail=f"Генерирую вертикальную обложку для клипа {clip_index}.",
         )
         try:
-            prompt = llm.generate_vertical_thumbnail_prompt(clean_title)
+            prompt = llm.generate_vertical_thumbnail_prompt(clean_title, context_text=clean_context)
         except Exception as prompt_error:
             logging.exception("Task %s: vertical thumbnail prompt failed: %s", task_id, prompt_error)
             meta["status"] = "failed"
@@ -2293,9 +2303,17 @@ def process_content_task(task_id: int):
             if not video_path:
                 raise Exception("Downloaded video path is empty")
             if task.vizard_project_id:
+                vertical_context = (
+                    task.script_text
+                    or task.factual_outline
+                    or task.source_title
+                    or clip_title
+                    or ""
+                )
                 video_path, vertical_meta = _apply_vertical_thumbnail_intro(
                     source_video_path=video_path,
                     clip_title=clip_title,
+                    context_text=vertical_context,
                     clip_index=clip_index,
                 )
                 vertical_thumbnail_intro_meta.append({"clip_index": clip_index, **vertical_meta})

@@ -636,14 +636,32 @@ class LLMClient:
         context_text: Optional[str] = None,
     ) -> Optional[str]:
         """
-        Builds a 9:16 cover prompt for short vertical clips using the Vizard title.
+        Builds a 9:16 cover prompt for short vertical clips using the clip title
+        plus scenario context when the title is generic.
         """
         title = re.sub(r"\s+", " ", (clip_title or "")).strip()
         context = re.sub(r"\s+", " ", (context_text or title)).strip()
         if not title and not context:
             return None
 
-        cover_text = title
+        generic_titles = {
+            "главный момент",
+            "важный момент",
+            "short avatar",
+            "без заголовка",
+            "сцена без транскрипта",
+            "проверьте источник",
+            "проверьте язык",
+            "повторите запуск",
+        }
+        normalized_title = re.sub(r"\s+", " ", title).strip().lower()
+        title_is_generic = (
+            not normalized_title
+            or normalized_title in generic_titles
+            or bool(re.fullmatch(r"(clip|клип|сцена)\s*\d+", normalized_title))
+        )
+        cover_source = context if title_is_generic and context else (title or context)
+        cover_text = cover_source
         try:
             adapted = self._complete(
                 [
@@ -658,7 +676,11 @@ class LLMClient:
                     },
                     {
                         "role": "user",
-                        "content": f"Заголовок клипа:\n{title or context}",
+                        "content": (
+                            f"Заголовок клипа:\n{title or 'нет'}\n\n"
+                            f"Сценарный контекст:\n{context[:1200] or 'нет'}\n\n"
+                            f"Сделай текст на обложку из {'сценарного контекста' if title_is_generic else 'заголовка и контекста'}."
+                        ),
                     },
                 ],
                 temperature=0.55,
@@ -675,7 +697,7 @@ class LLMClient:
                 clean_adapted = " ".join(words[:6]).strip()
             cover_text = clean_adapted
         else:
-            words = title.split()
+            words = cover_source.split()
             cover_text = " ".join(words[:6]).strip() if words else "Главный момент"
 
         system_prompt = (
@@ -687,6 +709,7 @@ class LLMClient:
             "- Композиция должна читаться на телефоне: крупный главный объект/герой, сильная эмоция, высокий контраст.\n"
             "- Текст крупный, 2-6 слов, расположен в верхней или центральной трети, не у краев.\n"
             "- Визуал строго отражает заголовок клипа, без новой темы.\n"
+            "- Если заголовок общий, пустой или похож на fallback, бери тему и текст из сценарного контекста.\n"
             "- Референсы используй только как стиль: цвет, свет, контраст, плотность кадра.\n"
             "- Не копируй текст, логотипы, интерфейсы и композицию референсов буквально.\n"
             "- В финальном промте обязательно явно укажи: Текст на обложке: \"...\".\n"
@@ -697,7 +720,7 @@ class LLMClient:
         user_prompt = (
             f"Заголовок клипа:\n{title or 'Без заголовка'}\n\n"
             f"Короткий текст на обложке:\n\"{cover_text or 'Главный момент'}\"\n\n"
-            f"Контекст:\n{context[:1200] or title}"
+            f"Сценарный контекст:\n{context[:1200] or title}"
         )
         prompt = self._complete(
             [

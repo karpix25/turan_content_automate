@@ -263,6 +263,50 @@ def synthesize_utterances_from_words(
     return out
 
 
+def synthesize_utterances_from_script_text(
+    script_text: str,
+    duration: float,
+    max_segments: int = 40,
+) -> list[dict[str, Any]]:
+    sentences = split_sentences(script_text)
+    sentences = [strip_filler_phrases(sentence) for sentence in sentences]
+    sentences = [sentence for sentence in sentences if sentence]
+    if not sentences:
+        return []
+
+    duration = max(1.0, float(duration or 0.0))
+    max_segments = max(1, int(max_segments or 1))
+    if len(sentences) > max_segments:
+        group_size = math.ceil(len(sentences) / max_segments)
+        grouped = [
+            " ".join(sentences[index : index + group_size]).strip()
+            for index in range(0, len(sentences), group_size)
+        ]
+        sentences = [item for item in grouped if item]
+
+    total_chars = max(1, sum(len(sentence) for sentence in sentences))
+    cursor = 0.0
+    out: list[dict[str, Any]] = []
+    for idx, sentence in enumerate(sentences):
+        ratio = len(sentence) / total_chars
+        seg_duration = max(0.5, duration * ratio)
+        end = duration if idx == len(sentences) - 1 else min(duration, cursor + seg_duration)
+        if end <= cursor:
+            end = min(duration, cursor + 0.5)
+        out.append(
+            {
+                "id": f"script-{idx:04d}",
+                "start": round(cursor, 2),
+                "end": round(end, 2),
+                "text": sentence,
+                "confidence": 0.0,
+                "source": "script_text",
+            }
+        )
+        cursor = end
+    return out
+
+
 STOPWORDS_RU = {
     "и",
     "а",
@@ -745,6 +789,7 @@ def build_llm_prompt_payload(
     max_scenes: int,
     target_scene_count: int,
     overlay_coverage_percent: int,
+    script_context: str = "",
 ) -> dict[str, Any]:
     summary = ((deepgram_payload.get("results", {}).get("summary") or {}).get("short") or "").strip()
     topics_segments = (
@@ -871,6 +916,7 @@ def build_llm_prompt_payload(
             ]
         },
         "transcript_summary": summary,
+        "script_context": normalize_scene_text(script_context, 3200, 520),
         "topics_segments": compact_topics,
         "intents_segments": compact_intents,
         "semantic_blocks": compact_semantic_blocks,
@@ -888,6 +934,7 @@ def generate_scene_plan_llm(
     overlay_coverage_percent: int,
     llm_model: str,
     timeout_sec: int,
+    script_context: str = "",
 ) -> dict[str, Any]:
     openrouter_key = os.environ.get("OPENROUTER_API_KEY")
     api_key = openrouter_key or os.environ.get("OPENAI_API_KEY") or os.environ.get("LLM_API_KEY")
@@ -905,6 +952,7 @@ def generate_scene_plan_llm(
         max_scenes=max_scenes,
         target_scene_count=target_scene_count,
         overlay_coverage_percent=overlay_coverage_percent,
+        script_context=script_context,
     )
 
     system_prompt = """
@@ -924,7 +972,8 @@ def generate_scene_plan_llm(
 11. visualElements: 3-6 конкретных объектов/персонажей/действий, которые можно нарисовать. Не используй графики, если речь не про данные/проценты.
 12. Для обычной illustration запрещен текст внутри картинки. Для realistic_interface/document/screenshot разрешены короткие UI/document labels как часть объекта.
 13. Не добавляй чужую предметную область. Если в речи нет проливов, танкеров, стран, флагов, санкций, портов или войны — не упоминай их.
-14. Ответ — только валидный JSON. Никакого Markdown.
+14. Если в payload есть script_context, считай его авторитетным сценарием видео. Используй его для тематики, текста карточек и visualIdea; Deepgram нужен для таймингов.
+15. Ответ — только валидный JSON. Никакого Markdown.
 
 ФОРМАТ:
 {
@@ -1847,6 +1896,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-llm", action="store_true", help="Use deterministic fallback planner, no LLM call")
     parser.add_argument("--strict-llm", action="store_true", help="Fail if LLM generation fails")
     parser.add_argument("--reuse-transcript", default="", help="Path to existing Deepgram JSON, skip new transcription")
+    parser.add_argument(
+        "--script-text-file",
+        default="",
+        help="Path to scenario/script text used as semantic context and transcript fallback",
+    )
     parser.add_argument("--out-transcript", default="data/deepgram_transcript.json", help="Output Deepgram JSON path")
     parser.add_argument(
         "--out-semantic-blocks",
@@ -1879,6 +1933,13 @@ def main() -> int:
     else:
         out_word_cues_name = out_plan.name.replace("scene-plan", "scene-word-cues")
         out_word_cues = out_plan.with_name(out_word_cues_name)
+    script_context = ""
+    if args.script_text_file:
+        script_path = Path(args.script_text_file)
+        if script_path.exists():
+            script_context = normalize_plain_text(script_path.read_text(encoding="utf-8"))
+        else:
+            eprint(f"Warning: script text file not found: {script_path}")
     out_transcript.parent.mkdir(parents=True, exist_ok=True)
     out_semantic_blocks.parent.mkdir(parents=True, exist_ok=True)
     out_plan.parent.mkdir(parents=True, exist_ok=True)
@@ -1915,13 +1976,17 @@ def main() -> int:
         if len(synthesized) > len(utterances):
             utterances = synthesized
             eprint(f"Utterances were sparse; synthesized {len(utterances)} segments from words.")
-    if not utterances:
-        eprint("Warning: no utterances found in transcript response.")
     dg_duration = float((transcript_payload.get("metadata") or {}).get("duration") or 0.0)
     duration = args.duration if args.duration > 0 else dg_duration
     if duration <= 0:
         duration = max((float(u["end"]) for u in utterances), default=45.0)
     duration = round(duration, 2)
+    if not utterances and script_context:
+        utterances = synthesize_utterances_from_script_text(script_context, duration, max_segments=args.max_scenes * 4)
+        if utterances:
+            eprint(f"Deepgram returned no utterances; synthesized {len(utterances)} segments from scenario script.")
+    if not utterances:
+        eprint("Warning: no utterances found in transcript response.")
     eprint(f"Duration used for scene plan: {duration}s")
 
     sentences = extract_sentences(transcript_payload, utterances)
@@ -1977,6 +2042,7 @@ def main() -> int:
             overlay_coverage_percent=overlay_coverage_percent,
             llm_model=args.llm_model,
             timeout_sec=args.timeout,
+            script_context=script_context,
         )
         if isinstance(raw_plan, dict):
             raw_plan["_utterances"] = utterances
