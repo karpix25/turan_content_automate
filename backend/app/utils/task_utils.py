@@ -134,6 +134,11 @@ def _upsert_processed_task(
     publishing_status = _resolve_publishing_status(publish_at, should_sync=should_sync)
 
     if existing:
+        already_synced = bool(
+            existing.postmypost_id
+            or existing.postmypost_file_id
+            or existing.publishing_status in {"scheduled", "published", "in_progress"}
+        )
         existing.type = base_task.type
         existing.status = "completed"
         existing.vizard_project_id = base_task.vizard_project_id
@@ -142,10 +147,11 @@ def _upsert_processed_task(
         existing.publish_at = publish_at
         existing.target_account_id = target_account_id
         existing.target_platform = target_platform
-        existing.postmypost_id = None
-        existing.postmypost_file_id = None
-        existing.preview_url = None
-        existing.publishing_status = publishing_status
+        if not already_synced:
+            existing.postmypost_id = None
+            existing.postmypost_file_id = None
+            existing.preview_url = None
+            existing.publishing_status = publishing_status
         db.commit()
         db.refresh(existing)
         return existing

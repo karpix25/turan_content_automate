@@ -2319,6 +2319,50 @@ def process_content_task(task_id: int):
         rendered_outputs: List[dict] = []
         vertical_thumbnail_intro_meta: List[dict] = []
         publish_index = 0
+        per_output_publication_enabled = bool(process_all_clips and should_sync_outputs)
+        synced_output_task_ids: set[int] = set()
+
+        def _sync_rendered_output_now(rendered_output: dict) -> None:
+            if not per_output_publication_enabled:
+                return
+            output_task = _upsert_processed_task(
+                db=db,
+                base_task=task,
+                output_path=rendered_output["output_path"],
+                source_label=rendered_output["source_label"],
+                source_title=rendered_output["source_title"],
+                publish_at=rendered_output["publish_at"],
+                target_account_id=rendered_output["target_account_id"],
+                target_platform=rendered_output["target_platform"],
+                should_sync=True,
+            )
+            if output_task.id in synced_output_task_ids:
+                return
+            if output_task.postmypost_id or output_task.postmypost_file_id:
+                logging.info(
+                    "Task %s: rendered output task %s already has PostMyPost state, skipping duplicate enqueue",
+                    task_id,
+                    output_task.id,
+                )
+                return
+            synced_output_task_ids.add(output_task.id)
+            logging.info(
+                "Task %s: enqueue immediate sync for rendered output task=%s account=%s publish_at=%s",
+                task_id,
+                output_task.id,
+                rendered_output["target_account_id"],
+                rendered_output["publish_at"],
+            )
+            update_task_status_message(
+                db,
+                task,
+                stage="Публикация",
+                detail=(
+                    f"Клип {rendered_output.get('clip_index') or '-'} готов для "
+                    f"{rendered_output.get('target_platform') or 'платформы'}. Передаю в PostMyPost."
+                ),
+            )
+            celery_app.send_task("sync_publication_task", args=[output_task.id])
 
         for clip_index, video_path, clip_title in source_items:
             if not video_path:
@@ -2360,21 +2404,22 @@ def process_content_task(task_id: int):
                         shutil.copy2(video_path, account_output)
                         publish_at = publish_times[publish_index] if len(publish_times) > publish_index else None
                         publish_index += 1
-                        rendered_outputs.append(
-                            {
-                                "output_path": account_output,
-                                "publish_at": publish_at,
-                                "target_account_id": account_id,
-                                "target_platform": platform_code,
-                                "source_title": clip_title,
-                                "source_label": _build_source_label(
-                                    base_source,
-                                    clip_index=clip_index if process_all_clips else None,
-                                    slot_index=slot_idx,
-                                    account_id=account_id,
-                                ),
-                            }
-                        )
+                        rendered_output = {
+                            "output_path": account_output,
+                            "publish_at": publish_at,
+                            "target_account_id": account_id,
+                            "target_platform": platform_code,
+                            "source_title": clip_title,
+                            "source_label": _build_source_label(
+                                base_source,
+                                clip_index=clip_index if process_all_clips else None,
+                                slot_index=slot_idx,
+                                account_id=account_id,
+                            ),
+                            "clip_index": clip_index,
+                        }
+                        rendered_outputs.append(rendered_output)
+                        _sync_rendered_output_now(rendered_output)
                         continue
 
                     plate_path, plate_start_percent = _get_channel_plate_config(db, user, account_id)
@@ -2430,21 +2475,22 @@ def process_content_task(task_id: int):
                     )
                     publish_at = publish_times[publish_index] if len(publish_times) > publish_index else None
                     publish_index += 1
-                    rendered_outputs.append(
-                        {
-                            "output_path": account_output,
-                            "publish_at": publish_at,
-                            "target_account_id": account_id,
-                            "target_platform": platform_code,
-                            "source_title": clip_title,
-                            "source_label": _build_source_label(
-                                base_source,
-                                clip_index=clip_index if process_all_clips else None,
-                                slot_index=slot_idx,
-                                account_id=account_id,
-                            ),
-                        }
-                    )
+                    rendered_output = {
+                        "output_path": account_output,
+                        "publish_at": publish_at,
+                        "target_account_id": account_id,
+                        "target_platform": platform_code,
+                        "source_title": clip_title,
+                        "source_label": _build_source_label(
+                            base_source,
+                            clip_index=clip_index if process_all_clips else None,
+                            slot_index=slot_idx,
+                            account_id=account_id,
+                        ),
+                        "clip_index": clip_index,
+                    }
+                    rendered_outputs.append(rendered_output)
+                    _sync_rendered_output_now(rendered_output)
             else:
                 base_output = f"{video_root}_final.mp4"
                 if task.type in AVATAR_TASK_TYPES:
@@ -2570,7 +2616,7 @@ def process_content_task(task_id: int):
                 task.output_path,
                 caption=f"✅ Финальный {label} готов.\nВидео #{getattr(task, 'id', '-')}",
             )
-        if should_sync_outputs:
+        if should_sync_outputs and not per_output_publication_enabled:
             update_task_status_message(
                 db,
                 task,
@@ -2587,7 +2633,16 @@ def process_content_task(task_id: int):
                 ok=True,
             )
 
-        if should_sync_outputs:
+        if should_sync_outputs and per_output_publication_enabled:
+            update_task_status_message(
+                db,
+                task,
+                stage="Готово",
+                detail=f"Подготовлено роликов: {len(rendered_outputs)}. Каждый готовый ролик уже передан в очередь публикации.",
+                ok=True,
+            )
+
+        if should_sync_outputs and not per_output_publication_enabled:
             logging.info(
                 "Task %s: enqueue sync_publication_task for primary output account=%s publish_at=%s",
                 task.id,
@@ -2598,26 +2653,27 @@ def process_content_task(task_id: int):
 
         # Avatar tasks are not published through PostMyPost; files are saved to Yandex.Disk.
 
-        for derived_output in rendered_outputs[1:]:
-            derived_task = _upsert_processed_task(
-                db=db,
-                base_task=task,
-                output_path=derived_output["output_path"],
-                source_label=derived_output["source_label"],
-                source_title=derived_output["source_title"],
-                publish_at=derived_output["publish_at"],
-                target_account_id=derived_output["target_account_id"],
-                target_platform=derived_output["target_platform"],
-                should_sync=should_sync_outputs,
-            )
-            if should_sync_outputs:
-                logging.info(
-                    "Task %s: enqueue sync_publication_task for derived output account=%s publish_at=%s",
-                    derived_task.id,
-                    derived_output["target_account_id"],
-                    derived_output["publish_at"],
+        if not per_output_publication_enabled:
+            for derived_output in rendered_outputs[1:]:
+                derived_task = _upsert_processed_task(
+                    db=db,
+                    base_task=task,
+                    output_path=derived_output["output_path"],
+                    source_label=derived_output["source_label"],
+                    source_title=derived_output["source_title"],
+                    publish_at=derived_output["publish_at"],
+                    target_account_id=derived_output["target_account_id"],
+                    target_platform=derived_output["target_platform"],
+                    should_sync=should_sync_outputs,
                 )
-                celery_app.send_task("sync_publication_task", args=[derived_task.id])
+                if should_sync_outputs:
+                    logging.info(
+                        "Task %s: enqueue sync_publication_task for derived output account=%s publish_at=%s",
+                        derived_task.id,
+                        derived_output["target_account_id"],
+                        derived_output["publish_at"],
+                    )
+                    celery_app.send_task("sync_publication_task", args=[derived_task.id])
 
     except Exception as e:
         logging.exception(f"Task {task_id} failed: {e}")
