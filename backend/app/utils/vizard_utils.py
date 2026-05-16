@@ -73,6 +73,12 @@ def _extract_vizard_clip_title(clip: dict) -> str | None:
                 return normalized
     return find_nested_title(clip)
 
+def _env_int(name: str, default: int, minimum: int = 0) -> int:
+    try:
+        return max(minimum, int(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
 def _download_vizard_project_clips(db, task: models.VideoTask, source_url: str, **create_kwargs) -> List[tuple[str, str | None]]:
     from ..worker import vizard, downloader
     logging.info(f"Task {task.id}: Processing vizard/youtube source: '{source_url}'")
@@ -84,7 +90,8 @@ def _download_vizard_project_clips(db, task: models.VideoTask, source_url: str, 
     )
     
     # Check if we already have a project ID or if source_url is a Vizard link
-    existing_v_id = _extract_vizard_project_id(source_url)
+    task_vizard_project_id = str(getattr(task, "vizard_project_id", "") or "").strip()
+    existing_v_id = task_vizard_project_id or _extract_vizard_project_id(source_url)
     
     # If the task is explicitly of type 'vizard', we should NEVER try to create a new project
     # unless it's a YouTube URL that we chose to process with Vizard.
@@ -153,6 +160,23 @@ def _download_vizard_project_clips(db, task: models.VideoTask, source_url: str, 
 
     if not clips:
         raise Exception("Vizard conversion timed out or failed")
+
+    max_clips = _env_int("VIZARD_MAX_CLIPS_PER_TASK", 8)
+    total_clips = len(clips)
+    if max_clips > 0 and total_clips > max_clips:
+        clips = clips[:max_clips]
+        logging.warning(
+            "Task %s: Vizard returned %s clips; limiting processing to first %s clips",
+            task.id,
+            total_clips,
+            max_clips,
+        )
+        update_task_status_message(
+            db,
+            task,
+            stage="Vizard",
+            detail=f"Vizard вернул {total_clips} клипов. Беру первые {max_clips}, чтобы задача не зависла на часы.",
+        )
 
     update_task_status_message(
         db,
