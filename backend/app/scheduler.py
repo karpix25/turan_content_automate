@@ -168,23 +168,27 @@ def rescue_stale_content_tasks():
     pending_after_minutes = _env_int("TASK_REQUEUE_PENDING_AFTER_MINUTES", 5)
     processing_after_minutes = _env_int("TASK_REQUEUE_PROCESSING_AFTER_MINUTES", 240)
     cooldown_minutes = _env_int("TASK_REQUEUE_COOLDOWN_MINUTES", 15)
+    max_age_hours = _env_int("TASK_REQUEUE_MAX_AGE_HOURS", 24)
+    require_telegram = os.getenv("TASK_REQUEUE_REQUIRE_TELEGRAM", "1").strip().lower() not in {"0", "false", "no"}
     now = datetime.datetime.utcnow()
     pending_cutoff = now - datetime.timedelta(minutes=pending_after_minutes)
     processing_cutoff = now - datetime.timedelta(minutes=processing_after_minutes)
     cooldown_cutoff = now - datetime.timedelta(minutes=cooldown_minutes)
+    oldest_allowed = now - datetime.timedelta(hours=max_age_hours)
 
     db = SessionLocal()
     try:
-        candidates = (
-            db.query(models.VideoTask)
-            .filter(
-                models.VideoTask.status.in_(["pending", "processing"]),
-                models.VideoTask.created_at <= pending_cutoff,
-            )
-            .order_by(models.VideoTask.created_at.asc())
-            .limit(25)
-            .all()
+        query = db.query(models.VideoTask).filter(
+            models.VideoTask.status.in_(["pending", "processing"]),
+            models.VideoTask.created_at <= pending_cutoff,
+            models.VideoTask.created_at >= oldest_allowed,
         )
+        if require_telegram:
+            query = query.filter(
+                models.VideoTask.telegram_chat_id.isnot(None),
+                models.VideoTask.telegram_status_message_id.isnot(None),
+            )
+        candidates = query.order_by(models.VideoTask.created_at.asc()).limit(10).all()
 
         rescued = 0
         for task in candidates:
