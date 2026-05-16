@@ -17,6 +17,11 @@ class YandexDiskClient:
             0.0,
             float(os.getenv("YANDEX_DISK_UPLOAD_RETRY_BACKOFF_SECONDS", "2")),
         )
+        self.public_url_retries = max(0, int(os.getenv("YANDEX_DISK_PUBLIC_URL_RETRIES", "6")))
+        self.public_url_retry_backoff_seconds = max(
+            0.0,
+            float(os.getenv("YANDEX_DISK_PUBLIC_URL_RETRY_BACKOFF_SECONDS", "1")),
+        )
 
     @property
     def is_configured(self) -> bool:
@@ -150,18 +155,33 @@ class YandexDiskClient:
                 f"{publish_response.status_code} {publish_response.text[:300]}"
             )
 
-        metadata_response = self._request("GET", f"/resources?path={encoded_path}&fields=public_url")
-        if metadata_response.status_code != 200:
-            if metadata_response.status_code == 401:
+        last_metadata_response: httpx.Response | None = None
+        for attempt in range(1, self.public_url_retries + 2):
+            metadata_response = self._request("GET", f"/resources?path={encoded_path}&fields=public_url")
+            last_metadata_response = metadata_response
+            if metadata_response.status_code == 200:
+                public_url = str((metadata_response.json() or {}).get("public_url") or "").strip()
+                if public_url:
+                    return public_url
+            elif metadata_response.status_code == 401:
                 raise RuntimeError("Yandex.Disk authorization failed (401). Check YANDEX_DISK_TOKEN.")
+            elif metadata_response.status_code not in {404, 423, 429, 500, 502, 503, 504}:
+                raise RuntimeError(
+                    f"Failed to read public URL for '{normalized_remote}': "
+                    f"{metadata_response.status_code} {metadata_response.text[:300]}"
+                )
+
+            if attempt <= self.public_url_retries:
+                time.sleep(self.public_url_retry_backoff_seconds * attempt)
+
+        if last_metadata_response is not None and last_metadata_response.status_code != 200:
             raise RuntimeError(
-                f"Failed to read public URL for '{normalized_remote}': "
-                f"{metadata_response.status_code} {metadata_response.text[:300]}"
+                f"Failed to read public URL for '{normalized_remote}' after publish: "
+                f"{last_metadata_response.status_code} {last_metadata_response.text[:300]}"
             )
-        public_url = (metadata_response.json() or {}).get("public_url")
-        if not public_url:
-            raise RuntimeError(f"Public URL is empty for '{normalized_remote}'")
-        return str(public_url).strip()
+        raise RuntimeError(
+            f"Public URL is empty for '{normalized_remote}' after {self.public_url_retries + 1} attempts"
+        )
 
     def list_video_files(self, directory_path: str, limit: int = 500, include_debug: bool = False) -> list[dict] | tuple[list[dict], dict]:
         if not self.is_configured:
