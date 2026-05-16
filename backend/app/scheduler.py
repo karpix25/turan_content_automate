@@ -26,6 +26,13 @@ AVATAR_TASK_TYPES = {
 pmp_client = PostMyPostClient(api_key=os.getenv("POSTMYPOST_API_KEY", ""))
 
 
+def _env_int(name: str, default: int, minimum: int = 1) -> int:
+    try:
+        return max(minimum, int(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
 def _parse_env_account_ids(raw: str) -> List[int]:
     result: List[int] = []
     for part in raw.split(","):
@@ -154,6 +161,75 @@ def _cleanup_local_output(task: models.VideoTask) -> None:
         logger.warning("Failed to remove local output file %s: %s", path, e)
         return
     task.output_path = None
+
+
+@celery_app.task(name="rescue_stale_content_tasks")
+def rescue_stale_content_tasks():
+    pending_after_minutes = _env_int("TASK_REQUEUE_PENDING_AFTER_MINUTES", 5)
+    processing_after_minutes = _env_int("TASK_REQUEUE_PROCESSING_AFTER_MINUTES", 240)
+    cooldown_minutes = _env_int("TASK_REQUEUE_COOLDOWN_MINUTES", 15)
+    now = datetime.datetime.utcnow()
+    pending_cutoff = now - datetime.timedelta(minutes=pending_after_minutes)
+    processing_cutoff = now - datetime.timedelta(minutes=processing_after_minutes)
+    cooldown_cutoff = now - datetime.timedelta(minutes=cooldown_minutes)
+
+    db = SessionLocal()
+    try:
+        candidates = (
+            db.query(models.VideoTask)
+            .filter(
+                models.VideoTask.status.in_(["pending", "processing"]),
+                models.VideoTask.created_at <= pending_cutoff,
+            )
+            .order_by(models.VideoTask.created_at.asc())
+            .limit(25)
+            .all()
+        )
+
+        rescued = 0
+        for task in candidates:
+            updated_at = task.updated_at or task.created_at
+            if task.status == "processing" and updated_at > processing_cutoff:
+                continue
+
+            meta = dict(task.script_meta or {})
+            rescue_meta = dict(meta.get("queue_rescue") or {})
+            last_requeued_raw = rescue_meta.get("last_requeued_at")
+            if last_requeued_raw:
+                try:
+                    last_requeued_at = datetime.datetime.fromisoformat(str(last_requeued_raw))
+                    if last_requeued_at > cooldown_cutoff:
+                        continue
+                except ValueError:
+                    pass
+
+            previous_status = task.status
+            task.status = "pending"
+            rescue_meta.update(
+                {
+                    "last_requeued_at": now.isoformat(),
+                    "previous_status": previous_status,
+                    "reason": "stale_pending_or_processing",
+                }
+            )
+            rescue_meta["count"] = int(rescue_meta.get("count") or 0) + 1
+            meta["queue_rescue"] = rescue_meta
+            task.script_meta = meta
+            db.commit()
+
+            celery_app.send_task("process_content_task", args=[task.id])
+            rescued += 1
+            logger.warning(
+                "Requeued stale content task id=%s previous_status=%s updated_at=%s",
+                task.id,
+                previous_status,
+                updated_at,
+            )
+
+        if rescued:
+            logger.warning("Rescued %s stale content task(s)", rescued)
+    finally:
+        db.close()
 
 
 @celery_app.task(name="sync_publication_task")

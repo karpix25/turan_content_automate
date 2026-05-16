@@ -95,7 +95,7 @@ services:
     restart: unless-stopped
     init: true
     stop_grace_period: 120s
-    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=${CELERY_WORKER_CONCURRENCY:-1} --prefetch-multiplier=1 --max-tasks-per-child=5 -Ofair
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=${CELERY_WORKER_CONCURRENCY:-1} --prefetch-multiplier=1 --max-tasks-per-child=5 --soft-time-limit=${CELERY_TASK_SOFT_TIME_LIMIT_SECONDS:-5400} --time-limit=${CELERY_TASK_TIME_LIMIT_SECONDS:-7200} -Ofair
     volumes:
       - media_data:/app/database/media
     environment:
@@ -132,6 +132,12 @@ services:
     depends_on:
       - db
       - redis
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.worker.celery_app inspect ping -d celery@$$HOSTNAME --timeout=10 | grep -q OK"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
     networks:
       - content-network
 

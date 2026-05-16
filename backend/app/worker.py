@@ -79,6 +79,27 @@ load_dotenv()
 init_database()
 
 celery_app = Celery('tasks', broker=(os.getenv("REDIS_URL") or "redis://localhost:6379/0").strip())
+CELERY_TASK_SOFT_TIME_LIMIT_SECONDS = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT_SECONDS", "5400"))
+CELERY_TASK_TIME_LIMIT_SECONDS = int(os.getenv("CELERY_TASK_TIME_LIMIT_SECONDS", "7200"))
+celery_app.conf.update(
+    broker_connection_retry_on_startup=True,
+    task_track_started=True,
+    worker_prefetch_multiplier=1,
+    task_annotations={
+        "process_content_task": {
+            "acks_late": True,
+            "reject_on_worker_lost": True,
+            "soft_time_limit": CELERY_TASK_SOFT_TIME_LIMIT_SECONDS,
+            "time_limit": CELERY_TASK_TIME_LIMIT_SECONDS,
+        },
+    },
+    beat_schedule={
+        "rescue-stale-content-tasks": {
+            "task": "rescue_stale_content_tasks",
+            "schedule": float(os.getenv("TASK_RESCUE_INTERVAL_SECONDS", "300")),
+        },
+    },
+)
 
 # Initialize clients
 vizard = VizardClient(api_key=(os.getenv("VIZARD_API_KEY") or "").strip())
