@@ -1,9 +1,12 @@
 import re
 import asyncio
 import logging
+import os
+import time
 from typing import List
 
 from .. import models
+from ..telegram_progress import update_task_status_message
 
 
 def _extract_vizard_project_id(url_or_id: str) -> str | None:
@@ -73,6 +76,12 @@ def _extract_vizard_clip_title(clip: dict) -> str | None:
 def _download_vizard_project_clips(db, task: models.VideoTask, source_url: str, **create_kwargs) -> List[tuple[str, str | None]]:
     from ..worker import vizard, downloader
     logging.info(f"Task {task.id}: Processing vizard/youtube source: '{source_url}'")
+    update_task_status_message(
+        db,
+        task,
+        stage="Vizard",
+        detail="Готовлю отправку видео в Vizard.",
+    )
     
     # Check if we already have a project ID or if source_url is a Vizard link
     existing_v_id = _extract_vizard_project_id(source_url)
@@ -110,9 +119,47 @@ def _download_vizard_project_clips(db, task: models.VideoTask, source_url: str, 
     task.vizard_project_id = p_id
     db.commit()
 
-    clips = asyncio.run(vizard.poll_until_complete(p_id))
+    update_task_status_message(
+        db,
+        task,
+        stage="Vizard",
+        detail=f"Видео отправлено в Vizard. Проект #{p_id}. Жду, пока сервис нарежет клипы.",
+    )
+
+    poll_interval = max(5, int(os.getenv("VIZARD_POLL_INTERVAL_SECONDS", "30")))
+    max_attempts = max(1, int(os.getenv("VIZARD_POLL_MAX_ATTEMPTS", "60")))
+    started_at = time.monotonic()
+    clips = None
+    for attempt in range(1, max_attempts + 1):
+        data = asyncio.run(vizard.query_project(p_id))
+        if data and data.get("code") == 2000:
+            videos = data.get("videos")
+            if videos:
+                clips = videos
+                break
+
+        elapsed_minutes = int((time.monotonic() - started_at) // 60)
+        update_task_status_message(
+            db,
+            task,
+            stage="Vizard",
+            detail=(
+                f"Проект #{p_id} обрабатывается. Жду клипы: попытка {attempt}/{max_attempts}, "
+                f"прошло ~{elapsed_minutes} мин."
+            ),
+        )
+        logging.info("Task %s: Vizard project %s still processing... (Attempt %s/%s)", task.id, p_id, attempt, max_attempts)
+        time.sleep(poll_interval)
+
     if not clips:
         raise Exception("Vizard conversion timed out or failed")
+
+    update_task_status_message(
+        db,
+        task,
+        stage="Vizard",
+        detail=f"Vizard подготовил клипы: {len(clips)}. Скачиваю результаты.",
+    )
 
     input_videos: List[tuple[str, str | None]] = []
     for i, clip in enumerate(clips):
@@ -120,6 +167,12 @@ def _download_vizard_project_clips(db, task: models.VideoTask, source_url: str, 
         if not url:
             raise Exception(f"Vizard clip #{i} has no download URL")
         clip_title = _extract_vizard_clip_title(clip)
+        update_task_status_message(
+            db,
+            task,
+            stage="Vizard",
+            detail=f"Скачиваю клип {i + 1}/{len(clips)} из проекта #{p_id}.",
+        )
         local_file = downloader.download_video(url, f"vizard_{p_id}_{i}")
         if not local_file:
             raise Exception(f"Failed to download Vizard clip #{i}")
