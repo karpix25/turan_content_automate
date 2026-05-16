@@ -1,0 +1,46 @@
+# Production worker image for video/render jobs.
+# Keep this image focused: Chromium/ffmpeg are heavy enough without copying
+# local renders, snapshots, or unrelated app folders into the final layer.
+FROM node:22-bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CHROME_BIN=/usr/bin/chromium
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    fonts-liberation \
+    python3 \
+    python3-pip \
+    ffmpeg \
+    chromium \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY hf-montage-test/requirements.txt ./hf-montage-test/
+COPY backend/requirements.txt ./backend/
+RUN pip3 install --break-system-packages --no-cache-dir -r hf-montage-test/requirements.txt && \
+    pip3 install --break-system-packages --no-cache-dir -r backend/requirements.txt
+
+COPY hyperframes-auto/package*.json ./hyperframes-auto/
+RUN cd hyperframes-auto && npm ci --omit=dev --no-audit --no-fund
+
+COPY backend ./backend
+COPY hf-montage-test/index.html ./hf-montage-test/index.html
+COPY hf-montage-test/theme-config.js ./hf-montage-test/theme-config.js
+COPY hf-montage-test/meta.json ./hf-montage-test/meta.json
+COPY hf-montage-test/tools ./hf-montage-test/tools
+COPY hf-montage-test/data ./hf-montage-test/data
+COPY hyperframes-auto ./hyperframes-auto
+
+RUN mkdir -p \
+    /app/database/media \
+    /app/hf-montage-test/renders \
+    /app/hyperframes-auto/assets/input \
+    /app/hyperframes-auto/assets/generated \
+    /app/hyperframes-auto/renders
+
+WORKDIR /app/backend
+
+CMD ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=info"]

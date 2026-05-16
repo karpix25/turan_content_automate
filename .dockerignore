@@ -14,11 +14,13 @@ frontend/dist/
 
 database/
 tmp/
+output/
 
 hf-montage-test/renders/
 hf-montage-test/.thumbnails/
 hf-montage-test/snapshots/
 hf-montage-test/debug_frames/
+hf-montage-test/scratch/
 hf-montage-test/source_optimized_45s.mp4
 
 hyperframes-auto/renders/

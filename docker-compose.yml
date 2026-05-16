@@ -90,7 +90,7 @@ services:
   worker:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.worker
     working_dir: /app/backend
     restart: unless-stopped
     init: true
