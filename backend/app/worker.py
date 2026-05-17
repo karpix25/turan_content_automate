@@ -2677,15 +2677,24 @@ def process_content_task(task_id: int):
 
     except Exception as e:
         logging.exception(f"Task {task_id} failed: {e}")
-        task.status = "failed"
-        db.commit()
-        update_task_status_message(
-            db,
-            task,
-            stage="Ошибка",
-            detail=f"Обработка остановилась: {str(e)[:300]}",
-            failed=True,
-        )
+        try:
+            db.rollback()
+        except Exception as rollback_error:
+            logging.warning("Task %s: failed to rollback aborted transaction: %s", task_id, rollback_error)
+        try:
+            task = db.query(models.VideoTask).get(task_id)
+            if task:
+                task.status = "failed"
+                db.commit()
+                update_task_status_message(
+                    db,
+                    task,
+                    stage="Ошибка",
+                    detail=f"Обработка остановилась: {str(e)[:300]}",
+                    failed=True,
+                )
+        except Exception as mark_error:
+            logging.exception("Task %s: failed to mark task as failed after rollback: %s", task_id, mark_error)
         raise
     finally:
         for path in input_videos:

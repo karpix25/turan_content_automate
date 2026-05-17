@@ -68,6 +68,10 @@ def update_task_status_message(db, task, stage: str, detail: str | None = None, 
         task.telegram_status_text = text
         db.commit()
     except Exception as exc:
+        try:
+            db.rollback()
+        except Exception:
+            pass
         logger.warning("Failed to update Telegram status message for task %s: %s", task.id, exc)
 
 
