@@ -12,6 +12,7 @@ class LLMClient:
     Client for OpenRouter API to access Gemini 2.5 Pro and other models.
     """
     BASE_URL = "https://openrouter.ai/api/v1"
+    GEMINI_GLOBAL_VERTEX_PROVIDER = "google-vertex/global"
 
     def __init__(self, api_key: str, model_id: Optional[str] = None):
         self.api_key = api_key.strip()
@@ -28,37 +29,64 @@ class LLMClient:
             logger.error("OpenRouter API key is missing")
             return None
             
-        payload = {
+        base_payload = {
             "model": self.model_id,
             "messages": messages,
             "temperature": temperature
         }
-        gemini_provider = os.getenv("OPENROUTER_GEMINI_PROVIDER", "google-vertex").strip()
-        if "gemini" in (self.model_id or "").lower() and gemini_provider:
-            payload["provider"] = {
-                "order": [gemini_provider],
-                "only": [gemini_provider],
-                "allow_fallbacks": False,
-            }
+        is_gemini = "gemini" in (self.model_id or "").lower()
+        provider_attempts: list[str | None] = [None]
+        if is_gemini:
+            configured_provider = (os.getenv("OPENROUTER_GEMINI_PROVIDER") or "google-vertex").strip()
+            provider_attempts = []
+            for provider in (configured_provider, self.GEMINI_GLOBAL_VERTEX_PROVIDER):
+                if provider and provider not in provider_attempts:
+                    provider_attempts.append(provider)
         timeout_seconds = float(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "180"))
-        
-        try:
-            with httpx.Client(timeout=timeout_seconds) as client:
-                response = client.post(f"{self.BASE_URL}/chat/completions", headers=self.headers, json=payload)
-                response.raise_for_status()
-                data = response.json()
-                choices = data.get("choices") or []
-                if not choices:
-                    logger.error("OpenRouter response has no choices: %s", str(data)[:1200])
-                    return None
-                content = ((choices[0].get("message") or {}).get("content") or "").strip()
-                if not content:
-                    logger.error("OpenRouter response has empty content: %s", str(data)[:1200])
-                    return None
-                return content
-        except Exception as e:
-            logger.error(f"OpenRouter request failed: {e}")
-            return None
+
+        def payload_for_provider(provider: str | None) -> dict:
+            payload = dict(base_payload)
+            if provider:
+                payload["provider"] = {
+                    "order": [provider],
+                    "only": [provider],
+                    "allow_fallbacks": False,
+                }
+            return payload
+
+        with httpx.Client(timeout=timeout_seconds) as client:
+            for attempt_index, provider in enumerate(provider_attempts, start=1):
+                payload = payload_for_provider(provider)
+                provider_label = provider or "openrouter-default"
+                try:
+                    if is_gemini:
+                        logger.info(
+                            "OpenRouter Gemini request attempt %s/%s using provider=%s",
+                            attempt_index,
+                            len(provider_attempts),
+                            provider_label,
+                        )
+                    response = client.post(f"{self.BASE_URL}/chat/completions", headers=self.headers, json=payload)
+                    response.raise_for_status()
+                    data = response.json()
+                    choices = data.get("choices") or []
+                    if not choices:
+                        logger.error("OpenRouter response has no choices via %s: %s", provider_label, str(data)[:1200])
+                        continue
+                    choice_error = choices[0].get("error") if isinstance(choices[0], dict) else None
+                    if choice_error:
+                        logger.error("OpenRouter choice error via %s: %s", provider_label, str(choice_error)[:1200])
+                        continue
+                    content = ((choices[0].get("message") or {}).get("content") or "").strip()
+                    if not content:
+                        logger.error("OpenRouter response has empty content via %s: %s", provider_label, str(data)[:1200])
+                        continue
+                    return content
+                except Exception as e:
+                    logger.error("OpenRouter request failed via %s: %s", provider_label, e)
+                    continue
+
+        return None
 
     def analyze_style(self, transcripts: List[str]) -> Optional[str]:
         """
