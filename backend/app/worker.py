@@ -2364,10 +2364,15 @@ def process_content_task(task_id: int):
             )
             celery_app.send_task("sync_publication_task", args=[output_task.id])
 
+        vizard_vertical_thumbnails_enabled = (
+            os.getenv("VIZARD_VERTICAL_THUMBNAILS_ENABLED", "0").strip().lower()
+            in {"1", "true", "yes", "on"}
+        )
+
         for clip_index, video_path, clip_title in source_items:
             if not video_path:
                 raise Exception("Downloaded video path is empty")
-            if task.vizard_project_id:
+            if task.vizard_project_id and vizard_vertical_thumbnails_enabled:
                 vertical_context = (
                     task.script_text
                     or task.factual_outline
@@ -2382,6 +2387,14 @@ def process_content_task(task_id: int):
                     clip_index=clip_index,
                 )
                 vertical_thumbnail_intro_meta.append({"clip_index": clip_index, **vertical_meta})
+            elif task.vizard_project_id:
+                vertical_thumbnail_intro_meta.append(
+                    {
+                        "clip_index": clip_index,
+                        "status": "skipped",
+                        "reason": "vizard_vertical_thumbnails_disabled",
+                    }
+                )
 
             video_root, _ = os.path.splitext(video_path)
             clip_used_ending_ids_by_platform: dict[str, set[int]] = {}
