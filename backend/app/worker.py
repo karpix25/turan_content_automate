@@ -168,6 +168,15 @@ REELS_VERTICAL_COVER_SECONDS = max(
 )
 
 
+def _is_deadlock_error(exc: Exception) -> bool:
+    current: BaseException | None = exc
+    while current is not None:
+        if getattr(current, "pgcode", None) == "40P01":
+            return True
+        current = getattr(current, "__cause__", None) or getattr(current, "__context__", None)
+    return "deadlock detected" in str(exc).lower()
+
+
 def _extract_heygen_video_id(value: str | None) -> str | None:
     raw = (value or "").strip()
     if not raw:
@@ -675,8 +684,8 @@ def _run_hyperframes_pipeline(
     return None
 
 
-@celery_app.task(name="process_content_task")
-def process_content_task(task_id: int):
+@celery_app.task(name="process_content_task", bind=True, max_retries=3)
+def process_content_task(self, task_id: int):
     db = SessionLocal()
     task = db.query(models.VideoTask).get(task_id)
     if not task:
@@ -2681,6 +2690,9 @@ def process_content_task(task_id: int):
             db.rollback()
         except Exception as rollback_error:
             logging.warning("Task %s: failed to rollback aborted transaction: %s", task_id, rollback_error)
+        if _is_deadlock_error(e):
+            logging.warning("Task %s: database deadlock detected; retrying after a short delay", task_id)
+            raise self.retry(exc=e, countdown=30)
         try:
             task = db.query(models.VideoTask).get(task_id)
             if task:

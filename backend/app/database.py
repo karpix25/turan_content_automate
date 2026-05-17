@@ -15,129 +15,62 @@ def init_database() -> None:
     Base.metadata.create_all(bind=engine)
     # Lightweight runtime migration for existing deployments.
     with engine.begin() as conn:
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS subtitles_enabled BOOLEAN DEFAULT TRUE"
+        def column_exists(table_name: str, column_name: str) -> bool:
+            return bool(
+                conn.execute(
+                    text(
+                        "SELECT 1 FROM information_schema.columns "
+                        "WHERE table_schema = current_schema() "
+                        "AND table_name = :table_name "
+                        "AND column_name = :column_name"
+                    ),
+                    {"table_name": table_name, "column_name": column_name},
+                ).scalar()
             )
-        )
+
+        def table_exists(table_name: str) -> bool:
+            return bool(
+                conn.execute(
+                    text(
+                        "SELECT 1 FROM information_schema.tables "
+                        "WHERE table_schema = current_schema() "
+                        "AND table_name = :table_name"
+                    ),
+                    {"table_name": table_name},
+                ).scalar()
+            )
+
+        def add_column_if_missing(table_name: str, column_name: str, definition: str) -> None:
+            if not column_exists(table_name, column_name):
+                conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}"))
+
+        add_column_if_missing("users", "subtitles_enabled", "BOOLEAN DEFAULT TRUE")
         conn.execute(
             text("UPDATE users SET subtitles_enabled = TRUE WHERE subtitles_enabled IS NULL")
         )
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_schedule_enabled BOOLEAN DEFAULT FALSE"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS publish_limit_per_day INTEGER DEFAULT 3"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS publish_window_start_msk VARCHAR(16) DEFAULT '10:00:00'"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS publish_window_end_msk VARCHAR(16) DEFAULT '22:00:00'"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS plate_start_percent INTEGER DEFAULT 0"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS author_style_profile TEXT"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS training_source TEXT"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS heygen_avatar_id VARCHAR(128)"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS heygen_vertical_avatar_id VARCHAR(128)"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS elevenlabs_voice_id VARCHAR(128)"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS elevenlabs_voice_speeds JSONB"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS thumbnail_face_path TEXT"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS vertical_thumbnail_face_path TEXT"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_script_duration_minutes INTEGER DEFAULT 5"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_insert_start_percent INTEGER DEFAULT 50"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_insert_end_percent INTEGER DEFAULT 95"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_insert_clips_count INTEGER DEFAULT 2"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS reels_broll_yandex_dir TEXT DEFAULT 'disk:/Видео для REELS'"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS reels_broll_start_percent INTEGER DEFAULT 15"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS reels_broll_end_percent INTEGER DEFAULT 85"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS reels_broll_clips_count INTEGER DEFAULT 3"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS reels_broll_coverage_percent INTEGER DEFAULT 50"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS youtube_description_template TEXT"
-            )
-        )
+        add_column_if_missing("users", "auto_schedule_enabled", "BOOLEAN DEFAULT FALSE")
+        add_column_if_missing("users", "publish_limit_per_day", "INTEGER DEFAULT 3")
+        add_column_if_missing("users", "publish_window_start_msk", "VARCHAR(16) DEFAULT '10:00:00'")
+        add_column_if_missing("users", "publish_window_end_msk", "VARCHAR(16) DEFAULT '22:00:00'")
+        add_column_if_missing("users", "plate_start_percent", "INTEGER DEFAULT 0")
+        add_column_if_missing("users", "author_style_profile", "TEXT")
+        add_column_if_missing("users", "training_source", "TEXT")
+        add_column_if_missing("users", "heygen_avatar_id", "VARCHAR(128)")
+        add_column_if_missing("users", "heygen_vertical_avatar_id", "VARCHAR(128)")
+        add_column_if_missing("users", "elevenlabs_voice_id", "VARCHAR(128)")
+        add_column_if_missing("users", "elevenlabs_voice_speeds", "JSONB")
+        add_column_if_missing("users", "thumbnail_face_path", "TEXT")
+        add_column_if_missing("users", "vertical_thumbnail_face_path", "TEXT")
+        add_column_if_missing("users", "avatar_script_duration_minutes", "INTEGER DEFAULT 5")
+        add_column_if_missing("users", "avatar_insert_start_percent", "INTEGER DEFAULT 50")
+        add_column_if_missing("users", "avatar_insert_end_percent", "INTEGER DEFAULT 95")
+        add_column_if_missing("users", "avatar_insert_clips_count", "INTEGER DEFAULT 2")
+        add_column_if_missing("users", "reels_broll_yandex_dir", "TEXT DEFAULT 'disk:/Видео для REELS'")
+        add_column_if_missing("users", "reels_broll_start_percent", "INTEGER DEFAULT 15")
+        add_column_if_missing("users", "reels_broll_end_percent", "INTEGER DEFAULT 85")
+        add_column_if_missing("users", "reels_broll_clips_count", "INTEGER DEFAULT 3")
+        add_column_if_missing("users", "reels_broll_coverage_percent", "INTEGER DEFAULT 50")
+        add_column_if_missing("users", "youtube_description_template", "TEXT")
         conn.execute(
             text("UPDATE users SET auto_schedule_enabled = FALSE WHERE auto_schedule_enabled IS NULL")
         )
@@ -254,107 +187,49 @@ def init_database() -> None:
         conn.execute(
             text("UPDATE users SET plate_start_percent = 100 WHERE plate_start_percent > 100")
         )
-        conn.execute(
-            text(
-                "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS target_account_id INTEGER"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS postmypost_file_id INTEGER"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(64)"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS telegram_status_message_id VARCHAR(64)"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS telegram_status_text TEXT"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS target_platform VARCHAR(32)"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS source_title TEXT"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS preview_url TEXT"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS factual_outline TEXT"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS script_text TEXT"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS script_meta JSONB"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE cta_clips ADD COLUMN IF NOT EXISTS platform VARCHAR(32) DEFAULT 'universal'"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE cta_clips ADD COLUMN IF NOT EXISTS account_id INTEGER"
-            )
-        )
+        add_column_if_missing("tasks", "target_account_id", "INTEGER")
+        add_column_if_missing("tasks", "postmypost_file_id", "INTEGER")
+        add_column_if_missing("tasks", "telegram_chat_id", "VARCHAR(64)")
+        add_column_if_missing("tasks", "telegram_status_message_id", "VARCHAR(64)")
+        add_column_if_missing("tasks", "telegram_status_text", "TEXT")
+        add_column_if_missing("tasks", "target_platform", "VARCHAR(32)")
+        add_column_if_missing("tasks", "source_title", "TEXT")
+        add_column_if_missing("tasks", "preview_url", "TEXT")
+        add_column_if_missing("tasks", "factual_outline", "TEXT")
+        add_column_if_missing("tasks", "script_text", "TEXT")
+        add_column_if_missing("tasks", "script_meta", "JSONB")
+        add_column_if_missing("cta_clips", "platform", "VARCHAR(32) DEFAULT 'universal'")
+        add_column_if_missing("cta_clips", "account_id", "INTEGER")
         conn.execute(
             text("UPDATE cta_clips SET platform = 'universal' WHERE platform IS NULL")
         )
-        conn.execute(
-            text(
-                "ALTER TABLE user_publish_channels ADD COLUMN IF NOT EXISTS publication_description TEXT"
+        add_column_if_missing("user_publish_channels", "publication_description", "TEXT")
+        if not table_exists("avatar_insert_clips"):
+            conn.execute(
+                text(
+                    "CREATE TABLE avatar_insert_clips ("
+                    "id SERIAL PRIMARY KEY, "
+                    "user_id INTEGER NOT NULL REFERENCES users(id), "
+                    "file_path TEXT NOT NULL, "
+                    "created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()"
+                    ")"
+                )
             )
-        )
-        conn.execute(
-            text(
-                "CREATE TABLE IF NOT EXISTS avatar_insert_clips ("
-                "id SERIAL PRIMARY KEY, "
-                "user_id INTEGER NOT NULL REFERENCES users(id), "
-                "file_path TEXT NOT NULL, "
-                "created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()"
-                ")"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE thumbnail_references ADD COLUMN IF NOT EXISTS kind VARCHAR(32) DEFAULT 'horizontal'"
-            )
-        )
+        add_column_if_missing("thumbnail_references", "kind", "VARCHAR(32) DEFAULT 'horizontal'")
         conn.execute(
             text("UPDATE thumbnail_references SET kind = 'horizontal' WHERE kind IS NULL OR kind = ''")
         )
-        conn.execute(
-            text(
-                "CREATE TABLE IF NOT EXISTS thumbnail_face_references ("
-                "id SERIAL PRIMARY KEY, "
-                "user_id INTEGER NOT NULL REFERENCES users(id), "
-                "file_path TEXT NOT NULL, "
-                "created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()"
-                ")"
+        if not table_exists("thumbnail_face_references"):
+            conn.execute(
+                text(
+                    "CREATE TABLE thumbnail_face_references ("
+                    "id SERIAL PRIMARY KEY, "
+                    "user_id INTEGER NOT NULL REFERENCES users(id), "
+                    "file_path TEXT NOT NULL, "
+                    "created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()"
+                    ")"
+                )
             )
-        )
         conn.execute(
             text(
                 "CREATE INDEX IF NOT EXISTS ix_thumbnail_face_references_user_id "
@@ -387,21 +262,9 @@ def init_database() -> None:
                 ")"
             )
         )
-        conn.execute(
-            text(
-                "ALTER TABLE user_publish_channels ADD COLUMN IF NOT EXISTS selected_plate_id INTEGER"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE user_publish_channels ADD COLUMN IF NOT EXISTS selected_plate_ids JSONB"
-            )
-        )
-        conn.execute(
-            text(
-                "ALTER TABLE user_publish_channels ADD COLUMN IF NOT EXISTS plate_start_percent INTEGER"
-            )
-        )
+        add_column_if_missing("user_publish_channels", "selected_plate_id", "INTEGER")
+        add_column_if_missing("user_publish_channels", "selected_plate_ids", "JSONB")
+        add_column_if_missing("user_publish_channels", "plate_start_percent", "INTEGER")
         conn.execute(
             text(
                 "UPDATE user_publish_channels SET plate_start_percent = 0 WHERE plate_start_percent IS NOT NULL AND plate_start_percent < 0"
