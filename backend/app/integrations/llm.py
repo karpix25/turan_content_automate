@@ -33,7 +33,7 @@ class LLMClient:
             "messages": messages,
             "temperature": temperature
         }
-        gemini_provider = os.getenv("OPENROUTER_GEMINI_PROVIDER", "google-vertex/global").strip()
+        gemini_provider = os.getenv("OPENROUTER_GEMINI_PROVIDER", "google-vertex").strip()
         if "gemini" in (self.model_id or "").lower() and gemini_provider:
             payload["provider"] = {
                 "order": [gemini_provider],
