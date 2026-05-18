@@ -2351,7 +2351,7 @@ def process_content_task(self, task_id: int):
             )
             if output_task.id in synced_output_task_ids:
                 return
-            if output_task.postmypost_id or output_task.postmypost_file_id:
+            if output_task.postmypost_id or output_task.publishing_status in {"scheduled", "published", "in_progress"}:
                 logging.info(
                     "Task %s: rendered output task %s already has PostMyPost state, skipping duplicate enqueue",
                     task_id,

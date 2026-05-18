@@ -236,8 +236,8 @@ def rescue_stale_content_tasks():
         db.close()
 
 
-@celery_app.task(name="sync_publication_task")
-def sync_publication_task(task_id: int, force_now: bool = False):
+@celery_app.task(name="sync_publication_task", bind=True, max_retries=3)
+def sync_publication_task(self, task_id: int, force_now: bool = False):
     db = SessionLocal()
     try:
         task = db.query(models.VideoTask).get(task_id)
@@ -395,6 +395,14 @@ def sync_publication_task(task_id: int, force_now: bool = False):
         logger.info(f"Task {task_id} synced to PostMyPost publication {task.postmypost_id}")
     except Exception as e:
         logger.error(f"Failed to sync publication for task {task_id}: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        if self.request.retries < self.max_retries:
+            delay = 60 * (self.request.retries + 1)
+            logger.warning("Task %s: retrying PostMyPost sync in %ss", task_id, delay)
+            raise self.retry(exc=e, countdown=delay)
         task = db.query(models.VideoTask).get(task_id)
         if task:
             task.publishing_status = "failed"
