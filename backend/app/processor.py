@@ -12,6 +12,10 @@ class VideoProcessor:
     def __init__(self):
         logger.info("VideoProcessor initialized (subtitles/transcription disabled).")
 
+    @staticmethod
+    def _truthy_env(name: str, default: str = "0") -> bool:
+        return (os.getenv(name, default) or "").strip().lower() in {"1", "true", "yes", "on"}
+
     def _encode_kwargs(self, *, include_audio: bool = True) -> Dict[str, object]:
         kwargs: Dict[str, object] = {
             "vcodec": "libx264",
@@ -594,15 +598,16 @@ class VideoProcessor:
             video = video.filter('subtitles', ass_path, force_style="Alignment=2")
 
         profile = self._build_unique_profile(unique_seed)
-        video = video.filter(
-            "eq",
-            brightness=profile["brightness"],
-            contrast=profile["contrast"],
-            saturation=profile["saturation"],
-            gamma=profile["gamma"],
-        )
-        video = video.filter("setpts", f"PTS/{profile['speed']}")
-        audio = audio.filter("atempo", profile["speed"])
+        if profile["unique_variations_enabled"]:
+            video = video.filter(
+                "eq",
+                brightness=profile["brightness"],
+                contrast=profile["contrast"],
+                saturation=profile["saturation"],
+                gamma=profile["gamma"],
+            )
+            video = video.filter("setpts", f"PTS/{profile['speed']}")
+            audio = audio.filter("atempo", profile["speed"])
 
         if plate_path:
             plate = ffmpeg.input(plate_path)
@@ -702,6 +707,16 @@ class VideoProcessor:
         return outputs
 
     def _build_unique_profile(self, unique_seed: Optional[int]) -> Dict[str, float | int]:
+        if not self._truthy_env("VIDEO_UNIQUE_VARIATIONS_ENABLED", "0"):
+            return {
+                "variant_id": 0,
+                "brightness": 0.0,
+                "contrast": 1.0,
+                "saturation": 1.0,
+                "gamma": 1.0,
+                "speed": 1.0,
+                "unique_variations_enabled": 0,
+            }
         rnd = random.Random(unique_seed if unique_seed is not None else random.randint(1, 10_000_000))
         return {
             "variant_id": int(rnd.random() * 1_000_000),
@@ -710,4 +725,5 @@ class VideoProcessor:
             "saturation": round(rnd.uniform(0.95, 1.08), 3),
             "gamma": round(rnd.uniform(0.97, 1.04), 3),
             "speed": round(rnd.uniform(0.988, 1.012), 4),
+            "unique_variations_enabled": 1,
         }
