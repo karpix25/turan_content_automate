@@ -12,6 +12,24 @@ class VideoProcessor:
     def __init__(self):
         logger.info("VideoProcessor initialized (subtitles/transcription disabled).")
 
+    def _encode_kwargs(self, *, include_audio: bool = True) -> Dict[str, object]:
+        kwargs: Dict[str, object] = {
+            "vcodec": "libx264",
+            "preset": os.getenv("FFMPEG_X264_PRESET", "slow"),
+            "crf": os.getenv("FFMPEG_X264_CRF", "18"),
+            "pix_fmt": "yuv420p",
+            "movflags": "+faststart",
+            "map_metadata": "-1",
+        }
+        if include_audio:
+            kwargs.update(
+                {
+                    "acodec": "aac",
+                    "b:a": os.getenv("FFMPEG_AUDIO_BITRATE", "192k"),
+                }
+            )
+        return kwargs
+
     def _probe_media(self, media_path: str) -> Dict:
         return ffmpeg.probe(media_path)
 
@@ -328,11 +346,7 @@ class VideoProcessor:
                         out_v,
                         audio_input.audio,
                         output_path,
-                        vcodec="libx264",
-                        acodec="aac",
-                        pix_fmt="yuv420p",
-                        movflags="+faststart",
-                        map_metadata="-1",
+                        **self._encode_kwargs(include_audio=True),
                     )
                     .overwrite_output()
                     .run(capture_stdout=True, capture_stderr=True)
@@ -347,11 +361,7 @@ class VideoProcessor:
                         out_v,
                         out_a,
                         output_path,
-                        vcodec="libx264",
-                        acodec="aac",
-                        pix_fmt="yuv420p",
-                        movflags="+faststart",
-                        map_metadata="-1",
+                        **self._encode_kwargs(include_audio=True),
                     )
                     .overwrite_output()
                     .run(capture_stdout=True, capture_stderr=True)
@@ -364,10 +374,7 @@ class VideoProcessor:
                     .output(
                         out_v,
                         output_path,
-                        vcodec="libx264",
-                        pix_fmt="yuv420p",
-                        movflags="+faststart",
-                        map_metadata="-1",
+                        **self._encode_kwargs(include_audio=False),
                     )
                     .overwrite_output()
                     .run(capture_stdout=True, capture_stderr=True)
@@ -515,11 +522,7 @@ class VideoProcessor:
                         out_v,
                         out_a,
                         output_path,
-                        vcodec="libx264",
-                        acodec="aac",
-                        pix_fmt="yuv420p",
-                        movflags="+faststart",
-                        map_metadata="-1",
+                        **self._encode_kwargs(include_audio=True),
                     )
                     .overwrite_output()
                     .run(capture_stdout=True, capture_stderr=True)
@@ -531,10 +534,7 @@ class VideoProcessor:
                     .output(
                         joined[0],
                         output_path,
-                        vcodec="libx264",
-                        pix_fmt="yuv420p",
-                        movflags="+faststart",
-                        map_metadata="-1",
+                        **self._encode_kwargs(include_audio=False),
                     )
                     .overwrite_output()
                     .run(capture_stdout=True, capture_stderr=True)
@@ -647,12 +647,8 @@ class VideoProcessor:
                 video,
                 audio,
                 output_path,
-                vcodec='libx264',
-                acodec='aac',
                 threads='auto',
-                pix_fmt='yuv420p',
-                movflags='+faststart',
-                map_metadata='-1',
+                **self._encode_kwargs(include_audio=True),
             )
                 .global_args(
                 "-metadata", f"title=content-studio-{unique_tag}",
