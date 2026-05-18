@@ -2310,18 +2310,22 @@ def process_content_task(self, task_id: int):
             len(ending_clips),
         )
         output_platforms: list[str] = []
+        output_group_keys: list[str | int | None] = []
         if target_account_ids:
             for _clip_index, _video_path, _clip_title in source_items:
                 for account_id in target_account_ids:
                     output_platforms.append(_normalize_platform_code(account_platform_map.get(account_id, "universal")))
+                    output_group_keys.append(_clip_index if process_all_clips else None)
         else:
             for _clip_index, _video_path, _clip_title in source_items:
                 output_platforms.append(_normalize_platform_code(task.type))
+                output_group_keys.append(_clip_index if process_all_clips else None)
         publish_times = _plan_publish_times_for_outputs(
             db=db,
             user=user,
             output_platforms=output_platforms,
             manual_publish_at=None if process_all_clips else task.publish_at,
+            output_group_keys=output_group_keys if process_all_clips else None,
         )
         should_sync_outputs = bool(target_account_ids)
         base_source = _get_base_source_label(task.source_url)
