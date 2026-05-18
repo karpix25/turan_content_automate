@@ -13,6 +13,7 @@ class LLMClient:
     """
     BASE_URL = "https://openrouter.ai/api/v1"
     GEMINI_GLOBAL_VERTEX_PROVIDER = "google-vertex/global"
+    GEMINI_FALLBACK_MODEL = "anthropic/claude-opus-4.6"
 
     def __init__(self, api_key: str, model_id: Optional[str] = None):
         self.api_key = api_key.strip()
@@ -30,22 +31,25 @@ class LLMClient:
             return None
             
         base_payload = {
-            "model": self.model_id,
             "messages": messages,
             "temperature": temperature
         }
         is_gemini = "gemini" in (self.model_id or "").lower()
-        provider_attempts: list[str | None] = [None]
+        request_attempts: list[tuple[str, str | None]] = [(self.model_id, None)]
         if is_gemini:
             configured_provider = (os.getenv("OPENROUTER_GEMINI_PROVIDER") or "google-vertex").strip()
-            provider_attempts = []
+            fallback_model = (os.getenv("OPENROUTER_GEMINI_FALLBACK_MODEL") or self.GEMINI_FALLBACK_MODEL).strip()
+            request_attempts = []
             for provider in (configured_provider, self.GEMINI_GLOBAL_VERTEX_PROVIDER):
-                if provider and provider not in provider_attempts:
-                    provider_attempts.append(provider)
+                if provider and (self.model_id, provider) not in request_attempts:
+                    request_attempts.append((self.model_id, provider))
+            if fallback_model and fallback_model != self.model_id:
+                request_attempts.append((fallback_model, None))
         timeout_seconds = float(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "180"))
 
-        def payload_for_provider(provider: str | None) -> dict:
+        def payload_for_attempt(model_id: str, provider: str | None) -> dict:
             payload = dict(base_payload)
+            payload["model"] = model_id
             if provider:
                 payload["provider"] = {
                     "order": [provider],
@@ -55,35 +59,36 @@ class LLMClient:
             return payload
 
         with httpx.Client(timeout=timeout_seconds) as client:
-            for attempt_index, provider in enumerate(provider_attempts, start=1):
-                payload = payload_for_provider(provider)
+            for attempt_index, (model_id, provider) in enumerate(request_attempts, start=1):
+                payload = payload_for_attempt(model_id, provider)
                 provider_label = provider or "openrouter-default"
+                attempt_label = f"{model_id} via {provider_label}"
                 try:
                     if is_gemini:
                         logger.info(
-                            "OpenRouter Gemini request attempt %s/%s using provider=%s",
+                            "OpenRouter Gemini request attempt %s/%s using %s",
                             attempt_index,
-                            len(provider_attempts),
-                            provider_label,
+                            len(request_attempts),
+                            attempt_label,
                         )
                     response = client.post(f"{self.BASE_URL}/chat/completions", headers=self.headers, json=payload)
                     response.raise_for_status()
                     data = response.json()
                     choices = data.get("choices") or []
                     if not choices:
-                        logger.error("OpenRouter response has no choices via %s: %s", provider_label, str(data)[:1200])
+                        logger.error("OpenRouter response has no choices via %s: %s", attempt_label, str(data)[:1200])
                         continue
                     choice_error = choices[0].get("error") if isinstance(choices[0], dict) else None
                     if choice_error:
-                        logger.error("OpenRouter choice error via %s: %s", provider_label, str(choice_error)[:1200])
+                        logger.error("OpenRouter choice error via %s: %s", attempt_label, str(choice_error)[:1200])
                         continue
                     content = ((choices[0].get("message") or {}).get("content") or "").strip()
                     if not content:
-                        logger.error("OpenRouter response has empty content via %s: %s", provider_label, str(data)[:1200])
+                        logger.error("OpenRouter response has empty content via %s: %s", attempt_label, str(data)[:1200])
                         continue
                     return content
                 except Exception as e:
-                    logger.error("OpenRouter request failed via %s: %s", provider_label, e)
+                    logger.error("OpenRouter request failed via %s: %s", attempt_label, e)
                     continue
 
         return None
