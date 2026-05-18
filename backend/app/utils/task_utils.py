@@ -1,7 +1,9 @@
+import datetime
 from typing import List
 
 from .. import models
 from ..publish_planner import plan_next_publish_times
+from .platform_utils import _normalize_platform_code
 
 
 def _plan_publish_times_for_outputs(db, user: models.User, output_platforms: list[str], manual_publish_at):
@@ -13,7 +15,23 @@ def _plan_publish_times_for_outputs(db, user: models.User, output_platforms: lis
     if not bool(getattr(user, "auto_schedule_enabled", False)):
         return [None] * outputs_count
 
-    return plan_next_publish_times(db=db, user=user, count=outputs_count)
+    planned: list[datetime.datetime | None] = [None] * outputs_count
+    grouped_indices: dict[str, list[int]] = {}
+    for index, platform_code in enumerate(output_platforms):
+        normalized = _normalize_platform_code(platform_code)
+        grouped_indices.setdefault(normalized, []).append(index)
+
+    for platform_code, indices in grouped_indices.items():
+        times = plan_next_publish_times(
+            db=db,
+            user=user,
+            count=len(indices),
+            platform_code=platform_code,
+        )
+        for idx, planned_time in zip(indices, times):
+            planned[idx] = planned_time
+
+    return planned
 
 
 def _get_base_source_label(source_url: str) -> str:
