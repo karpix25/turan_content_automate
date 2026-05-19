@@ -23,7 +23,9 @@ COPY backend/requirements.txt ./backend/
 RUN pip3 install --break-system-packages --no-cache-dir -r hf-montage-test/requirements.txt && \
     pip3 install --break-system-packages --no-cache-dir -r backend/requirements.txt
 
+COPY remotion-auto/package*.json ./remotion-auto/
 COPY hyperframes-auto/package*.json ./hyperframes-auto/
+RUN cd remotion-auto && npm ci --no-audit --no-fund
 RUN cd hyperframes-auto && npm ci --omit=dev --no-audit --no-fund
 
 COPY backend ./backend
@@ -32,11 +34,14 @@ COPY hf-montage-test/theme-config.js ./hf-montage-test/theme-config.js
 COPY hf-montage-test/meta.json ./hf-montage-test/meta.json
 COPY hf-montage-test/tools ./hf-montage-test/tools
 COPY hf-montage-test/data ./hf-montage-test/data
+COPY remotion-auto ./remotion-auto
 COPY hyperframes-auto ./hyperframes-auto
 
 RUN mkdir -p \
     /app/database/media \
     /app/hf-montage-test/renders \
+    /app/remotion-auto/public/input \
+    /app/remotion-auto/renders \
     /app/hyperframes-auto/assets/input \
     /app/hyperframes-auto/assets/generated \
     /app/hyperframes-auto/renders

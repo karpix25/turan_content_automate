@@ -28,8 +28,10 @@ hyperframes-auto/.thumbnails/
 hyperframes-auto/assets/generated/
 hyperframes-auto/assets/input/
 
-remotion-auto/
-remotion
+remotion-auto/renders/
+remotion-auto/.cache/
+remotion-auto/public/input/source*
+remotion-auto/public/input/*.mp4
 
 *.mp4
 *.mov
