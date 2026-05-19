@@ -24,8 +24,10 @@ COPY backend/requirements.txt ./backend/
 RUN pip3 install --break-system-packages --no-cache-dir -r hf-montage-test/requirements.txt && \
     pip3 install --break-system-packages --no-cache-dir -r backend/requirements.txt
 
-# Копируем зависимости Hyperframes
+# Копируем зависимости Remotion и Hyperframes
+COPY remotion-auto/package*.json ./remotion-auto/
 COPY hyperframes-auto/package*.json ./hyperframes-auto/
+RUN cd remotion-auto && npm ci --no-audit --no-fund
 RUN cd hyperframes-auto && npm ci --omit=dev --no-audit --no-fund
 
 # Копируем весь код

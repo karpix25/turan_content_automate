@@ -387,6 +387,224 @@ def _strip_cta_fallback(text: str | None) -> str:
     return re.sub(r"\s+", " ", cleaned).strip()
 
 
+def _run_remotion_pipeline(
+    task_id: int,
+    input_video: str,
+    script: str,
+    transcript_json_path: str | None = None,
+    overlay_coverage_percent: int = 50,
+) -> str | None:
+    import subprocess
+    import json
+
+    logging.info("Task %s: Starting Remotion pipeline on %s", task_id, input_video)
+    montage_script = "/app/hf-montage-test/tools/smart_montage_pipeline.py"
+    remotion_dir = "/app/remotion-auto"
+    scene_plan_index = "/app/hf-montage-test/index.html"
+
+    out_dir = os.getenv("OUTPUT_DIR", "./output").strip()
+    out_plan = os.path.join(out_dir, f"scene-plan_{task_id}.json")
+    out_words = os.path.join(out_dir, f"scene-word-cues_{task_id}.json")
+    out_transcript = os.path.join(out_dir, f"transcript.deepgram_{task_id}.json")
+    script_context_path = os.path.join(out_dir, f"scenario_context_{task_id}.txt")
+    os.makedirs(out_dir, exist_ok=True)
+
+    render_timeout_seconds = min(
+        HYPERFRAMES_RENDER_TIMEOUT_SECONDS,
+        max(300, CELERY_TASK_SOFT_TIME_LIMIT_SECONDS - 300),
+    )
+    step_timeout_seconds = min(
+        HYPERFRAMES_STEP_TIMEOUT_SECONDS,
+        max(120, CELERY_TASK_SOFT_TIME_LIMIT_SECONDS - 600),
+    )
+    overlay_coverage_percent = max(0, min(100, int(overlay_coverage_percent or 0)))
+
+    def probe_duration_seconds(path: str) -> float | None:
+        if not os.path.exists(path):
+            return None
+        try:
+            probe = subprocess.run(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    path,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            if probe.returncode != 0:
+                logging.warning(
+                    "Task %s: ffprobe duration failed for %s. STDERR: %s",
+                    task_id,
+                    path,
+                    probe.stderr[-1000:],
+                )
+                return None
+            duration = float((probe.stdout or "").strip() or 0)
+            return duration if duration > 0 else None
+        except Exception as exc:
+            logging.warning("Task %s: Failed to probe duration for %s: %s", task_id, path, exc)
+            return None
+
+    expected_render_duration = probe_duration_seconds(input_video)
+
+    def is_usable_remotion_output(path: str) -> bool:
+        if not os.path.exists(path):
+            return False
+        try:
+            file_size = os.path.getsize(path)
+        except OSError:
+            return False
+        if file_size < 128 * 1024:
+            logging.warning("Task %s: Remotion output is too small: %s bytes", task_id, file_size)
+            return False
+
+        actual_duration = probe_duration_seconds(path)
+        if actual_duration is None:
+            return False
+        if expected_render_duration and expected_render_duration > 1:
+            min_duration = max(1.0, expected_render_duration * 0.90)
+            if actual_duration < min_duration:
+                logging.warning(
+                    "Task %s: Remotion output duration is too short: %.3fs < %.3fs expected minimum",
+                    task_id,
+                    actual_duration,
+                    min_duration,
+                )
+                return False
+        logging.info(
+            "Task %s: Remotion output validated: path=%s size=%s duration=%.3fs expected=%.3fs",
+            task_id,
+            path,
+            file_size,
+            actual_duration,
+            expected_render_duration or 0,
+        )
+        return True
+
+    cmd_plan = [
+        "python3",
+        montage_script,
+        "--video",
+        input_video,
+        "--index",
+        scene_plan_index,
+        "--out-plan",
+        out_plan,
+        "--out-transcript",
+        out_transcript,
+        "--overlay-coverage-percent",
+        str(overlay_coverage_percent),
+        "--deepgram-intelligence",
+    ]
+    clean_script_context = re.sub(r"\s+", " ", (script or "")).strip()
+    if clean_script_context:
+        with open(script_context_path, "w", encoding="utf-8") as fp:
+            fp.write(clean_script_context)
+        cmd_plan.extend(["--script-text-file", script_context_path])
+    if transcript_json_path and os.path.exists(transcript_json_path):
+        cmd_plan.extend(["--reuse-transcript", transcript_json_path])
+
+    logging.info("Task %s: Running Remotion scene planner: %s", task_id, " ".join(cmd_plan))
+    try:
+        res = subprocess.run(cmd_plan, capture_output=True, text=True, timeout=step_timeout_seconds)
+    except subprocess.TimeoutExpired as exc:
+        logging.error(
+            "Task %s: Remotion scene planner timed out after %ss. STDOUT: %s\nSTDERR: %s",
+            task_id,
+            step_timeout_seconds,
+            (exc.stdout or "")[-4000:],
+            (exc.stderr or "")[-4000:],
+        )
+        return None
+    if res.returncode != 0:
+        logging.error("Task %s: Remotion scene planner failed. STDOUT: %s\nSTDERR: %s", task_id, res.stdout, res.stderr)
+        return None
+
+    out_words_generated = out_plan.replace("scene-plan_", "scene-word-cues_")
+    if os.path.exists(out_words_generated):
+        if out_words_generated != out_words:
+            os.rename(out_words_generated, out_words)
+    else:
+        out_words_generated = os.path.join(os.path.dirname(out_plan), "scene-word-cues.generated.json")
+        if os.path.exists(out_words_generated):
+            os.rename(out_words_generated, out_words)
+
+    if not os.path.exists(out_words):
+        try:
+            with open(out_plan, "r", encoding="utf-8") as fp:
+                scenes = json.load(fp)
+            scene_count = len(scenes) if isinstance(scenes, list) else 0
+        except Exception:
+            scene_count = 0
+        fallback_cues = [[] for _ in range(scene_count)]
+        with open(out_words, "w", encoding="utf-8") as fp:
+            json.dump(fallback_cues, fp, ensure_ascii=False, indent=2)
+        logging.warning(
+            "Task %s: Remotion scene word cues were missing after planner run. "
+            "Created fallback cues file: %s (scenes=%s)",
+            task_id,
+            out_words,
+            scene_count,
+        )
+
+    final_output = os.path.join(out_dir, f"remotion_{task_id}.mp4")
+    cmd_render = [
+        "npm",
+        "run",
+        "render:auto",
+        "--",
+        "--video",
+        input_video,
+        "--scene-plan",
+        out_plan,
+        "--word-cues",
+        out_words,
+        "--out",
+        final_output,
+    ]
+    logging.info("Task %s: Running Remotion render: %s", task_id, " ".join(cmd_render))
+    try:
+        res_render = subprocess.run(
+            cmd_render,
+            cwd=remotion_dir,
+            capture_output=True,
+            text=True,
+            timeout=render_timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        logging.error(
+            "Task %s: Remotion render timed out after %ss. STDOUT: %s\nSTDERR: %s",
+            task_id,
+            render_timeout_seconds,
+            (exc.stdout or "")[-4000:],
+            (exc.stderr or "")[-4000:],
+        )
+        return None
+    if res_render.stdout:
+        logging.info("Task %s: Remotion stdout: %s", task_id, res_render.stdout[-4000:])
+    if res_render.stderr:
+        logging.info("Task %s: Remotion stderr: %s", task_id, res_render.stderr[-4000:])
+    if res_render.returncode != 0:
+        logging.error(
+            "Task %s: Remotion render failed. STDOUT: %s\nSTDERR: %s",
+            task_id,
+            res_render.stdout,
+            res_render.stderr,
+        )
+        return None
+    if is_usable_remotion_output(final_output):
+        return final_output
+    logging.error("Task %s: Remotion render produced no usable output.", task_id)
+    return None
+
+
 def _run_hyperframes_pipeline(
     task_id: int,
     input_video: str,
@@ -1801,23 +2019,37 @@ def process_content_task(self, task_id: int):
                 detail=(
                     "Рендерю стильную графику через Hyperframes (AI)."
                     if is_short_avatar
-                    else "Рендерю горизонтальное видео с простыми нижними плашками."
+                    else "Рендерю горизонтальное видео через Remotion."
                 ),
             )
-            hyperframes_output = _run_hyperframes_pipeline(
-                task_id,
-                local_avatar_video,
-                thumbnail_script,
-                transcript_json_path=heygen_transcript_path or None,
-                overlay_coverage_percent=int(getattr(user, "reels_broll_coverage_percent", 50) or 50),
-                layout="vertical_reels" if is_short_avatar else "horizontal_simple",
+            render_output = (
+                _run_hyperframes_pipeline(
+                    task_id,
+                    local_avatar_video,
+                    thumbnail_script,
+                    transcript_json_path=heygen_transcript_path or None,
+                    overlay_coverage_percent=int(getattr(user, "reels_broll_coverage_percent", 50) or 50),
+                    layout="vertical_reels",
+                )
+                if is_short_avatar
+                else _run_remotion_pipeline(
+                    task_id,
+                    local_avatar_video,
+                    thumbnail_script,
+                    transcript_json_path=heygen_transcript_path or None,
+                    overlay_coverage_percent=int(getattr(user, "reels_broll_coverage_percent", 50) or 50),
+                )
             )
-            if hyperframes_output:
-                local_avatar_video = hyperframes_output
-                logging.info(f"Task {task_id}: Successfully replaced raw video with Hyperframes output.")
+            if render_output:
+                local_avatar_video = render_output
+                logging.info(
+                    "Task %s: Successfully replaced raw video with %s output.",
+                    task_id,
+                    "Hyperframes" if is_short_avatar else "Remotion",
+                )
             else:
                 raise Exception(
-                    "Hyperframes rendering failed for ready HeyGen avatar task. "
+                    f"{'Hyperframes' if is_short_avatar else 'Remotion'} rendering failed for ready HeyGen avatar task. "
                     "Raw HeyGen fallback is disabled by policy."
                 )
 
@@ -2361,22 +2593,35 @@ def process_content_task(self, task_id: int):
                 detail=(
                     "Рендерю стильную графику через Hyperframes (AI)."
                     if is_short_avatar
-                    else "Рендерю горизонтальное видео с простыми нижними плашками."
+                    else "Рендерю горизонтальное видео через Remotion."
                 ),
             )
-            hyperframes_output = _run_hyperframes_pipeline(
-                task_id,
-                local_avatar_video,
-                script,
-                overlay_coverage_percent=int(getattr(user, "reels_broll_coverage_percent", 50) or 50),
-                layout="vertical_reels" if is_short_avatar else "horizontal_simple",
+            render_output = (
+                _run_hyperframes_pipeline(
+                    task_id,
+                    local_avatar_video,
+                    script,
+                    overlay_coverage_percent=int(getattr(user, "reels_broll_coverage_percent", 50) or 50),
+                    layout="vertical_reels",
+                )
+                if is_short_avatar
+                else _run_remotion_pipeline(
+                    task_id,
+                    local_avatar_video,
+                    script,
+                    overlay_coverage_percent=int(getattr(user, "reels_broll_coverage_percent", 50) or 50),
+                )
             )
-            if hyperframes_output:
-                local_avatar_video = hyperframes_output
-                logging.info(f"Task {task_id}: Successfully replaced raw video with Hyperframes output.")
+            if render_output:
+                local_avatar_video = render_output
+                logging.info(
+                    "Task %s: Successfully replaced raw video with %s output.",
+                    task_id,
+                    "Hyperframes" if is_short_avatar else "Remotion",
+                )
             else:
                 raise Exception(
-                    "Hyperframes rendering failed for avatar task. "
+                    f"{'Hyperframes' if is_short_avatar else 'Remotion'} rendering failed for avatar task. "
                     "Raw HeyGen fallback is disabled by policy."
                 )
 
