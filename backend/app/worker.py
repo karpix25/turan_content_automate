@@ -138,7 +138,12 @@ AVATAR_SCRIPT_MAX_MINUTES = int(os.getenv("AVATAR_SCRIPT_MAX_MINUTES", "6"))
 AVATAR_SCRIPT_WPM = int(os.getenv("AVATAR_SCRIPT_WORDS_PER_MINUTE", "110"))
 HYPERFRAMES_RENDER_TIMEOUT_SECONDS = max(
     300,
-    int(os.getenv("HYPERFRAMES_RENDER_TIMEOUT_SECONDS", "3600")),
+    int(
+        os.getenv(
+            "HYPERFRAMES_RENDER_TIMEOUT_SECONDS",
+            str(max(300, CELERY_TASK_SOFT_TIME_LIMIT_SECONDS - 300)),
+        )
+    ),
 )
 HYPERFRAMES_STEP_TIMEOUT_SECONDS = max(
     120,
@@ -402,6 +407,7 @@ def _run_hyperframes_pipeline(
     out_words = os.path.join(out_dir, f"scene-word-cues_{task_id}.json")
     out_transcript = os.path.join(out_dir, f"transcript.deepgram_{task_id}.json")
     script_context_path = os.path.join(out_dir, f"scenario_context_{task_id}.txt")
+    os.makedirs(out_dir, exist_ok=True)
 
     def probe_duration_seconds(path: str) -> float | None:
         if not os.path.exists(path):
@@ -436,7 +442,72 @@ def _run_hyperframes_pipeline(
             logging.warning("Task %s: Failed to probe duration for %s: %s", task_id, path, exc)
             return None
 
-    expected_render_duration = probe_duration_seconds(input_video)
+    def normalize_video_for_hyperframes(path: str) -> str | None:
+        normalized_path = os.path.join(out_dir, f"hyperframes_source_{task_id}.mp4")
+        temp_path = f"{normalized_path}.tmp.mp4"
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            path,
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a?",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-pix_fmt",
+            "yuv420p",
+            "-r",
+            "30",
+            "-g",
+            "30",
+            "-keyint_min",
+            "30",
+            "-sc_threshold",
+            "0",
+            "-movflags",
+            "+faststart",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "160k",
+            temp_path,
+        ]
+        logging.info("Task %s: Normalizing video for Hyperframes: %s", task_id, " ".join(cmd))
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=step_timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            logging.error(
+                "Task %s: Hyperframes source normalization timed out after %ss. STDOUT: %s\nSTDERR: %s",
+                task_id,
+                step_timeout_seconds,
+                (exc.stdout or "")[-4000:],
+                (exc.stderr or "")[-4000:],
+            )
+            return None
+        if result.returncode != 0:
+            logging.error(
+                "Task %s: Hyperframes source normalization failed. STDOUT: %s\nSTDERR: %s",
+                task_id,
+                result.stdout[-4000:],
+                result.stderr[-4000:],
+            )
+            return None
+        try:
+            os.replace(temp_path, normalized_path)
+        except OSError as exc:
+            logging.error("Task %s: Failed to move normalized Hyperframes source into place: %s", task_id, exc)
+            return None
+        return normalized_path
+
     overlay_coverage_percent = max(0, min(100, int(overlay_coverage_percent or 0)))
     render_timeout_seconds = min(
         HYPERFRAMES_RENDER_TIMEOUT_SECONDS,
@@ -446,6 +517,10 @@ def _run_hyperframes_pipeline(
         HYPERFRAMES_STEP_TIMEOUT_SECONDS,
         max(120, CELERY_TASK_SOFT_TIME_LIMIT_SECONDS - 600),
     )
+    render_input_video = normalize_video_for_hyperframes(input_video)
+    if not render_input_video:
+        return None
+    expected_render_duration = probe_duration_seconds(render_input_video)
 
     if (
         layout == "vertical_reels"
@@ -501,7 +576,7 @@ def _run_hyperframes_pipeline(
     # 1. Run AI Scene Planner
     cmd_plan = [
         "python3", montage_script,
-        "--video", input_video,
+        "--video", render_input_video,
         "--index", scene_plan_index,
         "--out-plan", out_plan,
         "--out-transcript", out_transcript,
@@ -568,13 +643,20 @@ def _run_hyperframes_pipeline(
     def build_hf_env() -> dict:
         env = os.environ.copy()
         env["HYPERFRAMES_OVERLAY_COVERAGE_PERCENT"] = str(overlay_coverage_percent)
+        env["PRODUCER_ENABLE_STREAMING_ENCODE"] = env.get("PRODUCER_ENABLE_STREAMING_ENCODE", "false")
+        env["PRODUCER_ENABLE_CHUNKED_ENCODE"] = env.get("PRODUCER_ENABLE_CHUNKED_ENCODE", "true")
+        env["PRODUCER_CHUNK_SIZE_FRAMES"] = env.get("PRODUCER_CHUNK_SIZE_FRAMES", "180")
+        env["PRODUCER_FORCE_SCREENSHOT"] = env.get("PRODUCER_FORCE_SCREENSHOT", "true")
+        env["PRODUCER_BROWSER_GPU_MODE"] = env.get("PRODUCER_BROWSER_GPU_MODE", "software")
+        env["FFMPEG_ENCODE_TIMEOUT_MS"] = env.get("FFMPEG_ENCODE_TIMEOUT_MS", "1800000")
+        env["FFMPEG_PROCESS_TIMEOUT_MS"] = env.get("FFMPEG_PROCESS_TIMEOUT_MS", "1800000")
         return env
 
     if layout == "horizontal_simple":
         final_output = os.path.join(out_dir, f"hyperframes_horizontal_{task_id}.mp4")
         cmd = [
             "npm", "run", "render:auto", "--",
-            "--video", input_video,
+            "--video", render_input_video,
             "--scene-plan", out_plan,
             "--word-cues", out_words,
             "--out", final_output,
@@ -652,7 +734,7 @@ def _run_hyperframes_pipeline(
         return True
 
     # 2. Prepare the vertical HeyGen source and sync duration/FPS.
-    if not run_hf_step("Hyperframes prepare", ["npm", "run", "prepare:heygen", "--", "--video", input_video]):
+    if not run_hf_step("Hyperframes prepare", ["npm", "run", "prepare:heygen", "--", "--video", render_input_video]):
         return None
 
     # 3. Apply scene text to cards and let the timeline director place cutaways.
@@ -689,19 +771,11 @@ def _run_hyperframes_pipeline(
         return any(marker in combined for marker in retry_markers)
 
     def build_stable_render_env() -> dict:
-        env = os.environ.copy()
-        env["HYPERFRAMES_OVERLAY_COVERAGE_PERCENT"] = str(overlay_coverage_percent)
+        env = build_hf_env()
         # Streaming encode pipes screenshots directly into ffmpeg. In slow
         # server-side screenshot mode ffmpeg can close stdin near the end,
         # which surfaces as Node write EPIPE. Disk-frame encode is slower but
         # avoids that fragile pipe and works inside containers without Docker.
-        env["PRODUCER_ENABLE_STREAMING_ENCODE"] = "false"
-        env["PRODUCER_ENABLE_CHUNKED_ENCODE"] = env.get("PRODUCER_ENABLE_CHUNKED_ENCODE", "true")
-        env["PRODUCER_CHUNK_SIZE_FRAMES"] = env.get("PRODUCER_CHUNK_SIZE_FRAMES", "180")
-        env["PRODUCER_FORCE_SCREENSHOT"] = env.get("PRODUCER_FORCE_SCREENSHOT", "true")
-        env["PRODUCER_BROWSER_GPU_MODE"] = env.get("PRODUCER_BROWSER_GPU_MODE", "software")
-        env["FFMPEG_ENCODE_TIMEOUT_MS"] = env.get("FFMPEG_ENCODE_TIMEOUT_MS", "1800000")
-        env["FFMPEG_PROCESS_TIMEOUT_MS"] = env.get("FFMPEG_PROCESS_TIMEOUT_MS", "1800000")
         return env
 
     def run_hyperframes_render(
