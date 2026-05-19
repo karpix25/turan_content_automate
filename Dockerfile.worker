@@ -34,7 +34,10 @@ COPY hf-montage-test/theme-config.js ./hf-montage-test/theme-config.js
 COPY hf-montage-test/meta.json ./hf-montage-test/meta.json
 COPY hf-montage-test/tools ./hf-montage-test/tools
 COPY hf-montage-test/data ./hf-montage-test/data
-COPY remotion-auto ./remotion-auto
+COPY remotion-auto/remotion.config.ts remotion-auto/tsconfig.json remotion-auto/DESIGN.md remotion-auto/README.md remotion-auto/eslint.config.mjs ./remotion-auto/
+COPY remotion-auto/public ./remotion-auto/public
+COPY remotion-auto/scripts ./remotion-auto/scripts
+COPY remotion-auto/src ./remotion-auto/src
 COPY hyperframes-auto ./hyperframes-auto
 
 RUN mkdir -p \
