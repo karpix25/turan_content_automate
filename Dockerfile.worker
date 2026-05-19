@@ -37,11 +37,7 @@ COPY hf-montage-test/data ./hf-montage-test/data
 COPY remotion-auto/remotion.config.ts remotion-auto/tsconfig.json remotion-auto/DESIGN.md remotion-auto/README.md remotion-auto/eslint.config.mjs ./remotion-auto/
 COPY remotion-auto/public ./remotion-auto/public
 COPY remotion-auto/scripts ./remotion-auto/scripts
-RUN mkdir -p /app/remotion-auto/src/montage/components/slides
-COPY remotion-auto/src/AutoMontage.tsx remotion-auto/src/Root.tsx remotion-auto/src/index.ts ./remotion-auto/src/
-COPY remotion-auto/src/montage/default-props.ts remotion-auto/src/montage/theme.ts remotion-auto/src/montage/types.ts remotion-auto/src/montage/utils.ts remotion-auto/src/montage/youtube-rules.ts ./remotion-auto/src/montage/
-COPY remotion-auto/src/montage/components/BlockOpener.tsx remotion-auto/src/montage/components/BottomCaption.tsx remotion-auto/src/montage/components/ChapterBanner.tsx remotion-auto/src/montage/components/CueWords.tsx remotion-auto/src/montage/components/FullSlide.tsx remotion-auto/src/montage/components/HeroPanel.tsx remotion-auto/src/montage/components/LeftPanel.tsx remotion-auto/src/montage/components/MiniAccent.tsx ./remotion-auto/src/montage/components/
-COPY remotion-auto/src/montage/components/slides/BarChart.tsx remotion-auto/src/montage/components/slides/BigNumber.tsx remotion-auto/src/montage/components/slides/ComparisonCard.tsx remotion-auto/src/montage/components/slides/DonutChart.tsx remotion-auto/src/montage/components/slides/KineticInsight.tsx ./remotion-auto/src/montage/components/slides/
+COPY remotion-auto/src ./remotion-auto/src
 COPY hyperframes-auto ./hyperframes-auto
 
 RUN mkdir -p \

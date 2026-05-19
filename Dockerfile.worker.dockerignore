@@ -15,6 +15,21 @@
 !hf-montage-test/data/
 !hf-montage-test/data/**
 
+!remotion-auto/
+!remotion-auto/package.json
+!remotion-auto/package-lock.json
+!remotion-auto/remotion.config.ts
+!remotion-auto/tsconfig.json
+!remotion-auto/DESIGN.md
+!remotion-auto/README.md
+!remotion-auto/eslint.config.mjs
+!remotion-auto/public/
+!remotion-auto/public/**
+!remotion-auto/scripts/
+!remotion-auto/scripts/**
+!remotion-auto/src/
+!remotion-auto/src/**
+
 !hyperframes-auto/
 !hyperframes-auto/package.json
 !hyperframes-auto/package-lock.json
@@ -31,6 +46,12 @@ hyperframes-auto/assets/input/
 hyperframes-auto/node_modules/
 hyperframes-auto/renders/
 hyperframes-auto/.thumbnails/
+
+remotion-auto/node_modules/
+remotion-auto/renders/
+remotion-auto/.cache/
+remotion-auto/public/input/source*
+remotion-auto/public/input/*.mp4
 
 hf-montage-test/renders/
 hf-montage-test/.thumbnails/
