@@ -12,6 +12,13 @@ class YandexDiskClient:
         self.token = (token or "").strip()
         self.timeout_seconds = float(os.getenv("YANDEX_DISK_TIMEOUT_SECONDS", "120"))
         self.upload_timeout_seconds = float(os.getenv("YANDEX_DISK_UPLOAD_TIMEOUT_SECONDS", "600"))
+        self.upload_total_deadline_seconds = float(
+            os.getenv("YANDEX_DISK_UPLOAD_TOTAL_DEADLINE_SECONDS", "420")
+        )
+        self.upload_chunk_size_bytes = max(
+            64 * 1024,
+            int(os.getenv("YANDEX_DISK_UPLOAD_CHUNK_SIZE_BYTES", str(1024 * 1024))),
+        )
         self.upload_retries = max(0, int(os.getenv("YANDEX_DISK_UPLOAD_RETRIES", "2")))
         self.upload_retry_backoff_seconds = max(
             0.0,
@@ -111,24 +118,49 @@ class YandexDiskClient:
             write=self.upload_timeout_seconds,
             pool=self.timeout_seconds,
         )
-        last_timeout_error: Exception | None = None
+        file_size = os.path.getsize(local_path)
+        last_upload_error: Exception | None = None
         upload_response: httpx.Response | None = None
         for attempt in range(1, self.upload_retries + 2):
+            deadline = (
+                time.monotonic() + self.upload_total_deadline_seconds
+                if self.upload_total_deadline_seconds > 0
+                else None
+            )
+
+            def iter_file_chunks():
+                with open(local_path, "rb") as fh:
+                    while True:
+                        if deadline is not None and time.monotonic() > deadline:
+                            raise TimeoutError(
+                                f"Yandex.Disk upload total deadline exceeded after "
+                                f"{self.upload_total_deadline_seconds:.0f}s"
+                            )
+                        chunk = fh.read(self.upload_chunk_size_bytes)
+                        if not chunk:
+                            break
+                        yield chunk
+
             try:
-                with open(local_path, "rb") as fh, httpx.Client(timeout=upload_timeout) as client:
-                    upload_response = client.put(href, content=fh)
-                last_timeout_error = None
+                with httpx.Client(timeout=upload_timeout) as client:
+                    upload_response = client.put(
+                        href,
+                        content=iter_file_chunks(),
+                        headers={"Content-Length": str(file_size)},
+                    )
+                last_upload_error = None
                 break
-            except (httpx.ReadTimeout, httpx.WriteTimeout, httpx.ConnectTimeout) as exc:
-                last_timeout_error = exc
+            except (httpx.ReadTimeout, httpx.WriteTimeout, httpx.ConnectTimeout, httpx.TransportError, TimeoutError) as exc:
+                last_upload_error = exc
                 if attempt >= self.upload_retries + 1:
                     break
                 time.sleep(self.upload_retry_backoff_seconds * attempt)
 
-        if last_timeout_error is not None:
+        if last_upload_error is not None:
             raise RuntimeError(
-                f"Yandex.Disk upload timed out for '{normalized_remote}' after {self.upload_retries + 1} attempts"
-            ) from last_timeout_error
+                f"Yandex.Disk upload failed or timed out for '{normalized_remote}' "
+                f"after {self.upload_retries + 1} attempts"
+            ) from last_upload_error
         if upload_response is None:
             raise RuntimeError(f"Yandex.Disk upload failed for '{normalized_remote}' with unknown transport state")
 

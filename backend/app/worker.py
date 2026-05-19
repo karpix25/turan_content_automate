@@ -9,6 +9,7 @@ import time
 import math
 from typing import List
 from urllib.parse import urlparse, parse_qs
+from billiard.exceptions import SoftTimeLimitExceeded
 from celery import Celery
 from .integrations.vizard import VizardClient
 from .integrations.scrape_creators import ScrapeCreatorsClient
@@ -81,6 +82,8 @@ init_database()
 celery_app = Celery('tasks', broker=(os.getenv("REDIS_URL") or "redis://localhost:6379/0").strip())
 CELERY_TASK_SOFT_TIME_LIMIT_SECONDS = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT_SECONDS", "5400"))
 CELERY_TASK_TIME_LIMIT_SECONDS = int(os.getenv("CELERY_TASK_TIME_LIMIT_SECONDS", "7200"))
+YANDEX_UPLOAD_SOFT_TIME_LIMIT_SECONDS = int(os.getenv("YANDEX_UPLOAD_SOFT_TIME_LIMIT_SECONDS", "1800"))
+YANDEX_UPLOAD_TIME_LIMIT_SECONDS = int(os.getenv("YANDEX_UPLOAD_TIME_LIMIT_SECONDS", "2400"))
 celery_app.conf.update(
     broker_connection_retry_on_startup=True,
     task_track_started=True,
@@ -118,6 +121,154 @@ yandex_disk = YandexDiskClient(
         or ""
     ).strip()
 )
+
+
+def _collect_yandex_disk_upload_paths(task: models.VideoTask, rendered_items: List[dict] | None = None) -> List[str]:
+    file_paths: List[str] = []
+    for item in rendered_items or []:
+        local_output = (item.get("output_path") or "").strip()
+        if local_output and os.path.isfile(local_output):
+            file_paths.append(local_output)
+    if not file_paths:
+        local_output = (getattr(task, "output_path", None) or "").strip()
+        if local_output and os.path.isfile(local_output):
+            file_paths.append(local_output)
+
+    try:
+        thumbnail_path = (
+            ((task.script_meta or {}).get("thumbnail") or {}).get("output_path")
+            or ""
+        ).strip()
+        description_txt_path = (
+            ((task.script_meta or {}).get("youtube_description") or {}).get("txt_path")
+            or ""
+        ).strip()
+    except Exception:
+        thumbnail_path = ""
+        description_txt_path = ""
+
+    if thumbnail_path and os.path.isfile(thumbnail_path):
+        file_paths.append(thumbnail_path)
+    if description_txt_path and os.path.isfile(description_txt_path):
+        file_paths.append(description_txt_path)
+
+    deduped: List[str] = []
+    seen = set()
+    for path in file_paths:
+        if path in seen:
+            continue
+        seen.add(path)
+        deduped.append(path)
+    return deduped
+
+
+def _upload_files_to_yandex_disk(file_paths: List[str]) -> List[dict]:
+    if not yandex_disk.is_configured:
+        raise Exception("YANDEX_DISK_TOKEN is not configured for avatar upload")
+
+    target_root = (os.getenv("YANDEX_DISK_AVATAR_DIR") or "disk:/").strip()
+    target_dir = target_root.rstrip("/") or "disk:/"
+    ensured_dir = yandex_disk.ensure_directory(target_dir)
+
+    uploaded: List[dict] = []
+    for local_path in file_paths:
+        if not local_path or not os.path.isfile(local_path):
+            logging.warning("Skipping missing Yandex.Disk upload file: %s", local_path)
+            continue
+        remote_path = f"{ensured_dir.rstrip('/')}/{os.path.basename(local_path)}"
+        remote_saved_path = yandex_disk.upload_file(local_path=local_path, remote_path=remote_path, overwrite=True)
+        public_url = yandex_disk.publish_and_get_public_url(remote_saved_path)
+        uploaded.append(
+            {
+                "local_output_path": local_path,
+                "remote_path": remote_saved_path,
+                "public_url": public_url,
+            }
+        )
+    return uploaded
+
+
+@celery_app.task(
+    name="upload_yandex_disk_task",
+    bind=True,
+    max_retries=3,
+    soft_time_limit=YANDEX_UPLOAD_SOFT_TIME_LIMIT_SECONDS,
+    time_limit=YANDEX_UPLOAD_TIME_LIMIT_SECONDS,
+)
+def upload_yandex_disk_task(self, task_id: int, file_paths: List[str] | None = None):
+    db = SessionLocal()
+    task = db.query(models.VideoTask).get(task_id)
+    if not task:
+        db.close()
+        return
+    try:
+        paths = _collect_yandex_disk_upload_paths(task) if file_paths is None else list(file_paths)
+        if not paths:
+            logging.warning("Task %s: no files available for Yandex.Disk upload", task_id)
+            return
+        current_meta = dict(task.script_meta or {})
+        if current_meta.get("yandex_disk_upload_status") == "completed":
+            logging.info("Task %s: Yandex.Disk upload is already completed; skipping duplicate upload.", task_id)
+            return
+        current_meta["yandex_disk_upload_status"] = "in_progress"
+        current_meta["yandex_disk_upload_started_at"] = datetime.datetime.utcnow().isoformat()
+        task.script_meta = current_meta
+        db.commit()
+
+        update_task_status_message(
+            db,
+            task,
+            stage="Выгрузка",
+            detail="Сохраняю готовые файлы в Яндекс.Диск.",
+        )
+        uploads = _upload_files_to_yandex_disk(paths)
+
+        current_meta = dict(task.script_meta or {})
+        current_meta["yandex_disk_uploads"] = uploads
+        current_meta.pop("yandex_disk_upload_error", None)
+        current_meta["yandex_disk_upload_status"] = "completed"
+        current_meta["yandex_disk_uploaded_at"] = datetime.datetime.utcnow().isoformat()
+        task.script_meta = current_meta
+        db.commit()
+        db.refresh(task)
+
+        send_yandex_disk_links_to_telegram(task, uploads)
+        update_task_status_message(
+            db,
+            task,
+            stage="Готово",
+            detail="Финальный файл собран и сохранен в Яндекс.Диск.",
+            ok=True,
+        )
+    except SoftTimeLimitExceeded:
+        raise
+    except Exception as exc:
+        logging.exception("Task %s: Yandex.Disk async upload failed: %s", task_id, exc)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        task = db.query(models.VideoTask).get(task_id)
+        if task:
+            current_meta = dict(task.script_meta or {})
+            current_meta["yandex_disk_upload_status"] = "failed"
+            current_meta["yandex_disk_upload_error"] = str(exc)[:500]
+            task.script_meta = current_meta
+            db.commit()
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=exc, countdown=60 * (self.request.retries + 1))
+        if task:
+            update_task_status_message(
+                db,
+                task,
+                stage="Готово",
+                detail=f"Финальный файл собран. Выгрузка в Яндекс.Диск не удалась: {str(exc)[:220]}",
+                ok=True,
+            )
+    finally:
+        db.close()
+
+
 rapidapi_yt = RapidAPIYoutubeClient(
     api_key=os.getenv("RAPIDAPI_KEY", ""),
     host=os.getenv("YOUTUBE_DOWNLOAD_RAPIDAPI_HOST", "youtube-mp4-mp3-downloader.p.rapidapi.com"),
@@ -1108,6 +1259,20 @@ def process_content_task(self, task_id: int):
     db = SessionLocal()
     task = db.query(models.VideoTask).get(task_id)
     if not task:
+        db.close()
+        return
+    if task.status == "completed" and (task.output_path or "").strip():
+        logging.info("Task %s is already completed with output_path=%s; skipping duplicate processing.", task_id, task.output_path)
+        existing_meta = dict(task.script_meta or {})
+        if (
+            task.type in AVATAR_TASK_TYPES
+            and existing_meta.get("yandex_disk_upload_status") == "pending"
+            and yandex_disk.is_configured
+        ):
+            upload_paths = _collect_yandex_disk_upload_paths(task)
+            if upload_paths:
+                celery_app.send_task("upload_yandex_disk_task", args=[task.id, upload_paths])
+        db.close()
         return
     
     user = db.query(models.User).get(task.user_id)
@@ -3035,24 +3200,6 @@ def process_content_task(self, task_id: int):
         if not rendered_outputs:
             raise Exception("No rendered outputs were produced")
 
-        yandex_uploads_meta: List[dict] = []
-        yandex_upload_error: str | None = None
-        try:
-            yandex_uploads_meta = _upload_to_yandex_disk_if_needed(rendered_outputs)
-        except Exception as upload_error:
-            yandex_upload_error = str(upload_error).strip() or "unknown_error"
-            logging.exception(
-                "Task %s: Yandex.Disk upload failed, task will continue without remote upload: %s",
-                task_id,
-                yandex_upload_error,
-            )
-            update_task_status_message(
-                db,
-                task,
-                stage="Выгрузка",
-                detail=f"Не удалось выгрузить в Яндекс.Диск: {yandex_upload_error[:220]}. Продолжаю без выгрузки.",
-            )
-
         primary_output = rendered_outputs[0]
         task.output_path = primary_output["output_path"]
         task.target_account_id = primary_output["target_account_id"]
@@ -3071,14 +3218,27 @@ def process_content_task(self, task_id: int):
             task.script_meta = current_meta
         if task.type in AVATAR_TASK_TYPES:
             current_meta = dict(task.script_meta or {})
-            current_meta["yandex_disk_uploads"] = yandex_uploads_meta
-            if yandex_upload_error:
-                current_meta["yandex_disk_upload_error"] = yandex_upload_error
+            upload_paths = _collect_yandex_disk_upload_paths(task, rendered_outputs)
+            current_meta["yandex_disk_uploads"] = []
+            if yandex_disk.is_configured and upload_paths:
+                current_meta["yandex_disk_upload_status"] = "pending"
+                current_meta["yandex_disk_upload_paths"] = upload_paths
+                current_meta.pop("yandex_disk_upload_error", None)
+            elif not yandex_disk.is_configured:
+                current_meta["yandex_disk_upload_status"] = "skipped"
+                current_meta["yandex_disk_upload_error"] = "YANDEX_DISK_TOKEN is not configured for avatar upload"
+            else:
+                current_meta["yandex_disk_upload_status"] = "skipped"
+                current_meta["yandex_disk_upload_error"] = "No local files available for Yandex.Disk upload"
             task.script_meta = current_meta
         db.commit()
         db.refresh(task)
         if task.type in AVATAR_TASK_TYPES:
-            send_yandex_disk_links_to_telegram(task, yandex_uploads_meta)
+            current_meta = dict(task.script_meta or {})
+            upload_paths = list(current_meta.get("yandex_disk_upload_paths") or [])
+            if current_meta.get("yandex_disk_upload_status") == "pending" and upload_paths:
+                logging.info("Task %s: enqueue upload_yandex_disk_task for %s file(s)", task.id, len(upload_paths))
+                celery_app.send_task("upload_yandex_disk_task", args=[task.id, upload_paths])
         if task.type in SHORT_AVATAR_TASK_TYPES and task.output_path:
             if task.type == "avatar_instagram":
                 label = "Reels Avatar"
