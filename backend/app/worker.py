@@ -136,6 +136,18 @@ AVATAR_TASK_TYPES = {*AVATAR_READY_HEYGEN_TASK_TYPES}
 AVATAR_SCRIPT_MIN_MINUTES = int(os.getenv("AVATAR_SCRIPT_MIN_MINUTES", "4"))
 AVATAR_SCRIPT_MAX_MINUTES = int(os.getenv("AVATAR_SCRIPT_MAX_MINUTES", "6"))
 AVATAR_SCRIPT_WPM = int(os.getenv("AVATAR_SCRIPT_WORDS_PER_MINUTE", "110"))
+HYPERFRAMES_RENDER_TIMEOUT_SECONDS = max(
+    300,
+    int(os.getenv("HYPERFRAMES_RENDER_TIMEOUT_SECONDS", "3600")),
+)
+HYPERFRAMES_STEP_TIMEOUT_SECONDS = max(
+    120,
+    int(os.getenv("HYPERFRAMES_STEP_TIMEOUT_SECONDS", "1800")),
+)
+HYPERFRAMES_VERTICAL_MAX_FULL_RENDER_SECONDS = max(
+    0,
+    int(os.getenv("HYPERFRAMES_VERTICAL_MAX_FULL_RENDER_SECONDS", "900")),
+)
 if AVATAR_SCRIPT_MIN_MINUTES < 1:
     AVATAR_SCRIPT_MIN_MINUTES = 1
 if AVATAR_SCRIPT_MAX_MINUTES < AVATAR_SCRIPT_MIN_MINUTES:
@@ -376,10 +388,11 @@ def _run_hyperframes_pipeline(
     script: str,
     transcript_json_path: str | None = None,
     overlay_coverage_percent: int = 50,
+    layout: str = "vertical_reels",
 ) -> str | None:
     import subprocess
     import json
-    logging.info(f"Task {task_id}: Starting Hyperframes pipeline on {input_video}")
+    logging.info("Task %s: Starting Hyperframes pipeline layout=%s on %s", task_id, layout, input_video)
     montage_script = "/app/hf-montage-test/tools/smart_montage_pipeline.py"
     hyperframes_dir = "/app/hyperframes-auto"
     scene_plan_index = "/app/hf-montage-test/index.html"
@@ -425,6 +438,29 @@ def _run_hyperframes_pipeline(
 
     expected_render_duration = probe_duration_seconds(input_video)
     overlay_coverage_percent = max(0, min(100, int(overlay_coverage_percent or 0)))
+    render_timeout_seconds = min(
+        HYPERFRAMES_RENDER_TIMEOUT_SECONDS,
+        max(300, CELERY_TASK_SOFT_TIME_LIMIT_SECONDS - 300),
+    )
+    step_timeout_seconds = min(
+        HYPERFRAMES_STEP_TIMEOUT_SECONDS,
+        max(120, CELERY_TASK_SOFT_TIME_LIMIT_SECONDS - 600),
+    )
+
+    if (
+        layout == "vertical_reels"
+        and HYPERFRAMES_VERTICAL_MAX_FULL_RENDER_SECONDS > 0
+        and expected_render_duration
+        and expected_render_duration > HYPERFRAMES_VERTICAL_MAX_FULL_RENDER_SECONDS
+    ):
+        logging.error(
+            "Task %s: refusing vertical Hyperframes full render for %.1fs video; limit is %ss. "
+            "Use a shorter source or horizontal/simple render path.",
+            task_id,
+            expected_render_duration,
+            HYPERFRAMES_VERTICAL_MAX_FULL_RENDER_SECONDS,
+        )
+        return None
 
     def is_usable_hyperframes_output(path: str) -> bool:
         if not os.path.exists(path):
@@ -481,7 +517,17 @@ def _run_hyperframes_pipeline(
     if transcript_json_path and os.path.exists(transcript_json_path):
         cmd_plan.extend(["--reuse-transcript", transcript_json_path])
     logging.info(f"Task {task_id}: Running scene planner: {' '.join(cmd_plan)}")
-    res = subprocess.run(cmd_plan, capture_output=True, text=True)
+    try:
+        res = subprocess.run(cmd_plan, capture_output=True, text=True, timeout=step_timeout_seconds)
+    except subprocess.TimeoutExpired as exc:
+        logging.error(
+            "Task %s: Scene planner timed out after %ss. STDOUT: %s\nSTDERR: %s",
+            task_id,
+            step_timeout_seconds,
+            (exc.stdout or "")[-4000:],
+            (exc.stderr or "")[-4000:],
+        )
+        return None
     if res.returncode != 0:
         logging.error(f"Task {task_id}: Scene planner failed. STDOUT: {res.stdout}\nSTDERR: {res.stderr}")
         return None
@@ -524,9 +570,72 @@ def _run_hyperframes_pipeline(
         env["HYPERFRAMES_OVERLAY_COVERAGE_PERCENT"] = str(overlay_coverage_percent)
         return env
 
+    if layout == "horizontal_simple":
+        final_output = os.path.join(out_dir, f"hyperframes_horizontal_{task_id}.mp4")
+        cmd = [
+            "npm", "run", "render:auto", "--",
+            "--video", input_video,
+            "--scene-plan", out_plan,
+            "--word-cues", out_words,
+            "--out", final_output,
+        ]
+        logging.info("Task %s: Hyperframes horizontal simple render: %s", task_id, " ".join(cmd))
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=hyperframes_dir,
+                capture_output=True,
+                text=True,
+                env=build_hf_env(),
+                timeout=render_timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            logging.error(
+                "Task %s: Hyperframes horizontal simple render timed out after %ss. STDOUT: %s\nSTDERR: %s",
+                task_id,
+                render_timeout_seconds,
+                (exc.stdout or "")[-4000:],
+                (exc.stderr or "")[-4000:],
+            )
+            return None
+        if result.stdout:
+            logging.info("Task %s: Hyperframes horizontal stdout: %s", task_id, result.stdout[-4000:])
+        if result.stderr:
+            logging.info("Task %s: Hyperframes horizontal stderr: %s", task_id, result.stderr[-4000:])
+        if result.returncode != 0:
+            logging.error(
+                "Task %s: Hyperframes horizontal simple render failed. STDOUT: %s\nSTDERR: %s",
+                task_id,
+                result.stdout,
+                result.stderr,
+            )
+            return None
+        if is_usable_hyperframes_output(final_output):
+            return final_output
+        logging.error("Task %s: Hyperframes horizontal simple render produced no usable output.", task_id)
+        return None
+
     def run_hf_step(label: str, cmd: list[str]) -> bool:
         logging.info("Task %s: %s: %s", task_id, label, " ".join(cmd))
-        result = subprocess.run(cmd, cwd=hyperframes_dir, capture_output=True, text=True, env=build_hf_env())
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=hyperframes_dir,
+                capture_output=True,
+                text=True,
+                env=build_hf_env(),
+                timeout=step_timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            logging.error(
+                "Task %s: %s timed out after %ss. STDOUT: %s\nSTDERR: %s",
+                task_id,
+                label,
+                step_timeout_seconds,
+                (exc.stdout or "")[-4000:],
+                (exc.stderr or "")[-4000:],
+            )
+            return False
         if result.returncode != 0:
             logging.error(
                 "Task %s: %s failed. STDOUT: %s\nSTDERR: %s",
@@ -610,13 +719,31 @@ def _run_hyperframes_pipeline(
             *(extra_args or []),
         ]
         logging.info("Task %s: %s: %s", task_id, label, " ".join(cmd))
-        result = subprocess.run(
-            cmd,
-            cwd=hyperframes_dir,
-            capture_output=True,
-            text=True,
-            env=build_stable_render_env() if stable else None,
-        )
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=hyperframes_dir,
+                capture_output=True,
+                text=True,
+                env=build_stable_render_env() if stable else None,
+                timeout=render_timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            logging.error(
+                "Task %s: %s timed out after %ss. STDOUT: %s\nSTDERR: %s",
+                task_id,
+                label,
+                render_timeout_seconds,
+                (exc.stdout or "")[-4000:],
+                (exc.stderr or "")[-4000:],
+            )
+            timeout_result = subprocess.CompletedProcess(
+                args=cmd,
+                returncode=124,
+                stdout=exc.stdout or "",
+                stderr=exc.stderr or f"Timed out after {render_timeout_seconds}s",
+            )
+            return cmd, timeout_result
         if result.stdout:
             logging.info("Task %s: %s stdout: %s", task_id, label, result.stdout[-4000:])
         if result.stderr:
@@ -1592,13 +1719,24 @@ def process_content_task(self, task_id: int):
                     "txt_path": description_txt_path,
                 }
 
-            update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Hyperframes (AI).")
+            is_short_avatar = task.type in SHORT_AVATAR_TASK_TYPES
+            update_task_status_message(
+                db,
+                task,
+                stage="Монтаж",
+                detail=(
+                    "Рендерю стильную графику через Hyperframes (AI)."
+                    if is_short_avatar
+                    else "Рендерю горизонтальное видео с простыми нижними плашками."
+                ),
+            )
             hyperframes_output = _run_hyperframes_pipeline(
                 task_id,
                 local_avatar_video,
                 thumbnail_script,
                 transcript_json_path=heygen_transcript_path or None,
                 overlay_coverage_percent=int(getattr(user, "reels_broll_coverage_percent", 50) or 50),
+                layout="vertical_reels" if is_short_avatar else "horizontal_simple",
             )
             if hyperframes_output:
                 local_avatar_video = hyperframes_output
@@ -1610,7 +1748,7 @@ def process_content_task(self, task_id: int):
                 )
 
             post_hyperframes_meta: dict = {}
-            if task.type in SHORT_AVATAR_TASK_TYPES:
+            if is_short_avatar:
                 thumbnail_image_path = str((thumbnail_meta or {}).get("output_path") or "").strip()
                 local_avatar_video, vertical_cover_meta = _apply_short_avatar_vertical_cover(
                     local_avatar_video,
@@ -2140,13 +2278,24 @@ def process_content_task(self, task_id: int):
                 task.script_meta = current_meta
                 db.commit()
                 
-            # --- Hyperframes AI Rendering ---
-            update_task_status_message(db, task, stage="Монтаж", detail="Рендерю стильную графику через Hyperframes (AI).")
+            # --- Hyperframes Rendering ---
+            is_short_avatar = task.type in SHORT_AVATAR_TASK_TYPES
+            update_task_status_message(
+                db,
+                task,
+                stage="Монтаж",
+                detail=(
+                    "Рендерю стильную графику через Hyperframes (AI)."
+                    if is_short_avatar
+                    else "Рендерю горизонтальное видео с простыми нижними плашками."
+                ),
+            )
             hyperframes_output = _run_hyperframes_pipeline(
                 task_id,
                 local_avatar_video,
                 script,
                 overlay_coverage_percent=int(getattr(user, "reels_broll_coverage_percent", 50) or 50),
+                layout="vertical_reels" if is_short_avatar else "horizontal_simple",
             )
             if hyperframes_output:
                 local_avatar_video = hyperframes_output
@@ -2157,7 +2306,7 @@ def process_content_task(self, task_id: int):
                     "Raw HeyGen fallback is disabled by policy."
                 )
 
-            if task.type not in SHORT_AVATAR_TASK_TYPES:
+            if not is_short_avatar:
                 local_avatar_video, insert_meta = _apply_avatar_insert_montage(local_avatar_video)
                 current_meta = dict(task.script_meta or {})
                 current_meta["avatar_insert_montage"] = insert_meta

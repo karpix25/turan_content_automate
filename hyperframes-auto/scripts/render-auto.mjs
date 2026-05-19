@@ -8,6 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
 const argv = process.argv.slice(2);
+const generatedCompositionName = 'horizontal-simple.generated.html';
 
 const getArgValue = (name, fallback) => {
   const index = argv.indexOf(`--${name}`);
@@ -231,6 +232,15 @@ const html = `<!doctype html>
         muted
         playsinline
       ></video>
+      <audio
+        id="source-audio"
+        class="clip"
+        data-start="0"
+        data-duration="${rootDuration.toFixed(3)}"
+        data-track-index="2"
+        data-volume="1"
+        src="./assets/input/${escapeHtml(copiedVideoName)}"
+      ></audio>
 ${overlayClips}
     </div>
 
@@ -244,7 +254,7 @@ ${timelineTweens}
 </html>
 `;
 
-fs.writeFileSync(path.join(projectRoot, 'index.html'), html, 'utf8');
+fs.writeFileSync(path.join(projectRoot, generatedCompositionName), html, 'utf8');
 
 const outputDir = path.dirname(outputPath);
 fs.mkdirSync(outputDir, {recursive: true});
@@ -252,6 +262,8 @@ fs.mkdirSync(outputDir, {recursive: true});
 const renderArgs = [
   'hyperframes',
   'render',
+  '--composition',
+  generatedCompositionName,
   '--output',
   outputPath,
   '--fps',
