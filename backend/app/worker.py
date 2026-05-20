@@ -665,21 +665,46 @@ def _run_remotion_pipeline(
     if transcript_json_path and os.path.exists(transcript_json_path):
         cmd_plan.extend(["--reuse-transcript", transcript_json_path])
 
-    logging.info("Task %s: Running Remotion scene planner: %s", task_id, " ".join(cmd_plan))
-    try:
-        res = subprocess.run(cmd_plan, capture_output=True, text=True, timeout=step_timeout_seconds)
-    except subprocess.TimeoutExpired as exc:
-        logging.error(
-            "Task %s: Remotion scene planner timed out after %ss. STDOUT: %s\nSTDERR: %s",
-            task_id,
-            step_timeout_seconds,
-            (exc.stdout or "")[-4000:],
-            (exc.stderr or "")[-4000:],
-        )
+    def run_scene_planner(cmd: list[str], label: str):
+        logging.info("Task %s: %s: %s", task_id, label, " ".join(cmd))
+        try:
+            return subprocess.run(cmd, capture_output=True, text=True, timeout=step_timeout_seconds)
+        except subprocess.TimeoutExpired as exc:
+            logging.error(
+                "Task %s: %s timed out after %ss. STDOUT: %s\nSTDERR: %s",
+                task_id,
+                label,
+                step_timeout_seconds,
+                (exc.stdout or "")[-4000:],
+                (exc.stderr or "")[-4000:],
+            )
+            return None
+
+    res = run_scene_planner(cmd_plan, "Running Remotion scene planner")
+    if res is None:
         return None
     if res.returncode != 0:
-        logging.error("Task %s: Remotion scene planner failed. STDOUT: %s\nSTDERR: %s", task_id, res.stdout, res.stderr)
-        return None
+        combined_error = f"{res.stdout or ''}\n{res.stderr or ''}"
+        can_use_deterministic_plan = (
+            "LLM scene-plan failed quality gate" in combined_error
+            or "LLM scene-plan used generic copy" in combined_error
+            or "LLM scene-plan returned only" in combined_error
+            or "LLM scene-plan is empty" in combined_error
+        )
+        if can_use_deterministic_plan:
+            fallback_cmd_plan = [*cmd_plan, "--skip-llm"]
+            logging.warning(
+                "Task %s: Remotion LLM scene planner failed quality gate; "
+                "retrying with deterministic planner. STDERR: %s",
+                task_id,
+                res.stderr[-4000:],
+            )
+            res = run_scene_planner(fallback_cmd_plan, "Running Remotion deterministic scene planner")
+            if res is None:
+                return None
+        if res.returncode != 0:
+            logging.error("Task %s: Remotion scene planner failed. STDOUT: %s\nSTDERR: %s", task_id, res.stdout, res.stderr)
+            return None
 
     out_words_generated = out_plan.replace("scene-plan_", "scene-word-cues_")
     if os.path.exists(out_words_generated):
