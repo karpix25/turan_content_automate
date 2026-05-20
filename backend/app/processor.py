@@ -3,6 +3,7 @@ import logging
 import random
 import uuid
 import math
+import subprocess
 import ffmpeg
 from typing import List, Dict, Optional, Tuple
 
@@ -36,6 +37,28 @@ class VideoProcessor:
 
     def _probe_media(self, media_path: str) -> Dict:
         return ffmpeg.probe(media_path)
+
+    def _run_ffmpeg_output(
+        self,
+        stream,
+        *,
+        timeout_seconds: Optional[int] = None,
+    ) -> None:
+        process = stream.overwrite_output().run_async(
+            pipe_stdin=False,
+            pipe_stdout=True,
+            pipe_stderr=True,
+        )
+        try:
+            out, err = process.communicate(timeout=timeout_seconds if timeout_seconds and timeout_seconds > 0 else None)
+        except subprocess.TimeoutExpired as exc:
+            process.kill()
+            out, err = process.communicate()
+            timeout_error = ffmpeg.Error("ffmpeg", out or b"", err or b"")
+            timeout_error.timeout_seconds = timeout_seconds
+            raise timeout_error from exc
+        if process.returncode != 0:
+            raise ffmpeg.Error("ffmpeg", out or b"", err or b"")
 
     def _get_first_stream(self, probe_data: Dict, codec_type: str) -> Optional[Dict]:
         for stream in probe_data.get("streams", []):
@@ -109,6 +132,7 @@ class VideoProcessor:
         min_insert_seconds: float = 0.2,
         target_total_insert_seconds: Optional[float] = None,
         preserve_source_audio: bool = False,
+        timeout_seconds: Optional[int] = None,
     ) -> tuple[str | None, dict]:
         meta: dict = {
             "status": "skipped",
@@ -118,6 +142,7 @@ class VideoProcessor:
             "window_percent": [int(start_percent), int(end_percent)],
             "target_total_insert_seconds": target_total_insert_seconds,
             "preserve_source_audio": preserve_source_audio,
+            "timeout_seconds": timeout_seconds,
             "insertions": [],
         }
 
@@ -344,50 +369,44 @@ class VideoProcessor:
                 joined = ffmpeg.concat(*streams, v=1, a=0).node
                 out_v = joined[0]
                 audio_input = ffmpeg.input(input_path)
-                (
-                    ffmpeg
-                    .output(
+                self._run_ffmpeg_output(
+                    ffmpeg.output(
                         out_v,
                         audio_input.audio,
                         output_path,
                         **self._encode_kwargs(include_audio=True),
-                    )
-                    .overwrite_output()
-                    .run(capture_stdout=True, capture_stderr=True)
+                    ),
+                    timeout_seconds=timeout_seconds,
                 )
             elif include_audio:
                 joined = ffmpeg.concat(*streams, v=1, a=1).node
                 out_v = joined[0]
                 out_a = joined[1]
-                (
-                    ffmpeg
-                    .output(
+                self._run_ffmpeg_output(
+                    ffmpeg.output(
                         out_v,
                         out_a,
                         output_path,
                         **self._encode_kwargs(include_audio=True),
-                    )
-                    .overwrite_output()
-                    .run(capture_stdout=True, capture_stderr=True)
+                    ),
+                    timeout_seconds=timeout_seconds,
                 )
             else:
                 joined = ffmpeg.concat(*streams, v=1, a=0).node
                 out_v = joined[0]
-                (
-                    ffmpeg
-                    .output(
+                self._run_ffmpeg_output(
+                    ffmpeg.output(
                         out_v,
                         output_path,
                         **self._encode_kwargs(include_audio=False),
-                    )
-                    .overwrite_output()
-                    .run(capture_stdout=True, capture_stderr=True)
+                    ),
+                    timeout_seconds=timeout_seconds,
                 )
         except ffmpeg.Error as exc:
             stderr = exc.stderr.decode("utf-8", errors="ignore") if getattr(exc, "stderr", None) else ""
             logger.error("Avatar insert montage failed for %s: %s", output_path, stderr)
             meta["status"] = "failed"
-            meta["reason"] = "ffmpeg_failed"
+            meta["reason"] = "ffmpeg_timeout" if getattr(exc, "timeout_seconds", None) else "ffmpeg_failed"
             return None, meta
 
         if not os.path.isfile(output_path):

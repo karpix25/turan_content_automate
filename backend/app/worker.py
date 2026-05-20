@@ -84,6 +84,14 @@ CELERY_TASK_SOFT_TIME_LIMIT_SECONDS = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT
 CELERY_TASK_TIME_LIMIT_SECONDS = int(os.getenv("CELERY_TASK_TIME_LIMIT_SECONDS", "7200"))
 YANDEX_UPLOAD_SOFT_TIME_LIMIT_SECONDS = int(os.getenv("YANDEX_UPLOAD_SOFT_TIME_LIMIT_SECONDS", "1800"))
 YANDEX_UPLOAD_TIME_LIMIT_SECONDS = int(os.getenv("YANDEX_UPLOAD_TIME_LIMIT_SECONDS", "2400"))
+AVATAR_INSERT_MONTAGE_TIMEOUT_SECONDS = max(
+    60,
+    int(os.getenv("AVATAR_INSERT_MONTAGE_TIMEOUT_SECONDS", "900")),
+)
+AVATAR_INSERT_MONTAGE_MIN_REMAINING_SECONDS = max(
+    120,
+    int(os.getenv("AVATAR_INSERT_MONTAGE_MIN_REMAINING_SECONDS", str(AVATAR_INSERT_MONTAGE_TIMEOUT_SECONDS + 180))),
+)
 celery_app.conf.update(
     broker_connection_retry_on_startup=True,
     task_track_started=True,
@@ -1286,6 +1294,7 @@ def _run_hyperframes_pipeline(
 
 @celery_app.task(name="process_content_task", bind=True, max_retries=3)
 def process_content_task(self, task_id: int):
+    task_started_monotonic = time.monotonic()
     db = SessionLocal()
     task = db.query(models.VideoTask).get(task_id)
     if not task:
@@ -1311,6 +1320,52 @@ def process_content_task(self, task_id: int):
     update_task_status_message(db, task, stage="Обработка началась", detail="Подготавливаю видео к обработке.")
     input_videos: List[str] = []
     input_video_titles: List[str | None] = []
+
+    def _remaining_task_budget_seconds() -> float:
+        return max(0.0, CELERY_TASK_SOFT_TIME_LIMIT_SECONDS - (time.monotonic() - task_started_monotonic))
+
+    def _probe_video_file_meta(path: str) -> dict:
+        meta = {
+            "path": path,
+            "exists": bool(path and os.path.isfile(path)),
+            "size": None,
+            "duration": None,
+            "valid": False,
+        }
+        if not meta["exists"]:
+            return meta
+        try:
+            size = os.path.getsize(path)
+            probe = processor._probe_media(path)
+            duration = float(probe.get("format", {}).get("duration") or 0.0)
+            meta.update({"size": size, "duration": round(duration, 3), "valid": size >= 128 * 1024 and duration > 0.5})
+        except Exception as exc:
+            meta["error"] = str(exc)
+        return meta
+
+    def _get_reusable_avatar_render_path(renderer: str) -> str | None:
+        render_meta = dict((task.script_meta or {}).get("avatar_render") or {})
+        if render_meta.get("renderer") != renderer or render_meta.get("status") != "ready":
+            return None
+        candidate = str(render_meta.get("output_path") or "").strip()
+        file_meta = _probe_video_file_meta(candidate)
+        if file_meta.get("valid"):
+            logging.info("Task %s: reusing ready %s render checkpoint: %s", task_id, renderer, candidate)
+            return candidate
+        return None
+
+    def _save_avatar_render_checkpoint(renderer: str, output_path: str) -> None:
+        file_meta = _probe_video_file_meta(output_path)
+        current_meta = dict(task.script_meta or {})
+        current_meta["avatar_render"] = {
+            "status": "ready" if file_meta.get("valid") else "invalid",
+            "renderer": renderer,
+            "output_path": output_path,
+            "file": file_meta,
+            "updated_at": datetime.datetime.utcnow().isoformat() + "Z",
+        }
+        task.script_meta = current_meta
+        db.commit()
 
     def _apply_avatar_insert_montage(base_video_path: str) -> tuple[str, dict]:
         start_percent = int(getattr(user, "avatar_insert_start_percent", 50) or 50)
@@ -1346,17 +1401,70 @@ def process_content_task(self, task_id: int):
             os.getenv("OUTPUT_DIR", "./output").strip(),
             f"avatar_inserted_{task_id}.mp4",
         )
+        existing_output_meta = _probe_video_file_meta(montage_output)
+        if existing_output_meta.get("valid"):
+            logging.info("Task %s: reusing existing avatar insert montage output: %s", task_id, montage_output)
+            return montage_output, {
+                "status": "applied",
+                "reason": "reused_existing_output",
+                "output_path": montage_output,
+                "file": existing_output_meta,
+                "requested_count": clips_count,
+                "available_clips": len(insert_paths),
+            }
+
+        remaining_budget = _remaining_task_budget_seconds()
+        if remaining_budget < AVATAR_INSERT_MONTAGE_MIN_REMAINING_SECONDS:
+            logging.warning(
+                "Task %s: skipping avatar insert montage because remaining Celery budget is %.1fs "
+                "(minimum required %.1fs)",
+                task_id,
+                remaining_budget,
+                AVATAR_INSERT_MONTAGE_MIN_REMAINING_SECONDS,
+            )
+            return base_video_path, {
+                "status": "skipped",
+                "reason": "insufficient_task_time_budget",
+                "remaining_budget_seconds": round(remaining_budget, 3),
+                "minimum_required_seconds": AVATAR_INSERT_MONTAGE_MIN_REMAINING_SECONDS,
+                "requested_count": clips_count,
+                "available_clips": len(insert_paths),
+            }
+
+        current_meta = dict(task.script_meta or {})
+        current_meta["avatar_insert_montage"] = {
+            "status": "in_progress",
+            "input_path": base_video_path,
+            "output_path": montage_output,
+            "timeout_seconds": AVATAR_INSERT_MONTAGE_TIMEOUT_SECONDS,
+            "remaining_budget_seconds": round(remaining_budget, 3),
+            "updated_at": datetime.datetime.utcnow().isoformat() + "Z",
+        }
+        task.script_meta = current_meta
+        db.commit()
+
         max_insert_seconds = float(os.getenv("AVATAR_INSERT_CLIP_MAX_SECONDS", "0"))
-        inserted_path, insert_meta = processor.apply_avatar_insert_clips(
-            input_path=base_video_path,
-            insert_paths=insert_paths,
-            start_percent=start_percent,
-            end_percent=end_percent,
-            clips_count=clips_count,
-            output_path=montage_output,
-            seed=task_id,
-            max_insert_seconds=max_insert_seconds,
-        )
+        try:
+            inserted_path, insert_meta = processor.apply_avatar_insert_clips(
+                input_path=base_video_path,
+                insert_paths=insert_paths,
+                start_percent=start_percent,
+                end_percent=end_percent,
+                clips_count=clips_count,
+                output_path=montage_output,
+                seed=task_id,
+                max_insert_seconds=max_insert_seconds,
+                timeout_seconds=AVATAR_INSERT_MONTAGE_TIMEOUT_SECONDS,
+            )
+        except SoftTimeLimitExceeded:
+            logging.exception("Task %s: soft time limit while applying avatar insert montage; keeping base video.", task_id)
+            return base_video_path, {
+                "status": "skipped",
+                "reason": "soft_time_limit_before_insert_finished",
+                "output_path": montage_output,
+                "requested_count": clips_count,
+                "available_clips": len(insert_paths),
+            }
         if inserted_path:
             if base_video_path != inserted_path and os.path.isfile(base_video_path):
                 try:
@@ -1364,7 +1472,9 @@ def process_content_task(self, task_id: int):
                 except OSError:
                     logging.warning("Failed to remove intermediate avatar file after inserts: %s", base_video_path)
             return inserted_path, insert_meta or {"status": "applied"}
-        return base_video_path, insert_meta or {"status": "failed", "reason": "unknown"}
+        failed_meta = insert_meta or {"status": "failed", "reason": "unknown"}
+        failed_meta.setdefault("output_path", montage_output)
+        return base_video_path, failed_meta
 
     def _detect_avatar_video_type(video_path: str) -> tuple[str | None, dict]:
         meta: dict = {
@@ -2229,34 +2339,38 @@ def process_content_task(self, task_id: int):
                     else "Рендерю горизонтальное видео через Remotion."
                 ),
             )
-            render_output = (
-                _run_hyperframes_pipeline(
-                    task_id,
-                    local_avatar_video,
-                    thumbnail_script,
-                    transcript_json_path=heygen_transcript_path or None,
-                    overlay_coverage_percent=int(getattr(user, "reels_broll_coverage_percent", 50) or 50),
-                    layout="vertical_reels",
+            renderer_name = "Hyperframes" if is_short_avatar else "Remotion"
+            render_output = _get_reusable_avatar_render_path(renderer_name)
+            if not render_output:
+                render_output = (
+                    _run_hyperframes_pipeline(
+                        task_id,
+                        local_avatar_video,
+                        thumbnail_script,
+                        transcript_json_path=heygen_transcript_path or None,
+                        overlay_coverage_percent=int(getattr(user, "reels_broll_coverage_percent", 50) or 50),
+                        layout="vertical_reels",
+                    )
+                    if is_short_avatar
+                    else _run_remotion_pipeline(
+                        task_id,
+                        local_avatar_video,
+                        thumbnail_script,
+                        transcript_json_path=heygen_transcript_path or None,
+                        overlay_coverage_percent=int(getattr(user, "reels_broll_coverage_percent", 50) or 50),
+                    )
                 )
-                if is_short_avatar
-                else _run_remotion_pipeline(
-                    task_id,
-                    local_avatar_video,
-                    thumbnail_script,
-                    transcript_json_path=heygen_transcript_path or None,
-                    overlay_coverage_percent=int(getattr(user, "reels_broll_coverage_percent", 50) or 50),
-                )
-            )
             if render_output:
                 local_avatar_video = render_output
+                _save_avatar_render_checkpoint(renderer_name, local_avatar_video)
                 logging.info(
                     "Task %s: Successfully replaced raw video with %s output.",
                     task_id,
-                    "Hyperframes" if is_short_avatar else "Remotion",
+                    renderer_name,
                 )
             else:
                 raise Exception(
-                    f"{'Hyperframes' if is_short_avatar else 'Remotion'} rendering failed for ready HeyGen avatar task. "
+                    f"{renderer_name} rendering failed for ready HeyGen avatar task. "
                     "Raw HeyGen fallback is disabled by policy."
                 )
 
@@ -2803,32 +2917,36 @@ def process_content_task(self, task_id: int):
                     else "Рендерю горизонтальное видео через Remotion."
                 ),
             )
-            render_output = (
-                _run_hyperframes_pipeline(
-                    task_id,
-                    local_avatar_video,
-                    script,
-                    overlay_coverage_percent=int(getattr(user, "reels_broll_coverage_percent", 50) or 50),
-                    layout="vertical_reels",
+            renderer_name = "Hyperframes" if is_short_avatar else "Remotion"
+            render_output = _get_reusable_avatar_render_path(renderer_name)
+            if not render_output:
+                render_output = (
+                    _run_hyperframes_pipeline(
+                        task_id,
+                        local_avatar_video,
+                        script,
+                        overlay_coverage_percent=int(getattr(user, "reels_broll_coverage_percent", 50) or 50),
+                        layout="vertical_reels",
+                    )
+                    if is_short_avatar
+                    else _run_remotion_pipeline(
+                        task_id,
+                        local_avatar_video,
+                        script,
+                        overlay_coverage_percent=int(getattr(user, "reels_broll_coverage_percent", 50) or 50),
+                    )
                 )
-                if is_short_avatar
-                else _run_remotion_pipeline(
-                    task_id,
-                    local_avatar_video,
-                    script,
-                    overlay_coverage_percent=int(getattr(user, "reels_broll_coverage_percent", 50) or 50),
-                )
-            )
             if render_output:
                 local_avatar_video = render_output
+                _save_avatar_render_checkpoint(renderer_name, local_avatar_video)
                 logging.info(
                     "Task %s: Successfully replaced raw video with %s output.",
                     task_id,
-                    "Hyperframes" if is_short_avatar else "Remotion",
+                    renderer_name,
                 )
             else:
                 raise Exception(
-                    f"{'Hyperframes' if is_short_avatar else 'Remotion'} rendering failed for avatar task. "
+                    f"{renderer_name} rendering failed for avatar task. "
                     "Raw HeyGen fallback is disabled by policy."
                 )
 
