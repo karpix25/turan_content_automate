@@ -1677,6 +1677,31 @@ def process_content_task(self, task_id: int):
         detail_text: str = "Генерирую обложку YouTube по сценарию и референсам.",
     ) -> tuple[str | None, dict]:
         is_short_avatar = task.type in SHORT_AVATAR_TASK_TYPES
+        output_dir = os.getenv("OUTPUT_DIR", "./output").strip()
+        thumbnail_output_path = os.path.join(output_dir, f"thumbnail_{task_id}.png")
+        existing_meta = dict(task.script_meta or {})
+        existing_thumbnail_meta = dict(existing_meta.get("thumbnail") or {})
+        existing_prompt = (
+            existing_meta.get("thumbnail_prompt")
+            or existing_thumbnail_meta.get("prompt")
+            or ""
+        )
+        existing_output_path = str(existing_thumbnail_meta.get("output_path") or "").strip()
+        reusable_thumbnail_path = existing_output_path if os.path.isfile(existing_output_path) else ""
+        if not reusable_thumbnail_path and os.path.isfile(thumbnail_output_path):
+            reusable_thumbnail_path = thumbnail_output_path
+        if reusable_thumbnail_path:
+            logging.info("Task %s: reusing existing thumbnail output: %s", task_id, reusable_thumbnail_path)
+            thumbnail_meta = {
+                **existing_thumbnail_meta,
+                "status": existing_thumbnail_meta.get("status") or "generated",
+                "reason": "reused_existing_thumbnail",
+                "output_path": reusable_thumbnail_path,
+                "aspect_ratio": "9:16" if is_short_avatar else "16:9",
+                "telegram_sent": bool(existing_thumbnail_meta.get("telegram_sent") or existing_thumbnail_meta.get("telegram_sent_at")),
+            }
+            return (str(existing_prompt or "").strip() or None), thumbnail_meta
+
         face_paths = [
             item.file_path
             for item in (
@@ -1789,10 +1814,6 @@ def process_content_task(self, task_id: int):
                 .all()
             )
             reference_paths = [item.file_path for item in references if item and item.file_path]
-            thumbnail_output_path = os.path.join(
-                os.getenv("OUTPUT_DIR", "./output").strip(),
-                f"thumbnail_{task_id}.png",
-            )
             update_task_status_message(
                 db,
                 task,
@@ -1821,14 +1842,28 @@ def process_content_task(self, task_id: int):
                     "face_path": active_face_path,
                     "face_reference_count": len(face_paths),
                     "aspect_ratio": "9:16" if is_short_avatar else "16:9",
+                    "prompt": thumbnail_prompt,
+                    "telegram_sent": False,
                 }
+                current_meta = dict(task.script_meta or {})
+                current_meta["thumbnail_prompt"] = thumbnail_prompt
+                current_meta["thumbnail"] = thumbnail_meta
+                task.script_meta = current_meta
+                db.commit()
                 update_task_status_message(
                     db,
                     task,
                     stage="Telegram",
                     detail="Отправляю готовую обложку в Telegram.",
                 )
-                send_thumbnail_to_telegram(task, generated_thumbnail)
+                if not thumbnail_meta.get("telegram_sent"):
+                    send_thumbnail_to_telegram(task, generated_thumbnail)
+                    thumbnail_meta["telegram_sent"] = True
+                    thumbnail_meta["telegram_sent_at"] = datetime.datetime.utcnow().isoformat() + "Z"
+                    current_meta = dict(task.script_meta or {})
+                    current_meta["thumbnail"] = thumbnail_meta
+                    task.script_meta = current_meta
+                    db.commit()
             else:
                 thumbnail_meta = {
                     "status": "failed",
