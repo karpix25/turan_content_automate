@@ -1495,7 +1495,12 @@ def _repair_scene_plan_metadata(scenes: list[dict[str, Any]], utterances: list[d
                 )
 
 
-def validate_scene_plan_quality(scenes: list[dict[str, Any]], duration: float) -> None:
+def validate_scene_plan_quality(
+    scenes: list[dict[str, Any]],
+    duration: float,
+    *,
+    require_visuals: bool = True,
+) -> None:
     if not scenes:
         raise RuntimeError("LLM scene-plan is empty; refusing to render fallback cards")
 
@@ -1525,10 +1530,11 @@ def validate_scene_plan_quality(scenes: list[dict[str, Any]], duration: float) -
             errors.append(f"{label} has weak subtitle: {subtitle!r}")
         if len([x for x in anchor_words if normalize_plain_text(str(x))]) < 2:
             errors.append(f"{label} needs at least 2 anchorWords")
-        if _is_weak_visual_idea(visual_idea):
-            errors.append(f"{label} has weak visualIdea: {visual_idea!r}")
-        if len([x for x in visual_elements if normalize_plain_text(str(x))]) < 3:
-            errors.append(f"{label} needs at least 3 visualElements")
+        if require_visuals:
+            if _is_weak_visual_idea(visual_idea):
+                errors.append(f"{label} has weak visualIdea: {visual_idea!r}")
+            if len([x for x in visual_elements if normalize_plain_text(str(x))]) < 3:
+                errors.append(f"{label} needs at least 3 visualElements")
         if idx == 0:
             hook_text = normalize_plain_text(str(scene.get("hookText") or ""))
             hook_promise = normalize_plain_text(str(scene.get("hookPromise") or ""))
@@ -1681,7 +1687,12 @@ def _ensure_min_scene_count(
     scenes.sort(key=lambda item: float(item.get("start", 0.0)))
 
 
-def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str, Any]]:
+def normalize_scene_plan(
+    raw: dict[str, Any],
+    duration: float,
+    *,
+    require_visuals: bool = True,
+) -> list[dict[str, Any]]:
     raw_scenes = raw.get("scenes")
     if not isinstance(raw_scenes, list):
         raw_scenes = []
@@ -1902,7 +1913,7 @@ def normalize_scene_plan(raw: dict[str, Any], duration: float) -> list[dict[str,
 
     _ensure_min_scene_count(fixed, utterances_for_norm, duration, target_scene_count)
     _repair_scene_plan_metadata(fixed, utterances_for_norm)
-    validate_scene_plan_quality(fixed, duration)
+    validate_scene_plan_quality(fixed, duration, require_visuals=require_visuals)
 
     # Build chapter metadata so viewer always sees topic context.
     chapter_idx = 0
@@ -2063,6 +2074,12 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Output scene word cues JSON path (default: derive from --out-plan)",
     )
+    parser.add_argument(
+        "--plan-target",
+        choices=["hyperframes", "remotion"],
+        default="hyperframes",
+        help="Renderer target. Remotion horizontal uses text-only opener cards and does not require image visuals.",
+    )
     return parser.parse_args()
 
 
@@ -2197,7 +2214,11 @@ def main() -> int:
         if isinstance(raw_plan, dict):
             raw_plan["_utterances"] = utterances
             raw_plan["_target_scene_count"] = target_scene_count
-        scenes = normalize_scene_plan(raw_plan, duration)
+        scenes = normalize_scene_plan(
+            raw_plan,
+            duration,
+            require_visuals=args.plan_target != "remotion",
+        )
         if scene_plan_uses_fallback_copy(scenes):
             raise RuntimeError("LLM scene-plan used generic copy; refusing to render fallback cards")
 

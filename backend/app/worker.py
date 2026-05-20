@@ -656,6 +656,8 @@ def _run_remotion_pipeline(
         "--overlay-coverage-percent",
         str(overlay_coverage_percent),
         "--deepgram-intelligence",
+        "--plan-target",
+        "remotion",
     ]
     clean_script_context = re.sub(r"\s+", " ", (script or "")).strip()
     if clean_script_context:
