@@ -13,17 +13,17 @@ export const BottomCaption: React.FC<BottomCaptionProps> = ({text}) => {
   if (!safeText) return null;
 
   const len = safeText.length;
-  const baseSize = width >= 1400 ? 72 : width >= 1000 ? 62 : 52;
-  const adaptive = baseSize - Math.max(0, (len - 34) * 0.45);
-  const fontSize = clamp(adaptive, 32, baseSize);
-  const lineHeight = 1.04;
+  const baseSize = width >= 1400 ? 58 : width >= 1000 ? 50 : 42;
+  const adaptive = baseSize - Math.max(0, (len - 28) * 0.4);
+  const fontSize = clamp(adaptive, 30, baseSize);
+  const lineHeight = 1.08;
 
   return (
     <AbsoluteFill style={{justifyContent: 'flex-end', pointerEvents: 'none'}}>
       <div
         style={{
           width: '100%',
-          padding: '0 4.5% 6.8%',
+          padding: '0 4.5% 7.6%',
           boxSizing: 'border-box',
           display: 'flex',
           justifyContent: 'center',
@@ -31,11 +31,15 @@ export const BottomCaption: React.FC<BottomCaptionProps> = ({text}) => {
       >
         <div
           style={{
-            maxWidth: '92%',
-            padding: '12px 28px 14px',
+            maxWidth: '86%',
+            minHeight: 82,
+            padding: '16px 34px 18px',
             borderRadius: 14,
-            background: 'rgba(0,0,0,0.76)',
-            boxShadow: '0 10px 26px rgba(0,0,0,0.35)',
+            background: 'rgba(0,0,0,0.88)',
+            boxShadow: '0 10px 28px rgba(0,0,0,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
             color: '#FFFFFF',
             fontFamily: 'Montserrat, Arial, sans-serif',
             fontWeight: 900,
@@ -44,9 +48,9 @@ export const BottomCaption: React.FC<BottomCaptionProps> = ({text}) => {
             textAlign: 'center',
             textTransform: 'uppercase',
             letterSpacing: '-0.01em',
-            WebkitTextStroke: '1.5px rgba(0,0,0,0.65)',
+            WebkitTextStroke: '0.75px rgba(0,0,0,0.85)',
             paintOrder: 'stroke fill',
-            textShadow: '0 4px 14px rgba(0,0,0,0.5)',
+            textShadow: '0 2px 10px rgba(0,0,0,0.65)',
             wordBreak: 'break-word',
             overflowWrap: 'anywhere',
           }}
