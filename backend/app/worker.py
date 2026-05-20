@@ -1596,7 +1596,18 @@ def process_content_task(self, task_id: int):
             if THUMBNAIL_PROMPT_REVIEW_ENABLED and getattr(task, "telegram_chat_id", None):
                 meta = dict(task.script_meta or {})
                 review = dict(meta.get("thumbnail_prompt_review") or {})
-                if review.get("prompt") != thumbnail_prompt or review.get("status") not in {"approved", "rejected"}:
+                review_status = (review.get("status") or "").strip().lower()
+                reviewed_prompt = (review.get("approved_prompt") or review.get("prompt") or "").strip()
+                if review_status == "approved" and reviewed_prompt:
+                    thumbnail_prompt = reviewed_prompt
+                elif review_status == "rejected":
+                    thumbnail_meta = {
+                        **thumbnail_meta,
+                        "status": "skipped",
+                        "reason": "thumbnail_prompt_rejected",
+                    }
+                    return thumbnail_prompt, thumbnail_meta
+                elif not review.get("prompt"):
                     review = {
                         "status": "pending",
                         "prompt": thumbnail_prompt,
@@ -1607,36 +1618,37 @@ def process_content_task(self, task_id: int):
                     db.commit()
                     send_thumbnail_prompt_review_to_telegram(task, thumbnail_prompt)
 
-                update_task_status_message(
-                    db,
-                    task,
-                    stage="Обложка",
-                    detail="Жду подтверждение prompt обложки в Telegram.",
-                )
-                deadline = time.monotonic() + THUMBNAIL_PROMPT_REVIEW_TIMEOUT_SECONDS
-                while time.monotonic() < deadline:
-                    db.refresh(task)
-                    meta = dict(task.script_meta or {})
-                    review = dict(meta.get("thumbnail_prompt_review") or {})
-                    status = (review.get("status") or "").strip().lower()
-                    if status == "approved":
-                        thumbnail_prompt = (review.get("approved_prompt") or thumbnail_prompt).strip()
-                        break
-                    if status == "rejected":
+                if review_status != "approved":
+                    update_task_status_message(
+                        db,
+                        task,
+                        stage="Обложка",
+                        detail="Жду подтверждение prompt обложки в Telegram.",
+                    )
+                    deadline = time.monotonic() + THUMBNAIL_PROMPT_REVIEW_TIMEOUT_SECONDS
+                    while time.monotonic() < deadline:
+                        db.refresh(task)
+                        meta = dict(task.script_meta or {})
+                        review = dict(meta.get("thumbnail_prompt_review") or {})
+                        status = (review.get("status") or "").strip().lower()
+                        if status == "approved":
+                            thumbnail_prompt = (review.get("approved_prompt") or review.get("prompt") or thumbnail_prompt).strip()
+                            break
+                        if status == "rejected":
+                            thumbnail_meta = {
+                                **thumbnail_meta,
+                                "status": "skipped",
+                                "reason": "thumbnail_prompt_rejected",
+                            }
+                            return thumbnail_prompt, thumbnail_meta
+                        time.sleep(THUMBNAIL_PROMPT_REVIEW_POLL_SECONDS)
+                    else:
                         thumbnail_meta = {
                             **thumbnail_meta,
                             "status": "skipped",
-                            "reason": "thumbnail_prompt_rejected",
+                            "reason": "thumbnail_prompt_review_timeout",
                         }
                         return thumbnail_prompt, thumbnail_meta
-                    time.sleep(THUMBNAIL_PROMPT_REVIEW_POLL_SECONDS)
-                else:
-                    thumbnail_meta = {
-                        **thumbnail_meta,
-                        "status": "skipped",
-                        "reason": "thumbnail_prompt_review_timeout",
-                    }
-                    return thumbnail_prompt, thumbnail_meta
 
             references = (
                 db.query(models.ThumbnailReference)
