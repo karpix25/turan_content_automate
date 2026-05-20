@@ -210,6 +210,9 @@ def upload_yandex_disk_task(self, task_id: int, file_paths: List[str] | None = N
         if current_meta.get("yandex_disk_upload_status") == "completed":
             logging.info("Task %s: Yandex.Disk upload is already completed; skipping duplicate upload.", task_id)
             return
+        if current_meta.get("yandex_disk_upload_status") == "in_progress":
+            logging.info("Task %s: Yandex.Disk upload is already in progress; skipping duplicate upload.", task_id)
+            return
         current_meta["yandex_disk_upload_status"] = "in_progress"
         current_meta["yandex_disk_upload_started_at"] = datetime.datetime.utcnow().isoformat()
         task.script_meta = current_meta

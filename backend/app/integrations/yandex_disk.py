@@ -13,7 +13,7 @@ class YandexDiskClient:
         self.timeout_seconds = float(os.getenv("YANDEX_DISK_TIMEOUT_SECONDS", "120"))
         self.upload_timeout_seconds = float(os.getenv("YANDEX_DISK_UPLOAD_TIMEOUT_SECONDS", "600"))
         self.upload_total_deadline_seconds = float(
-            os.getenv("YANDEX_DISK_UPLOAD_TOTAL_DEADLINE_SECONDS", "420")
+            os.getenv("YANDEX_DISK_UPLOAD_TOTAL_DEADLINE_SECONDS", "1500")
         )
         self.upload_chunk_size_bytes = max(
             64 * 1024,
