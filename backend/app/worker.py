@@ -7,6 +7,7 @@ import shutil
 import datetime
 import time
 import math
+import selectors
 from typing import List
 from urllib.parse import urlparse, parse_qs
 from billiard.exceptions import SoftTimeLimitExceeded
@@ -313,7 +314,15 @@ HYPERFRAMES_RENDER_TIMEOUT_SECONDS = max(
 )
 REMOTION_RENDER_TIMEOUT_SECONDS = max(
     600,
-    int(os.getenv("REMOTION_RENDER_TIMEOUT_SECONDS", "3600")),
+    int(os.getenv("REMOTION_RENDER_TIMEOUT_SECONDS", "7200")),
+)
+REMOTION_RENDER_MAX_RUNTIME_SECONDS = max(
+    REMOTION_RENDER_TIMEOUT_SECONDS,
+    int(os.getenv("REMOTION_RENDER_MAX_RUNTIME_SECONDS", str(REMOTION_RENDER_TIMEOUT_SECONDS))),
+)
+REMOTION_RENDER_IDLE_TIMEOUT_SECONDS = max(
+    300,
+    int(os.getenv("REMOTION_RENDER_IDLE_TIMEOUT_SECONDS", "900")),
 )
 HYPERFRAMES_STEP_TIMEOUT_SECONDS = max(
     120,
@@ -579,9 +588,13 @@ def _run_remotion_pipeline(
     script_context_path = os.path.join(out_dir, f"scenario_context_{task_id}.txt")
     os.makedirs(out_dir, exist_ok=True)
 
-    render_timeout_seconds = min(
-        REMOTION_RENDER_TIMEOUT_SECONDS,
-        max(300, CELERY_TASK_SOFT_TIME_LIMIT_SECONDS - 900),
+    render_max_runtime_seconds = min(
+        REMOTION_RENDER_MAX_RUNTIME_SECONDS,
+        max(300, CELERY_TASK_SOFT_TIME_LIMIT_SECONDS - 600),
+    )
+    render_idle_timeout_seconds = min(
+        REMOTION_RENDER_IDLE_TIMEOUT_SECONDS,
+        max(300, render_max_runtime_seconds),
     )
     step_timeout_seconds = min(
         HYPERFRAMES_STEP_TIMEOUT_SECONDS,
@@ -758,41 +771,145 @@ def _run_remotion_pipeline(
         "--out",
         final_output,
     ]
-    logging.info("Task %s: Running Remotion render: %s", task_id, " ".join(cmd_render))
-    try:
-        res_render = subprocess.run(
+    progress_re = re.compile(r"\b(?:Rendered|Encoded)\s+(\d+)/(\d+)\b")
+
+    def run_remotion_render_with_progress_watchdog() -> tuple[int | None, str]:
+        output_tail: list[str] = []
+        max_tail_lines = 250
+        started_at = time.monotonic()
+        last_progress_at = started_at
+        last_activity_at = started_at
+        last_log_at = started_at
+        best_done = 0
+        best_total = 0
+
+        logging.info(
+            "Task %s: Running Remotion render with progress watchdog: %s "
+            "(max_runtime=%ss idle_timeout=%ss)",
+            task_id,
+            " ".join(cmd_render),
+            render_max_runtime_seconds,
+            render_idle_timeout_seconds,
+        )
+
+        process = subprocess.Popen(
             cmd_render,
             cwd=remotion_dir,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
-            timeout=render_timeout_seconds,
+            bufsize=1,
         )
-    except subprocess.TimeoutExpired as exc:
-        logging.error(
-            "Task %s: Remotion render timed out after %ss. STDOUT: %s\nSTDERR: %s",
-            task_id,
-            render_timeout_seconds,
-            (exc.stdout or "")[-4000:],
-            (exc.stderr or "")[-4000:],
-        )
+
+        selector = selectors.DefaultSelector()
+        if process.stdout:
+            selector.register(process.stdout, selectors.EVENT_READ)
+
+        try:
+            while True:
+                now = time.monotonic()
+                return_code = process.poll()
+                events = selector.select(timeout=1.0)
+
+                for key, _ in events:
+                    line = key.fileobj.readline()
+                    if not line:
+                        continue
+                    last_activity_at = now
+                    output_tail.append(line)
+                    if len(output_tail) > max_tail_lines:
+                        output_tail = output_tail[-max_tail_lines:]
+                    match = progress_re.search(line)
+                    if match:
+                        done = int(match.group(1))
+                        total = int(match.group(2))
+                        if done > best_done or total != best_total:
+                            best_done = done
+                            best_total = total
+                            last_progress_at = now
+
+                if return_code is not None:
+                    if process.stdout:
+                        for line in process.stdout.readlines():
+                            output_tail.append(line)
+                    return return_code, "".join(output_tail[-max_tail_lines:])
+
+                runtime = now - started_at
+                idle_for = now - last_progress_at
+                activity_idle_for = now - last_activity_at
+                if best_total and now - last_log_at >= 60:
+                    logging.info(
+                        "Task %s: Remotion still rendering: %s/%s frames, runtime=%ss, progress_idle=%ss",
+                        task_id,
+                        best_done,
+                        best_total,
+                        int(runtime),
+                        int(idle_for),
+                    )
+                    last_log_at = now
+
+                if runtime > render_max_runtime_seconds:
+                    process.kill()
+                    process.wait(timeout=30)
+                    logging.error(
+                        "Task %s: Remotion render exceeded max runtime %ss. "
+                        "Last progress: %s/%s frames. Output tail: %s",
+                        task_id,
+                        render_max_runtime_seconds,
+                        best_done,
+                        best_total,
+                        "".join(output_tail[-120:])[-4000:],
+                    )
+                    return None, "".join(output_tail[-max_tail_lines:])
+
+                if best_done > 0 and idle_for > render_idle_timeout_seconds:
+                    process.kill()
+                    process.wait(timeout=30)
+                    logging.error(
+                        "Task %s: Remotion render stalled for %ss with no frame progress. "
+                        "Last progress: %s/%s frames. Output tail: %s",
+                        task_id,
+                        render_idle_timeout_seconds,
+                        best_done,
+                        best_total,
+                        "".join(output_tail[-120:])[-4000:],
+                    )
+                    return None, "".join(output_tail[-max_tail_lines:])
+                if best_done == 0 and activity_idle_for > render_idle_timeout_seconds:
+                    process.kill()
+                    process.wait(timeout=30)
+                    logging.error(
+                        "Task %s: Remotion render produced no frame progress or output for %ss. "
+                        "Output tail: %s",
+                        task_id,
+                        render_idle_timeout_seconds,
+                        "".join(output_tail[-120:])[-4000:],
+                    )
+                    return None, "".join(output_tail[-max_tail_lines:])
+        finally:
+            selector.close()
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=30)
+
+    render_returncode, render_output_tail = run_remotion_render_with_progress_watchdog()
+    if render_output_tail:
+        logging.info("Task %s: Remotion output tail: %s", task_id, render_output_tail[-4000:])
+    if render_returncode is None:
         if is_usable_remotion_output(final_output):
             logging.warning(
-                "Task %s: Remotion render timed out, but output MP4 is already valid. Accepting: %s",
+                "Task %s: Remotion render watchdog stopped, but output MP4 is already valid. Accepting: %s",
                 task_id,
                 final_output,
             )
             return final_output
         return None
-    if res_render.stdout:
-        logging.info("Task %s: Remotion stdout: %s", task_id, res_render.stdout[-4000:])
-    if res_render.stderr:
-        logging.info("Task %s: Remotion stderr: %s", task_id, res_render.stderr[-4000:])
-    if res_render.returncode != 0:
+    if render_returncode != 0:
         logging.error(
-            "Task %s: Remotion render failed. STDOUT: %s\nSTDERR: %s",
+            "Task %s: Remotion render failed with exit code %s. Output tail: %s",
             task_id,
-            res_render.stdout,
-            res_render.stderr,
+            render_returncode,
+            render_output_tail,
         )
         return None
     if is_usable_remotion_output(final_output):
