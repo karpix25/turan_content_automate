@@ -2,6 +2,7 @@ import {useEffect, useMemo, useState} from 'react';
 import {
   AbsoluteFill,
   OffthreadVideo,
+  Sequence,
   cancelRender,
   continueRender,
   delayRender,
@@ -11,6 +12,10 @@ import {
 } from 'remotion';
 import type {AutoMontageProps, ScenePlanItem} from './montage/types';
 import {BlockOpener} from './montage/components/BlockOpener';
+import {ChapterBanner} from './montage/components/ChapterBanner';
+import {FullSlide} from './montage/components/FullSlide';
+import {MiniAccent} from './montage/components/MiniAccent';
+import {getTheme} from './montage/theme';
 
 type LoadedData = {
   scenes: ScenePlanItem[];
@@ -19,7 +24,12 @@ type LoadedData = {
 type ActiveSceneMatch = {
   index: number;
   scene: ScenePlanItem;
+  displayStart: number;
+  displayEnd: number;
 };
+
+const MIN_OVERLAY_SEC = 8;
+const SCENE_GAP_SEC = 0.25;
 
 const normalizeText = (value: string | undefined | null): string =>
   String(value || '').replace(/\s+/g, ' ').trim();
@@ -48,10 +58,38 @@ const pickSceneOpener = (scene: ScenePlanItem | undefined): string => {
   return trimOpener(base);
 };
 
+const getSceneDisplayEnd = (scenes: ScenePlanItem[], index: number): number => {
+  const scene = scenes[index];
+  const start = Number(scene.start);
+  const end = Number(scene.end);
+  const rawEnd = Number.isFinite(end) && end > start ? end : start + MIN_OVERLAY_SEC;
+  const minEnd = start + MIN_OVERLAY_SEC;
+  const nextStart = Number(scenes[index + 1]?.start);
+  const displayEnd = Math.max(rawEnd, minEnd);
+
+  if (Number.isFinite(nextStart) && nextStart > start) {
+    return Math.min(displayEnd, Math.max(start + 1, nextStart - SCENE_GAP_SEC));
+  }
+
+  return displayEnd;
+};
+
 const getSceneAtTime = (scenes: ScenePlanItem[], timeSec: number): ActiveSceneMatch | null => {
   if (scenes.length === 0) return null;
-  const foundIndex = scenes.findIndex((s) => timeSec >= s.start && timeSec < s.end);
-  if (foundIndex >= 0) return {index: foundIndex, scene: scenes[foundIndex]};
+  const foundIndex = scenes.findIndex((s, index) => {
+    const start = Number(s.start);
+    if (!Number.isFinite(start)) return false;
+    return timeSec >= start && timeSec < getSceneDisplayEnd(scenes, index);
+  });
+  if (foundIndex >= 0) {
+    const scene = scenes[foundIndex];
+    return {
+      index: foundIndex,
+      scene,
+      displayStart: scene.start,
+      displayEnd: getSceneDisplayEnd(scenes, foundIndex),
+    };
+  }
   return null;
 };
 
@@ -88,7 +126,7 @@ export const AutoMontage: React.FC<AutoMontageProps> = ({
   videoFile,
   scenePlanFile,
   wordCuesFile,
-  themePreset: _themePreset,
+  themePreset,
   montagePreset: _montagePreset,
 }) => {
   const frame = useCurrentFrame();
@@ -97,22 +135,37 @@ export const AutoMontage: React.FC<AutoMontageProps> = ({
 
   const {scenes} = useLoadedData(scenePlanFile, wordCuesFile);
   const activeMatch = useMemo(() => getSceneAtTime(scenes, timeSec), [scenes, timeSec]);
+  const theme = getTheme(themePreset);
 
   const showOverlay = activeMatch !== null;
-  const {scene: activeScene} = activeMatch ?? {
+  const {scene: activeScene, index: activeSceneIndex, displayStart, displayEnd} = activeMatch ?? {
     scene: scenes[0] ?? ({} as ScenePlanItem),
     index: 0,
+    displayStart: 0,
+    displayEnd: 0,
   };
 
-  const openerStartFrame = useMemo(() => {
-    const start = Number(activeScene?.start ?? 0);
+  const sceneStartFrame = useMemo(() => {
+    const start = Number(displayStart ?? activeScene?.start ?? 0);
     if (!Number.isFinite(start) || start <= 0) return 0;
     return Math.floor(start * fps);
-  }, [activeScene, fps]);
+  }, [activeScene, displayStart, fps]);
 
-  const inBlockFrame = Math.max(0, frame - openerStartFrame);
+  const sceneDurationFrames = Math.max(1, Math.ceil(Math.max(0, displayEnd - displayStart) * fps));
+  const inSceneFrame = Math.max(0, frame - sceneStartFrame);
   const openerText = pickSceneOpener(activeScene);
   const openerFrames = Math.floor(3 * fps);
+  const mode = String(activeScene?.mode || 'full').toLowerCase();
+  const isMiniMode =
+    mode === 'mini' ||
+    mode === 'lower-third' ||
+    mode === 'lower_third' ||
+    mode === 'overlay' ||
+    mode === 'side';
+  const prevScene = activeSceneIndex > 0 ? scenes[activeSceneIndex - 1] : null;
+  const currentChapter = Number(activeScene?.chapterIndex ?? activeSceneIndex + 1);
+  const prevChapter = Number(prevScene?.chapterIndex ?? 0);
+  const isChapterStart = activeSceneIndex === 0 || currentChapter !== prevChapter;
 
   return (
     <AbsoluteFill style={{backgroundColor: '#000'}}>
@@ -124,11 +177,22 @@ export const AutoMontage: React.FC<AutoMontageProps> = ({
         />
       )}
 
-      {/* Minimal overlay system: opener + bottom caption */}
       {showOverlay && (
-        <>
-          <BlockOpener text={openerText} visibleFrames={openerFrames} sceneFrame={inBlockFrame} />
-        </>
+        <Sequence from={sceneStartFrame} durationInFrames={sceneDurationFrames}>
+          <AbsoluteFill>
+            {isMiniMode ? (
+              <MiniAccent scene={activeScene} accentColor={theme.accent} />
+            ) : (
+              <FullSlide scene={activeScene} />
+            )}
+            <ChapterBanner
+              scene={activeScene}
+              isChapterStart={isChapterStart}
+              inSceneFrame={inSceneFrame}
+            />
+            <BlockOpener text={openerText} visibleFrames={openerFrames} sceneFrame={inSceneFrame} />
+          </AbsoluteFill>
+        </Sequence>
       )}
     </AbsoluteFill>
   );
