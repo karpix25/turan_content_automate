@@ -92,6 +92,10 @@ AVATAR_INSERT_MONTAGE_MIN_REMAINING_SECONDS = max(
     120,
     int(os.getenv("AVATAR_INSERT_MONTAGE_MIN_REMAINING_SECONDS", str(AVATAR_INSERT_MONTAGE_TIMEOUT_SECONDS + 180))),
 )
+THUMBNAIL_GENERATION_LOCK_TTL_SECONDS = max(
+    300,
+    int(os.getenv("THUMBNAIL_GENERATION_LOCK_TTL_SECONDS", "7200")),
+)
 celery_app.conf.update(
     broker_connection_retry_on_startup=True,
     task_track_started=True,
@@ -1359,6 +1363,18 @@ def process_content_task(self, task_id: int):
         task.script_meta = current_meta
         db.commit()
 
+    def _parse_iso_timestamp(value: str | None) -> float | None:
+        raw = (value or "").strip()
+        if not raw:
+            return None
+        try:
+            parsed = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+            return parsed.timestamp()
+        except Exception:
+            return None
+
     def _apply_avatar_insert_montage(base_video_path: str) -> tuple[str, dict]:
         start_percent = int(getattr(user, "avatar_insert_start_percent", 50) or 50)
         end_percent = int(getattr(user, "avatar_insert_end_percent", 95) or 95)
@@ -1681,11 +1697,22 @@ def process_content_task(self, task_id: int):
         thumbnail_output_path = os.path.join(output_dir, f"thumbnail_{task_id}.png")
         existing_meta = dict(task.script_meta or {})
         existing_thumbnail_meta = dict(existing_meta.get("thumbnail") or {})
+        thumbnail_generation_meta = dict(existing_meta.get("thumbnail_generation") or {})
         existing_prompt = (
             existing_meta.get("thumbnail_prompt")
             or existing_thumbnail_meta.get("prompt")
             or ""
         )
+        if existing_thumbnail_meta.get("telegram_sent") or existing_thumbnail_meta.get("telegram_sent_at"):
+            logging.info("Task %s: thumbnail was already sent to Telegram; skipping duplicate generation.", task_id)
+            return (str(existing_prompt or "").strip() or None), {
+                **existing_thumbnail_meta,
+                "status": existing_thumbnail_meta.get("status") or "generated",
+                "reason": "telegram_already_sent",
+                "telegram_sent": True,
+                "aspect_ratio": "9:16" if is_short_avatar else "16:9",
+            }
+
         existing_output_path = str(existing_thumbnail_meta.get("output_path") or "").strip()
         reusable_thumbnail_path = existing_output_path if os.path.isfile(existing_output_path) else ""
         if not reusable_thumbnail_path and os.path.isfile(thumbnail_output_path):
@@ -1701,6 +1728,25 @@ def process_content_task(self, task_id: int):
                 "telegram_sent": bool(existing_thumbnail_meta.get("telegram_sent") or existing_thumbnail_meta.get("telegram_sent_at")),
             }
             return (str(existing_prompt or "").strip() or None), thumbnail_meta
+
+        generation_status = str(thumbnail_generation_meta.get("status") or "").strip().lower()
+        generation_started_ts = _parse_iso_timestamp(str(thumbnail_generation_meta.get("started_at") or ""))
+        generation_age = (time.time() - generation_started_ts) if generation_started_ts else None
+        if generation_status == "in_progress" and generation_age is not None and generation_age < THUMBNAIL_GENERATION_LOCK_TTL_SECONDS:
+            logging.warning(
+                "Task %s: thumbnail generation is already in progress (age=%.1fs); skipping duplicate KIE generation.",
+                task_id,
+                generation_age,
+            )
+            return (str(existing_prompt or "").strip() or None), {
+                **existing_thumbnail_meta,
+                "status": "skipped",
+                "reason": "thumbnail_generation_already_in_progress",
+                "lock_age_seconds": round(generation_age, 3),
+                "lock_ttl_seconds": THUMBNAIL_GENERATION_LOCK_TTL_SECONDS,
+                "output_path": existing_output_path or None,
+                "aspect_ratio": "9:16" if is_short_avatar else "16:9",
+            }
 
         face_paths = [
             item.file_path
@@ -1820,6 +1866,17 @@ def process_content_task(self, task_id: int):
                 stage="Обложка",
                 detail=detail_text,
             )
+            current_meta = dict(task.script_meta or {})
+            current_meta["thumbnail_prompt"] = thumbnail_prompt
+            current_meta["thumbnail_generation"] = {
+                "status": "in_progress",
+                "started_at": datetime.datetime.utcnow().isoformat() + "Z",
+                "output_path": thumbnail_output_path,
+                "aspect_ratio": "9:16" if is_short_avatar else "16:9",
+            }
+            task.script_meta = current_meta
+            db.commit()
+
             generated_thumbnail = thumbnail_generator.generate_thumbnail(
                 prompt=thumbnail_prompt,
                 face_path=active_face_path,
@@ -1848,6 +1905,12 @@ def process_content_task(self, task_id: int):
                 current_meta = dict(task.script_meta or {})
                 current_meta["thumbnail_prompt"] = thumbnail_prompt
                 current_meta["thumbnail"] = thumbnail_meta
+                current_meta["thumbnail_generation"] = {
+                    **dict(current_meta.get("thumbnail_generation") or {}),
+                    "status": "generated",
+                    "completed_at": datetime.datetime.utcnow().isoformat() + "Z",
+                    "output_path": generated_thumbnail,
+                }
                 task.script_meta = current_meta
                 db.commit()
                 update_task_status_message(
@@ -1856,14 +1919,39 @@ def process_content_task(self, task_id: int):
                     stage="Telegram",
                     detail="Отправляю готовую обложку в Telegram.",
                 )
-                if not thumbnail_meta.get("telegram_sent"):
+                db.refresh(task)
+                latest_meta = dict(task.script_meta or {})
+                latest_thumbnail_meta = dict(latest_meta.get("thumbnail") or {})
+                if latest_thumbnail_meta.get("telegram_sent") or latest_thumbnail_meta.get("telegram_sent_at"):
+                    thumbnail_meta = {
+                        **thumbnail_meta,
+                        "telegram_sent": True,
+                        "telegram_sent_at": latest_thumbnail_meta.get("telegram_sent_at"),
+                        "reason": "telegram_already_sent",
+                    }
+                elif not latest_thumbnail_meta.get("telegram_send_in_progress"):
+                    latest_thumbnail_meta = {
+                        **latest_thumbnail_meta,
+                        "telegram_send_in_progress": True,
+                        "telegram_send_started_at": datetime.datetime.utcnow().isoformat() + "Z",
+                    }
+                    latest_meta["thumbnail"] = latest_thumbnail_meta
+                    task.script_meta = latest_meta
+                    db.commit()
                     send_thumbnail_to_telegram(task, generated_thumbnail)
                     thumbnail_meta["telegram_sent"] = True
                     thumbnail_meta["telegram_sent_at"] = datetime.datetime.utcnow().isoformat() + "Z"
+                    thumbnail_meta["telegram_send_in_progress"] = False
                     current_meta = dict(task.script_meta or {})
                     current_meta["thumbnail"] = thumbnail_meta
                     task.script_meta = current_meta
                     db.commit()
+                else:
+                    thumbnail_meta = {
+                        **thumbnail_meta,
+                        "telegram_sent": False,
+                        "reason": "telegram_send_already_in_progress",
+                    }
             else:
                 thumbnail_meta = {
                     "status": "failed",
@@ -1874,6 +1962,15 @@ def process_content_task(self, task_id: int):
                     "face_reference_count": len(face_paths),
                     "aspect_ratio": "9:16" if is_short_avatar else "16:9",
                 }
+                current_meta = dict(task.script_meta or {})
+                current_meta["thumbnail_generation"] = {
+                    **dict(current_meta.get("thumbnail_generation") or {}),
+                    "status": "failed",
+                    "completed_at": datetime.datetime.utcnow().isoformat() + "Z",
+                    "reason": "generator_failed_or_unconfigured",
+                }
+                task.script_meta = current_meta
+                db.commit()
         return thumbnail_prompt, thumbnail_meta
 
     def _apply_vertical_thumbnail_intro(
