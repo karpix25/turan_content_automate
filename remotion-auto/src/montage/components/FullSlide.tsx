@@ -11,14 +11,13 @@ export const FullSlide: React.FC<FullSlideProps> = ({ scene }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  // Общая анимация появления всего слайда (размытие и затемнение фона)
+  // Общая анимация появления всего слайда
   const intro = spring({
     fps,
     frame,
     config: { damping: 15 },
   });
 
-  const blur = interpolate(intro, [0, 1], [0, 12]);
   const opacity = interpolate(intro, [0, 1], [0, 1]);
 
   // Выбираем акцентный цвет (можем добавить логику смены цветов)
@@ -26,10 +25,9 @@ export const FullSlide: React.FC<FullSlideProps> = ({ scene }) => {
 
   return (
     <AbsoluteFill>
-      {/* Стекло-фон */}
+      {/* Затемнение фона без backdrop blur: CSS blur слишком дорогой для длинного Remotion-рендера. */}
       <AbsoluteFill style={{
         backgroundColor: 'rgba(0,0,0,0.4)',
-        backdropFilter: `blur(${blur}px)`,
         opacity,
       }} />
 
