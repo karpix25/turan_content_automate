@@ -23,7 +23,7 @@ export const BottomCaption: React.FC<BottomCaptionProps> = ({text}) => {
       <div
         style={{
           width: '100%',
-          padding: '0 4.5% 5.2%',
+          padding: '0 4.5% 6.8%',
           boxSizing: 'border-box',
           display: 'flex',
           justifyContent: 'center',
@@ -32,6 +32,10 @@ export const BottomCaption: React.FC<BottomCaptionProps> = ({text}) => {
         <div
           style={{
             maxWidth: '92%',
+            padding: '12px 28px 14px',
+            borderRadius: 14,
+            background: 'rgba(0,0,0,0.76)',
+            boxShadow: '0 10px 26px rgba(0,0,0,0.35)',
             color: '#FFFFFF',
             fontFamily: 'Montserrat, Arial, sans-serif',
             fontWeight: 900,
@@ -40,7 +44,7 @@ export const BottomCaption: React.FC<BottomCaptionProps> = ({text}) => {
             textAlign: 'center',
             textTransform: 'uppercase',
             letterSpacing: '-0.01em',
-            WebkitTextStroke: '10px rgba(0,0,0,0.98)',
+            WebkitTextStroke: '1.5px rgba(0,0,0,0.65)',
             paintOrder: 'stroke fill',
             textShadow: '0 4px 14px rgba(0,0,0,0.5)',
             wordBreak: 'break-word',

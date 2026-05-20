@@ -5,22 +5,13 @@ import {
   cancelRender,
   continueRender,
   delayRender,
-  interpolate,
-  spring,
   staticFile,
   useCurrentFrame,
   useVideoConfig,
 } from 'remotion';
-import {getTheme} from './montage/theme';
 import type {AutoMontageProps, ScenePlanItem, WordCue} from './montage/types';
-import {
-  getLayoutForMoment,
-  getLayoutSegmentStartSec,
-  getMontageRules,
-} from './montage/youtube-rules';
-import {FullSlide} from './montage/components/FullSlide';
-import {MiniAccent} from './montage/components/MiniAccent';
-import {ChapterBanner} from './montage/components/ChapterBanner';
+import {BottomCaption} from './montage/components/BottomCaption';
+import {BlockOpener} from './montage/components/BlockOpener';
 
 type LoadedData = {
   scenes: ScenePlanItem[];
@@ -30,6 +21,51 @@ type LoadedData = {
 type ActiveSceneMatch = {
   index: number;
   scene: ScenePlanItem;
+};
+
+const normalizeText = (value: string | undefined | null): string =>
+  String(value || '').replace(/\s+/g, ' ').trim();
+
+const pickSceneOpener = (scene: ScenePlanItem | undefined): string => {
+  if (!scene) return '';
+  const candidates = [
+    ...((scene.titleLines || []).map(normalizeText)),
+    normalizeText(scene.insight),
+    normalizeText(scene.title),
+    normalizeText(scene.keyword),
+    normalizeText(scene.cta),
+  ].filter(Boolean);
+  const base = candidates[0] || '';
+  if (!base) return '';
+  const words = base.split(' ');
+  const shortened = words.length > 14 ? words.slice(0, 14).join(' ') : base;
+  return shortened.endsWith('.') || shortened.endsWith('!') || shortened.endsWith('?')
+    ? shortened
+    : `${shortened}.`;
+};
+
+const normalizeCaptionText = (value: string): string =>
+  value
+    .replace(/\s+([,.:;!?])/g, '$1')
+    .replace(/[“”"]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const buildBottomCaption = (cueWords: WordCue[], timeSec: number): string => {
+  if (!cueWords || cueWords.length === 0) return '';
+  const currentIndex = cueWords.findIndex((item) => item.time > timeSec + 0.02);
+  const startIndex = currentIndex <= 0 ? 0 : Math.max(0, currentIndex - 1);
+  const slice = cueWords.slice(startIndex, Math.min(cueWords.length, startIndex + 8));
+  if (slice.length === 0) return '';
+  const sentenceWords: string[] = [];
+  for (const cue of slice) {
+    const token = String(cue.text || '').trim();
+    if (!token) continue;
+    sentenceWords.push(token);
+    if (/[.!?…]$/.test(token)) break;
+  }
+  const normalized = normalizeCaptionText(sentenceWords.join(' '));
+  return normalized;
 };
 
 const getSceneAtTime = (scenes: ScenePlanItem[], timeSec: number): ActiveSceneMatch | null => {
@@ -77,18 +113,15 @@ export const AutoMontage: React.FC<AutoMontageProps> = ({
   videoFile,
   scenePlanFile,
   wordCuesFile,
-  themePreset,
-  montagePreset,
+  themePreset: _themePreset,
+  montagePreset: _montagePreset,
 }) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   const timeSec = frame / fps;
 
-  const {scenes} = useLoadedData(scenePlanFile, wordCuesFile);
+  const {scenes, wordCueGroups} = useLoadedData(scenePlanFile, wordCuesFile);
   const activeMatch = useMemo(() => getSceneAtTime(scenes, timeSec), [scenes, timeSec]);
-
-  const theme = getTheme(themePreset);
-  const rules = getMontageRules(montagePreset);
 
   const showOverlay = activeMatch !== null;
   const {scene: activeScene, index: activeSceneIndex} = activeMatch ?? {
@@ -98,39 +131,10 @@ export const AutoMontage: React.FC<AutoMontageProps> = ({
 
   const sceneStartFrame = activeScene?.start ? Math.floor(activeScene.start * fps) : 0;
   const inSceneFrame = Math.max(0, frame - sceneStartFrame);
-  const timeInSceneSec = Math.max(0, timeSec - (activeScene?.start ?? 0));
-
-  const layout =
-    activeScene?.start !== undefined
-      ? getLayoutForMoment(activeScene, activeSceneIndex, timeInSceneSec, montagePreset)
-      : 'clean';
-
-  const layoutStartSec =
-    activeScene?.start !== undefined
-      ? getLayoutSegmentStartSec(activeScene, timeInSceneSec, montagePreset)
-      : 0;
-  const inLayoutFrame = Math.max(0, inSceneFrame - Math.floor(layoutStartSec * fps));
-
-  // Panel entrance spring
-  const layoutIn = spring({
-    fps,
-    frame: Math.floor(inLayoutFrame * 2.2),
-    config: {damping: 22, stiffness: 140, mass: 0.8},
-  });
-  const panelOpacity = interpolate(layoutIn, [0, 1], [0, 1]);
-
-  // Per-scene accent color
-  const accentColor = theme.accent;
-  const mode = String(activeScene?.mode || 'full').toLowerCase();
-  const isMiniMode =
-    mode === 'mini' ||
-    mode === 'lower-third' ||
-    mode === 'lower_third' ||
-    mode === 'side';
-  const prevScene = activeSceneIndex > 0 ? scenes[activeSceneIndex - 1] : null;
-  const currentChapter = Number(activeScene?.chapterIndex ?? activeSceneIndex + 1);
-  const prevChapter = Number(prevScene?.chapterIndex ?? 0);
-  const isChapterStart = activeSceneIndex === 0 || currentChapter !== prevChapter;
+  const cueWords = wordCueGroups[activeSceneIndex] || [];
+  const bottomCaptionText = buildBottomCaption(cueWords, timeSec);
+  const openerText = pickSceneOpener(activeScene);
+  const openerFrames = Math.floor(3 * fps);
 
   return (
     <AbsoluteFill style={{backgroundColor: '#000'}}>
@@ -142,20 +146,12 @@ export const AutoMontage: React.FC<AutoMontageProps> = ({
         />
       )}
 
-      {/* FULL: typography overlay */}
+      {/* Minimal overlay system: opener + bottom caption */}
       {showOverlay && (
-        <AbsoluteFill>
-          {isMiniMode ? (
-            <MiniAccent scene={activeScene} accentColor={accentColor} />
-          ) : (
-            <FullSlide scene={activeScene} />
-          )}
-          <ChapterBanner
-            scene={activeScene}
-            isChapterStart={isChapterStart}
-            inSceneFrame={inSceneFrame}
-          />
-        </AbsoluteFill>
+        <>
+          <BlockOpener text={openerText} visibleFrames={openerFrames} />
+          <BottomCaption text={bottomCaptionText} />
+        </>
       )}
     </AbsoluteFill>
   );
