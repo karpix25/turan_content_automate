@@ -104,8 +104,9 @@ services:
     working_dir: /app/backend
     restart: unless-stopped
     init: true
+    shm_size: "1gb"
     stop_grace_period: 120s
-    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=${CELERY_WORKER_CONCURRENCY:-1} --prefetch-multiplier=1 --max-tasks-per-child=5 --soft-time-limit=${CELERY_TASK_SOFT_TIME_LIMIT_SECONDS:-5400} --time-limit=${CELERY_TASK_TIME_LIMIT_SECONDS:-7200} -Ofair
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=${CELERY_WORKER_CONCURRENCY:-1} --prefetch-multiplier=1 --max-tasks-per-child=5 --soft-time-limit=${CELERY_TASK_SOFT_TIME_LIMIT_SECONDS:-7200} --time-limit=${CELERY_TASK_TIME_LIMIT_SECONDS:-9000} -Ofair
     volumes:
       - media_data:/app/database/media
     environment:
@@ -134,6 +135,14 @@ services:
       - PLATES_DIR=/app/database/media/plates
       - CTA_DIR=/app/database/media/cta
       - OUTPUT_DIR=/app/database/media/output
+      - CELERY_TASK_SOFT_TIME_LIMIT_SECONDS=${CELERY_TASK_SOFT_TIME_LIMIT_SECONDS:-7200}
+      - CELERY_TASK_TIME_LIMIT_SECONDS=${CELERY_TASK_TIME_LIMIT_SECONDS:-9000}
+      - REMOTION_RENDER_TIMEOUT_SECONDS=${REMOTION_RENDER_TIMEOUT_SECONDS:-6300}
+      - REMOTION_CONCURRENCY=${REMOTION_CONCURRENCY:-4}
+      - FFMPEG_X264_PRESET=${FFMPEG_X264_PRESET:-veryfast}
+      - FFMPEG_X264_CRF=${FFMPEG_X264_CRF:-21}
+      - AVATAR_INSERT_MONTAGE_TIMEOUT_SECONDS=${AVATAR_INSERT_MONTAGE_TIMEOUT_SECONDS:-1500}
+      - AVATAR_INSERT_MONTAGE_MIN_REMAINING_SECONDS=${AVATAR_INSERT_MONTAGE_MIN_REMAINING_SECONDS:-300}
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
       - HEYGEN_API_KEY=${HEYGEN_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}

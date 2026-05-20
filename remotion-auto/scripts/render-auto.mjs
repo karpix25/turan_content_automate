@@ -65,6 +65,7 @@ const themePreset = getArgValue('theme', 'youtubeBusiness');
 const montagePreset = getArgValue('preset', 'balanced');
 const cueWindowSec = Number(getArgValue('cue-window-sec', '0.95'));
 const codec = getArgValue('codec', 'h264');
+const concurrencyArg = getArgValue('concurrency', process.env.REMOTION_CONCURRENCY || '');
 const maxDurationSecArg = Number(getArgValue('max-duration-sec', '0'));
 const dryRun = hasFlag('dry-run');
 
@@ -125,6 +126,7 @@ const detectedDurationSec = videoDurationSec > 0 ? videoDurationSec : maxEndSec 
 const maxDurationSec = Number.isFinite(maxDurationSecArg) ? maxDurationSecArg : 0;
 const durationSec =
   maxDurationSec > 0 ? Math.min(detectedDurationSec, maxDurationSec) : detectedDurationSec;
+const concurrency = Number(concurrencyArg);
 
 const outputDir = path.dirname(outputPath);
 fs.mkdirSync(outputDir, {recursive: true});
@@ -152,6 +154,10 @@ const renderArgs = [
   '--overwrite',
 ];
 
+if (Number.isFinite(concurrency) && concurrency > 0) {
+  renderArgs.push('--concurrency', String(Math.floor(concurrency)));
+}
+
 console.log('[render-auto] Prepared input files:');
 console.log(`  video: ${sourceVideoPath}`);
 console.log(`  scene-plan: ${scenePlanPath}`);
@@ -162,6 +168,7 @@ console.log(`  preset: ${montagePreset}`);
 console.log(`  duration: ${durationSec}s`);
 console.log(`  video-duration: ${videoDurationSec || 'unavailable'}s`);
 console.log(`  scene-plan-max-end: ${maxEndSec || 'unavailable'}s`);
+console.log(`  concurrency: ${Number.isFinite(concurrency) && concurrency > 0 ? Math.floor(concurrency) : 'remotion-default'}`);
 
 if (dryRun) {
   console.log('[render-auto] Dry run mode enabled. Render command:');
