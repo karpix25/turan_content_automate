@@ -15,6 +15,7 @@ import math
 import mimetypes
 import os
 import re
+import shutil
 import subprocess
 import sys
 import urllib.error
@@ -53,30 +54,39 @@ def http_post_json(url: str, payload: dict[str, Any], headers: dict[str, str], t
     req = urllib.request.Request(url=url, data=body, method="POST")
     for k, v in headers.items():
         req.add_header(k, v)
+    fallback_error: Exception | None = None
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
-    except Exception as err:
+    except urllib.error.HTTPError as err:
+        if 400 <= err.code < 500:
+            raise RuntimeError(f"LLM HTTP auth/client error {err.code}: {err.reason}") from err
+        fallback_error = err
         eprint(f"urllib failed for {url}: {err}. Falling back to curl ...")
-        cmd = [
-            "curl",
-            "--silent",
-            "--show-error",
-            "--fail",
-            "--max-time",
-            str(timeout),
-            "--request",
-            "POST",
-            "--url",
-            url,
-        ]
-        for k, v in headers.items():
-            cmd.extend(["--header", f"{k}: {v}"])
-        cmd.extend(["--data", json.dumps(payload, ensure_ascii=False)])
-        run = subprocess.run(cmd, capture_output=True, text=True)
-        if run.returncode != 0:
-            raise RuntimeError(f"curl failed ({run.returncode}): {run.stderr.strip()}") from err
-        return json.loads(run.stdout)
+    except Exception as err:
+        fallback_error = err
+        eprint(f"urllib failed for {url}: {err}. Falling back to curl ...")
+    if not shutil.which("curl"):
+        raise RuntimeError("HTTP request failed and curl is not installed in the runtime image") from fallback_error
+    cmd = [
+        "curl",
+        "--silent",
+        "--show-error",
+        "--fail",
+        "--max-time",
+        str(timeout),
+        "--request",
+        "POST",
+        "--url",
+        url,
+    ]
+    for k, v in headers.items():
+        cmd.extend(["--header", f"{k}: {v}"])
+    cmd.extend(["--data", json.dumps(payload, ensure_ascii=False)])
+    run = subprocess.run(cmd, capture_output=True, text=True)
+    if run.returncode != 0:
+        raise RuntimeError(f"curl failed ({run.returncode}): {run.stderr.strip()}") from fallback_error
+    return json.loads(run.stdout)
 
 
 def deepgram_transcribe(

@@ -695,23 +695,15 @@ def _run_remotion_pipeline(
         return None
     if res.returncode != 0:
         combined_error = f"{res.stdout or ''}\n{res.stderr or ''}"
-        can_use_deterministic_plan = (
-            "LLM scene-plan failed quality gate" in combined_error
-            or "LLM scene-plan used generic copy" in combined_error
-            or "LLM scene-plan returned only" in combined_error
-            or "LLM scene-plan is empty" in combined_error
+        fallback_cmd_plan = [*cmd_plan, "--skip-llm"]
+        logging.warning(
+            "Task %s: Remotion scene planner failed; retrying with deterministic planner. STDERR: %s",
+            task_id,
+            combined_error[-4000:],
         )
-        if can_use_deterministic_plan:
-            fallback_cmd_plan = [*cmd_plan, "--skip-llm"]
-            logging.warning(
-                "Task %s: Remotion LLM scene planner failed quality gate; "
-                "retrying with deterministic planner. STDERR: %s",
-                task_id,
-                res.stderr[-4000:],
-            )
-            res = run_scene_planner(fallback_cmd_plan, "Running Remotion deterministic scene planner")
-            if res is None:
-                return None
+        res = run_scene_planner(fallback_cmd_plan, "Running Remotion deterministic scene planner")
+        if res is None:
+            return None
         if res.returncode != 0:
             logging.error("Task %s: Remotion scene planner failed. STDOUT: %s\nSTDERR: %s", task_id, res.stdout, res.stderr)
             return None
