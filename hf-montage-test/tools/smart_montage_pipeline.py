@@ -888,7 +888,7 @@ def build_llm_prompt_payload(
                 "focus_on_essence": True,
                 "no_generic_titles": "Запрещены общие заголовки вроде 'ГЛАВНЫЙ РИСК', 'ЧТО МЕНЯЕТСЯ', 'ФОКУС НА ГЛАВНОМ', если в них нет конкретного смысла из речи.",
                 "anchor_required": "Каждый beat обязан иметь 2-5 anchorWords — точные слова или короткие фразы из транскрипта, по которым понятно, почему этот beat существует.",
-                "visual_required": "Каждый beat обязан иметь visualIdea и visualElements. Они должны вытекать из темы, а не быть абстрактными графиками.",
+                "visual_required": "Каждый beat обязан иметь visualIdea и visualElements. visualIdea — это конкретный кадр с субъектом, местом, объектами и конфликтом/действием, а не тема или список существительных.",
                 "hook_required": "Первая scene обязана иметь hookText и hookPromise для первых 1-3 секунд. Hook — это не пересказ, а scroll-stopper: конфликт, боль или сильное обещание, основанные на речи.",
                 "visual_text_policy": "Для обычных иллюстраций и метафор не проси текст внутри картинки. Для реалистичных интерфейсов, документов, писем, таблиц и чек-листов короткий текст внутри изображения разрешен, если он является частью объекта."
             },
@@ -909,7 +909,7 @@ def build_llm_prompt_payload(
                     "subtitle": "ясное объяснение смысла в 5-10 слов",
                     "opener": "короткий триггер 3-5 слов",
                     "insight": "почему этот момент важен",
-                    "visualIdea": "одна конкретная визуальная метафора",
+                    "visualIdea": "конкретный кадр: субъект + место + объекты + конфликт/действие",
                     "visualType": "illustration | realistic_interface | realistic_document | realistic_screenshot",
                     "visualElements": ["объект 1", "объект 2", "действие/конфликт"]
                 }
@@ -967,13 +967,19 @@ def generate_scene_plan_llm(
 6. anchorWords: 2-5 точных слов/коротких фраз из транскрипта. Это якоря, которые доказывают, что сцена привязана к речи.
 7. Первая scene обязана иметь hookText и hookPromise. Это первые 1-3 секунды: боль, конфликт или сильное обещание, чтобы зритель не свайпнул.
 8. referenceEssence: коротко объясни, какую суть исходной речи/референса ты повторяешь своими словами. Не копируй формулировку, сохраняй смысл.
-9. visualIdea: одна конкретная визуальная метафора для KIE-иллюстрации.
+9. visualIdea: конкретный кадр для KIE-иллюстрации, минимум 8 слов: субъект + место + 2-3 объекта + конфликт/действие. Нельзя возвращать тему, категорию или список существительных.
 10. visualType: "illustration" для обычных метафор; "realistic_interface", "realistic_document" или "realistic_screenshot", если нужен реалистичный скрин/документ.
 11. visualElements: 3-6 конкретных объектов/персонажей/действий, которые можно нарисовать. Не используй графики, если речь не про данные/проценты.
 12. Для обычной illustration запрещен текст внутри картинки. Для realistic_interface/document/screenshot разрешены короткие UI/document labels как часть объекта.
 13. Не добавляй чужую предметную область. Если в речи нет проливов, танкеров, стран, флагов, санкций, портов или войны — не упоминай их.
 14. Если в payload есть script_context, считай его авторитетным сценарием видео. Используй его для тематики, текста карточек и visualIdea; Deepgram нужен для таймингов.
 15. Ответ — только валидный JSON. Никакого Markdown.
+
+ПРИМЕРЫ visualIdea:
+Плохо: "документы, подтверждающие гражданство"
+Хорошо: "крупный план официальных документов с печатями, паспортом и красной предупреждающей меткой на столе"
+Плохо: "новые правила"
+Хорошо: "человек перед закрытой стойкой регистрации держит папку документов, рядом горит красный сигнал проверки"
 
 ФОРМАТ:
 {
@@ -1098,6 +1104,56 @@ def _is_generic_scene_text(value: str) -> bool:
     if compact.startswith("глубокая аналитическая мысль"):
         return True
     if "сфокус" in compact and "важн" in compact:
+        return True
+    return False
+
+
+def _is_weak_visual_idea(value: str) -> bool:
+    text = normalize_plain_text(value).lower()
+    if _is_generic_scene_text(text):
+        return True
+    words = text.split()
+    if len(words) < 6:
+        return True
+
+    action_markers = (
+        "держ",
+        "стоит",
+        "сидит",
+        "смотр",
+        "лежит",
+        "горит",
+        "виден",
+        "видна",
+        "сравнив",
+        "открыт",
+        "закрыт",
+        "показыв",
+        "сталкива",
+        "выдел",
+        "перечерк",
+    )
+    scene_markers = (
+        "крупный план",
+        "на столе",
+        "перед",
+        "рядом",
+        "в центре",
+        "на экране",
+        "за столом",
+        "у стойки",
+        "в кабинете",
+        "сигнал",
+        "метка",
+        "барьер",
+    )
+    has_action = any(marker in text for marker in action_markers)
+    has_scene = any(marker in text for marker in scene_markers)
+    if len(words) < 8 and not (has_action or has_scene):
+        return True
+
+    noun_list_hint = "," in text and not has_action and not has_scene
+    if noun_list_hint:
         return True
     return False
 
@@ -1294,6 +1350,81 @@ def _derive_anchor_words_from_text(text: str, limit: int = 4) -> list[str]:
     return anchors
 
 
+def _derive_visual_elements_from_text(text: str, title: str = "", limit: int = 6) -> list[str]:
+    source = normalize_plain_text(" ".join([text, title]))
+    keywords = [
+        normalize_scene_text(keyword, 80, 8)
+        for keyword in extract_keywords(source, limit * 2)
+        if not _is_generic_scene_text(keyword)
+    ]
+
+    lower = source.lower()
+    elements: list[str] = []
+
+    def add(item: str) -> None:
+        cleaned = normalize_scene_text(item, 80, 8)
+        if not cleaned:
+            return
+        if cleaned.lower() in {existing.lower() for existing in elements}:
+            return
+        elements.append(cleaned)
+
+    if any(token in lower for token in ("документ", "паспорт", "гражданств", "закон", "правил")):
+        add("официальные документы с печатями")
+        add("паспорт или удостоверение")
+        add("красная предупреждающая метка")
+    if any(token in lower for token in ("деньг", "налог", "штраф", "выплат", "сумм", "рубл")):
+        add("пачка документов с расчетами")
+        add("красный финансовый маркер")
+        add("человек у стола с бумагами")
+    if any(token in lower for token in ("срок", "июн", "июл", "месяц", "дата", "календар")):
+        add("календарь с выделенной датой")
+        add("настольные часы")
+    if any(token in lower for token in ("провер", "риск", "отказ", "запрет", "ошиб")):
+        add("красный сигнал проверки")
+        add("закрытая дверь или барьер")
+
+    for keyword in keywords:
+        add(keyword)
+        if len(elements) >= limit:
+            break
+
+    defaults = [
+        "человек в момент выбора",
+        "папка с важными бумагами",
+        "контрастный свет на главном объекте",
+        "визуальный конфликт в центре кадра",
+    ]
+    for item in defaults:
+        if len(elements) >= 3:
+            break
+        add(item)
+
+    return elements[:limit]
+
+
+def _build_concrete_visual_idea(scene: dict[str, Any], window_text: str, source_text: str) -> str:
+    title = normalize_plain_text(str(scene.get("title") or ""))
+    subtitle = normalize_plain_text(str(scene.get("subtitle") or ""))
+    source = normalize_plain_text(" ".join([source_text, window_text, title, subtitle]))
+    lower = source.lower()
+    elements = _derive_visual_elements_from_text(source, title, limit=4)
+
+    if any(token in lower for token in ("документ", "паспорт", "гражданств", "закон", "правил")):
+        idea = "крупный план официальных документов с печатями, паспортом и красной предупреждающей меткой на столе"
+    elif any(token in lower for token in ("срок", "июн", "июл", "месяц", "дата", "календар")):
+        idea = "человек держит папку документов перед календарем с выделенной датой и красным сигналом дедлайна"
+    elif any(token in lower for token in ("деньг", "налог", "штраф", "выплат", "сумм", "рубл")):
+        idea = "человек за столом сравнивает финансовые бумаги, рядом красная метка риска и пачка счетов"
+    elif any(token in lower for token in ("провер", "риск", "отказ", "запрет", "ошиб")):
+        idea = "человек стоит перед закрытым барьером проверки, держа папку, рядом горит красный предупреждающий сигнал"
+    else:
+        seed = ", ".join(elements[:3]) if elements else normalize_scene_text(source, 120, 14)
+        idea = f"конкретная экспертная сцена: человек сталкивается с выбором, вокруг {seed}, в центре виден конфликт решения"
+
+    return normalize_scene_text(idea, 220, 28)
+
+
 def _repair_scene_plan_metadata(scenes: list[dict[str, Any]], utterances: list[dict[str, Any]]) -> None:
     for index, scene in enumerate(scenes):
         try:
@@ -1327,6 +1458,25 @@ def _repair_scene_plan_metadata(scenes: list[dict[str, Any]], utterances: list[d
                     break
             if replacement:
                 scene["subtitle"] = replacement
+
+        visual_idea = normalize_scene_text(str(scene.get("visualIdea") or ""), 220, 28)
+        if _is_weak_visual_idea(visual_idea):
+            visual_idea = _build_concrete_visual_idea(scene, window_text, source_text)
+        scene["visualIdea"] = visual_idea
+
+        visual_elements = _norm_string_list(
+            scene.get("visualElements"),
+            max_items=6,
+            max_chars=80,
+            max_words=10,
+        )
+        if len(visual_elements) < 3:
+            for element in _derive_visual_elements_from_text(repair_source, str(scene.get("title") or ""), limit=6):
+                if element.lower() not in {x.lower() for x in visual_elements}:
+                    visual_elements.append(element)
+                if len(visual_elements) >= 3:
+                    break
+        scene["visualElements"] = visual_elements[:6]
 
         if index == 0:
             hook_text = normalize_scene_text(str(scene.get("hookText") or ""), 64, 8)
@@ -1375,7 +1525,7 @@ def validate_scene_plan_quality(scenes: list[dict[str, Any]], duration: float) -
             errors.append(f"{label} has weak subtitle: {subtitle!r}")
         if len([x for x in anchor_words if normalize_plain_text(str(x))]) < 2:
             errors.append(f"{label} needs at least 2 anchorWords")
-        if _is_generic_scene_text(visual_idea) or len(visual_idea.split()) < 5:
+        if _is_weak_visual_idea(visual_idea):
             errors.append(f"{label} has weak visualIdea: {visual_idea!r}")
         if len([x for x in visual_elements if normalize_plain_text(str(x))]) < 3:
             errors.append(f"{label} needs at least 3 visualElements")
