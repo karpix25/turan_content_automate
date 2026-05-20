@@ -311,6 +311,10 @@ HYPERFRAMES_RENDER_TIMEOUT_SECONDS = max(
         )
     ),
 )
+REMOTION_RENDER_TIMEOUT_SECONDS = max(
+    600,
+    int(os.getenv("REMOTION_RENDER_TIMEOUT_SECONDS", "3600")),
+)
 HYPERFRAMES_STEP_TIMEOUT_SECONDS = max(
     120,
     int(os.getenv("HYPERFRAMES_STEP_TIMEOUT_SECONDS", "1800")),
@@ -576,8 +580,8 @@ def _run_remotion_pipeline(
     os.makedirs(out_dir, exist_ok=True)
 
     render_timeout_seconds = min(
-        HYPERFRAMES_RENDER_TIMEOUT_SECONDS,
-        max(300, CELERY_TASK_SOFT_TIME_LIMIT_SECONDS - 300),
+        REMOTION_RENDER_TIMEOUT_SECONDS,
+        max(300, CELERY_TASK_SOFT_TIME_LIMIT_SECONDS - 900),
     )
     step_timeout_seconds = min(
         HYPERFRAMES_STEP_TIMEOUT_SECONDS,
@@ -771,6 +775,13 @@ def _run_remotion_pipeline(
             (exc.stdout or "")[-4000:],
             (exc.stderr or "")[-4000:],
         )
+        if is_usable_remotion_output(final_output):
+            logging.warning(
+                "Task %s: Remotion render timed out, but output MP4 is already valid. Accepting: %s",
+                task_id,
+                final_output,
+            )
+            return final_output
         return None
     if res_render.stdout:
         logging.info("Task %s: Remotion stdout: %s", task_id, res_render.stdout[-4000:])
