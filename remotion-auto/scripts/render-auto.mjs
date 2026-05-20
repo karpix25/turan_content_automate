@@ -29,6 +29,29 @@ const hasFlag = (name) => argv.includes(`--${name}`);
 const resolveFromProject = (inputPath) =>
   path.isAbsolute(inputPath) ? inputPath : path.resolve(projectRoot, inputPath);
 
+const probeVideoDurationSec = (filePath) => {
+  const result = spawnSync(
+    'ffprobe',
+    [
+      '-v',
+      'error',
+      '-show_entries',
+      'format=duration',
+      '-of',
+      'default=noprint_wrappers=1:nokey=1',
+      filePath,
+    ],
+    {encoding: 'utf8'},
+  );
+
+  if (result.error || result.status !== 0) {
+    return 0;
+  }
+
+  const duration = Number(String(result.stdout || '').trim());
+  return Number.isFinite(duration) && duration > 0 ? duration : 0;
+};
+
 const defaultVideo = '../hf-montage-test/source_optimized_45s.mp4';
 const defaultScenePlan = '../hf-montage-test/data/scene-plan.generated.json';
 const defaultWordCues = '../hf-montage-test/data/scene-word-cues.generated.json';
@@ -97,7 +120,8 @@ const maxEndSec = scenes.reduce((max, scene) => {
   return Number.isFinite(end) ? Math.max(max, end) : max;
 }, 0);
 
-const detectedDurationSec = maxEndSec > 0 ? maxEndSec : 60;
+const videoDurationSec = probeVideoDurationSec(sourceVideoPath);
+const detectedDurationSec = videoDurationSec > 0 ? videoDurationSec : maxEndSec > 0 ? maxEndSec : 60;
 const maxDurationSec = Number.isFinite(maxDurationSecArg) ? maxDurationSecArg : 0;
 const durationSec =
   maxDurationSec > 0 ? Math.min(detectedDurationSec, maxDurationSec) : detectedDurationSec;
@@ -136,6 +160,8 @@ console.log(`  output: ${outputPath}`);
 console.log(`  theme: ${themePreset}`);
 console.log(`  preset: ${montagePreset}`);
 console.log(`  duration: ${durationSec}s`);
+console.log(`  video-duration: ${videoDurationSec || 'unavailable'}s`);
+console.log(`  scene-plan-max-end: ${maxEndSec || 'unavailable'}s`);
 
 if (dryRun) {
   console.log('[render-auto] Dry run mode enabled. Render command:');
