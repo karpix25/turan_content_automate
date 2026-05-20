@@ -2,94 +2,40 @@ import {useEffect, useMemo, useState} from 'react';
 import {
   AbsoluteFill,
   OffthreadVideo,
-  Sequence,
   cancelRender,
   continueRender,
   delayRender,
+  interpolate,
+  spring,
   staticFile,
   useCurrentFrame,
   useVideoConfig,
 } from 'remotion';
-import type {AutoMontageProps, ScenePlanItem} from './montage/types';
-import {BlockOpener} from './montage/components/BlockOpener';
-import {ChapterBanner} from './montage/components/ChapterBanner';
+import {getTheme} from './montage/theme';
+import type {AutoMontageProps, ScenePlanItem, WordCue} from './montage/types';
+import {
+  getLayoutForMoment,
+  getLayoutSegmentStartSec,
+  getMontageRules,
+} from './montage/youtube-rules';
 import {FullSlide} from './montage/components/FullSlide';
 import {MiniAccent} from './montage/components/MiniAccent';
-import {getTheme} from './montage/theme';
+import {ChapterBanner} from './montage/components/ChapterBanner';
 
 type LoadedData = {
   scenes: ScenePlanItem[];
+  wordCueGroups: WordCue[][];
 };
 
 type ActiveSceneMatch = {
   index: number;
   scene: ScenePlanItem;
-  displayStart: number;
-  displayEnd: number;
-};
-
-const MIN_OVERLAY_SEC = 8;
-const SCENE_GAP_SEC = 0.25;
-
-const normalizeText = (value: string | undefined | null): string =>
-  String(value || '').replace(/\s+/g, ' ').trim();
-
-const trimOpener = (value: string): string => {
-  const clean = normalizeText(value).replace(/["'«»]+/g, '').trim();
-  if (!clean) return '';
-  const words = clean.split(' ');
-  return words.length > 6 ? words.slice(0, 6).join(' ') : clean;
-};
-
-const pickSceneOpener = (scene: ScenePlanItem | undefined): string => {
-  if (!scene) return '';
-  const openerField = trimOpener(normalizeText(scene.chapterOpener || scene.opener));
-  if (openerField) return openerField;
-  const candidates = [
-    normalizeText(scene.chapterTitle),
-    normalizeText(scene.title),
-    normalizeText(scene.keyword),
-    ...((scene.titleLines || []).map(normalizeText)),
-    normalizeText(scene.insight),
-    normalizeText(scene.cta),
-  ].filter(Boolean);
-  const base = candidates[0] || '';
-  if (!base) return '';
-  return trimOpener(base);
-};
-
-const getSceneDisplayEnd = (scenes: ScenePlanItem[], index: number): number => {
-  const scene = scenes[index];
-  const start = Number(scene.start);
-  const end = Number(scene.end);
-  const rawEnd = Number.isFinite(end) && end > start ? end : start + MIN_OVERLAY_SEC;
-  const minEnd = start + MIN_OVERLAY_SEC;
-  const nextStart = Number(scenes[index + 1]?.start);
-  const displayEnd = Math.max(rawEnd, minEnd);
-
-  if (Number.isFinite(nextStart) && nextStart > start) {
-    return Math.min(displayEnd, Math.max(start + 1, nextStart - SCENE_GAP_SEC));
-  }
-
-  return displayEnd;
 };
 
 const getSceneAtTime = (scenes: ScenePlanItem[], timeSec: number): ActiveSceneMatch | null => {
   if (scenes.length === 0) return null;
-  const foundIndex = scenes.findIndex((s, index) => {
-    const start = Number(s.start);
-    if (!Number.isFinite(start)) return false;
-    return timeSec >= start && timeSec < getSceneDisplayEnd(scenes, index);
-  });
-  if (foundIndex >= 0) {
-    const scene = scenes[foundIndex];
-    return {
-      index: foundIndex,
-      scene,
-      displayStart: scene.start,
-      displayEnd: getSceneDisplayEnd(scenes, foundIndex),
-    };
-  }
+  const foundIndex = scenes.findIndex((s) => timeSec >= s.start && timeSec < s.end);
+  if (foundIndex >= 0) return {index: foundIndex, scene: scenes[foundIndex]};
   return null;
 };
 
@@ -101,12 +47,17 @@ const useLoadedData = (scenePlanFile: string, wordCuesFile: string): LoadedData 
     let canceled = false;
     const load = async () => {
       try {
-        const [sceneRes] = await Promise.all([fetch(staticFile(scenePlanFile))]);
+        const [sceneRes, cuesRes] = await Promise.all([
+          fetch(staticFile(scenePlanFile)),
+          fetch(staticFile(wordCuesFile)),
+        ]);
         if (!sceneRes.ok) throw new Error(`Cannot read scene plan: ${scenePlanFile}`);
+        if (!cuesRes.ok) throw new Error(`Cannot read word cues: ${wordCuesFile}`);
 
         const scenes = (await sceneRes.json()) as ScenePlanItem[];
+        const wordCueGroups = (await cuesRes.json()) as WordCue[][];
         if (canceled) return;
-        setData({scenes});
+        setData({scenes, wordCueGroups});
         continueRender(handle);
       } catch (error) {
         cancelRender(error);
@@ -116,9 +67,9 @@ const useLoadedData = (scenePlanFile: string, wordCuesFile: string): LoadedData 
     return () => {
       canceled = true;
     };
-  }, [scenePlanFile, handle]);
+  }, [scenePlanFile, wordCuesFile, handle]);
 
-  if (!data) return {scenes: []};
+  if (!data) return {scenes: [], wordCueGroups: []};
   return data;
 };
 
@@ -127,7 +78,7 @@ export const AutoMontage: React.FC<AutoMontageProps> = ({
   scenePlanFile,
   wordCuesFile,
   themePreset,
-  montagePreset: _montagePreset,
+  montagePreset,
 }) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
@@ -135,32 +86,46 @@ export const AutoMontage: React.FC<AutoMontageProps> = ({
 
   const {scenes} = useLoadedData(scenePlanFile, wordCuesFile);
   const activeMatch = useMemo(() => getSceneAtTime(scenes, timeSec), [scenes, timeSec]);
+
   const theme = getTheme(themePreset);
+  const rules = getMontageRules(montagePreset);
 
   const showOverlay = activeMatch !== null;
-  const {scene: activeScene, index: activeSceneIndex, displayStart, displayEnd} = activeMatch ?? {
+  const {scene: activeScene, index: activeSceneIndex} = activeMatch ?? {
     scene: scenes[0] ?? ({} as ScenePlanItem),
     index: 0,
-    displayStart: 0,
-    displayEnd: 0,
   };
 
-  const sceneStartFrame = useMemo(() => {
-    const start = Number(displayStart ?? activeScene?.start ?? 0);
-    if (!Number.isFinite(start) || start <= 0) return 0;
-    return Math.floor(start * fps);
-  }, [activeScene, displayStart, fps]);
-
-  const sceneDurationFrames = Math.max(1, Math.ceil(Math.max(0, displayEnd - displayStart) * fps));
+  const sceneStartFrame = activeScene?.start ? Math.floor(activeScene.start * fps) : 0;
   const inSceneFrame = Math.max(0, frame - sceneStartFrame);
-  const openerText = pickSceneOpener(activeScene);
-  const openerFrames = Math.floor(3 * fps);
+  const timeInSceneSec = Math.max(0, timeSec - (activeScene?.start ?? 0));
+
+  const layout =
+    activeScene?.start !== undefined
+      ? getLayoutForMoment(activeScene, activeSceneIndex, timeInSceneSec, montagePreset)
+      : 'clean';
+
+  const layoutStartSec =
+    activeScene?.start !== undefined
+      ? getLayoutSegmentStartSec(activeScene, timeInSceneSec, montagePreset)
+      : 0;
+  const inLayoutFrame = Math.max(0, inSceneFrame - Math.floor(layoutStartSec * fps));
+
+  // Panel entrance spring
+  const layoutIn = spring({
+    fps,
+    frame: Math.floor(inLayoutFrame * 2.2),
+    config: {damping: 22, stiffness: 140, mass: 0.8},
+  });
+  const panelOpacity = interpolate(layoutIn, [0, 1], [0, 1]);
+
+  // Per-scene accent color
+  const accentColor = theme.accent;
   const mode = String(activeScene?.mode || 'full').toLowerCase();
   const isMiniMode =
     mode === 'mini' ||
     mode === 'lower-third' ||
     mode === 'lower_third' ||
-    mode === 'overlay' ||
     mode === 'side';
   const prevScene = activeSceneIndex > 0 ? scenes[activeSceneIndex - 1] : null;
   const currentChapter = Number(activeScene?.chapterIndex ?? activeSceneIndex + 1);
@@ -177,22 +142,20 @@ export const AutoMontage: React.FC<AutoMontageProps> = ({
         />
       )}
 
+      {/* FULL: typography overlay */}
       {showOverlay && (
-        <Sequence from={sceneStartFrame} durationInFrames={sceneDurationFrames}>
-          <AbsoluteFill>
-            {isMiniMode ? (
-              <MiniAccent scene={activeScene} accentColor={theme.accent} />
-            ) : (
-              <FullSlide scene={activeScene} />
-            )}
-            <ChapterBanner
-              scene={activeScene}
-              isChapterStart={isChapterStart}
-              inSceneFrame={inSceneFrame}
-            />
-            <BlockOpener text={openerText} visibleFrames={openerFrames} sceneFrame={inSceneFrame} />
-          </AbsoluteFill>
-        </Sequence>
+        <AbsoluteFill>
+          {isMiniMode ? (
+            <MiniAccent scene={activeScene} accentColor={accentColor} />
+          ) : (
+            <FullSlide scene={activeScene} />
+          )}
+          <ChapterBanner
+            scene={activeScene}
+            isChapterStart={isChapterStart}
+            inSceneFrame={inSceneFrame}
+          />
+        </AbsoluteFill>
       )}
     </AbsoluteFill>
   );
