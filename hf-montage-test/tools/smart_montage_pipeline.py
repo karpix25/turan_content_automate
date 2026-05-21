@@ -1168,6 +1168,10 @@ def _is_weak_visual_idea(value: str) -> bool:
     return False
 
 
+def _scene_title_token_count(value: str) -> int:
+    return len(re.findall(r"[A-Za-zА-Яа-яЁё0-9]{3,}", normalize_plain_text(value)))
+
+
 def _scene_window_text(utterances: list[dict[str, Any]], start: float, end: float) -> str:
     if not utterances:
         return ""
@@ -1531,7 +1535,7 @@ def validate_scene_plan_quality(
         anchor_words = scene.get("anchorWords") if isinstance(scene.get("anchorWords"), list) else []
         visual_elements = scene.get("visualElements") if isinstance(scene.get("visualElements"), list) else []
 
-        if _is_generic_scene_text(title) or len(title.split()) < 2:
+        if _is_generic_scene_text(title) or _scene_title_token_count(title) < 2:
             errors.append(f"{label} has weak title: {title!r}")
         if title.lower() in seen_titles:
             errors.append(f"{label} repeats title: {title!r}")
