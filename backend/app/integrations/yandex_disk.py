@@ -1,5 +1,6 @@
 import os
 import time
+import logging
 from urllib.parse import quote
 
 import httpx
@@ -14,6 +15,10 @@ class YandexDiskClient:
         self.upload_timeout_seconds = float(os.getenv("YANDEX_DISK_UPLOAD_TIMEOUT_SECONDS", "600"))
         self.upload_total_deadline_seconds = float(
             os.getenv("YANDEX_DISK_UPLOAD_TOTAL_DEADLINE_SECONDS", "1500")
+        )
+        self.upload_min_bytes_per_second = max(
+            1.0,
+            float(os.getenv("YANDEX_DISK_UPLOAD_MIN_BYTES_PER_SECOND", str(256 * 1024))),
         )
         self.upload_chunk_size_bytes = max(
             64 * 1024,
@@ -105,6 +110,20 @@ class YandexDiskClient:
         file_size = os.path.getsize(local_path)
         last_upload_error: Exception | None = None
         upload_response: httpx.Response | None = None
+        size_based_deadline_seconds = file_size / self.upload_min_bytes_per_second
+        effective_deadline_seconds = (
+            max(self.upload_total_deadline_seconds, size_based_deadline_seconds)
+            if self.upload_total_deadline_seconds > 0
+            else 0
+        )
+        logging.info(
+            "Yandex.Disk upload starting remote=%s bytes=%s deadline=%.0fs min_rate=%.0fB/s",
+            normalized_remote,
+            file_size,
+            effective_deadline_seconds,
+            self.upload_min_bytes_per_second,
+        )
+
         for attempt in range(1, self.upload_retries + 2):
             get_href_response = self._request(
                 "GET",
@@ -131,8 +150,8 @@ class YandexDiskClient:
                 continue
 
             deadline = (
-                time.monotonic() + self.upload_total_deadline_seconds
-                if self.upload_total_deadline_seconds > 0
+                time.monotonic() + effective_deadline_seconds
+                if effective_deadline_seconds > 0
                 else None
             )
 
@@ -142,7 +161,7 @@ class YandexDiskClient:
                         if deadline is not None and time.monotonic() > deadline:
                             raise TimeoutError(
                                 f"Yandex.Disk upload total deadline exceeded after "
-                                f"{self.upload_total_deadline_seconds:.0f}s"
+                                f"{effective_deadline_seconds:.0f}s"
                             )
                         chunk = fh.read(self.upload_chunk_size_bytes)
                         if not chunk:

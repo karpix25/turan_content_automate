@@ -354,6 +354,7 @@ AVATAR_HORIZONTAL_TASK_TYPES = {"avatar_horizontal", "avatar_youtube"}
 AVATAR_READY_HEYGEN_TASK_TYPES = {"avatar_heygen", *AVATAR_VERTICAL_TASK_TYPES, *AVATAR_HORIZONTAL_TASK_TYPES}
 SHORT_AVATAR_TASK_TYPES = AVATAR_VERTICAL_TASK_TYPES
 AVATAR_TASK_TYPES = {*AVATAR_READY_HEYGEN_TASK_TYPES}
+AVATAR_HORIZONTAL_RENDERER = (os.getenv("AVATAR_HORIZONTAL_RENDERER") or "hyperframes").strip().lower()
 AVATAR_SCRIPT_MIN_MINUTES = int(os.getenv("AVATAR_SCRIPT_MIN_MINUTES", "4"))
 AVATAR_SCRIPT_MAX_MINUTES = int(os.getenv("AVATAR_SCRIPT_MAX_MINUTES", "6"))
 AVATAR_SCRIPT_WPM = int(os.getenv("AVATAR_SCRIPT_WORDS_PER_MINUTE", "110"))
@@ -991,6 +992,7 @@ def _run_hyperframes_pipeline(
     out_plan = os.path.join(out_dir, f"scene-plan_{task_id}.json")
     out_words = os.path.join(out_dir, f"scene-word-cues_{task_id}.json")
     out_transcript = os.path.join(out_dir, f"transcript.deepgram_{task_id}.json")
+    out_semantic_blocks = os.path.join(out_dir, f"semantic-blocks_{task_id}.json")
     script_context_path = os.path.join(out_dir, f"scenario_context_{task_id}.txt")
     os.makedirs(out_dir, exist_ok=True)
 
@@ -1164,10 +1166,20 @@ def _run_hyperframes_pipeline(
         "--video", render_input_video,
         "--index", scene_plan_index,
         "--out-plan", out_plan,
+        "--out-semantic-blocks", out_semantic_blocks,
         "--out-transcript", out_transcript,
         "--overlay-coverage-percent", str(overlay_coverage_percent),
         "--deepgram-intelligence"
     ]
+    if layout == "horizontal_youtube":
+        cmd_plan.extend([
+            "--plan-target", "hyperframes",
+            "--max-scenes", os.getenv("HYPERFRAMES_YOUTUBE_MAX_SCENES", "12"),
+            "--block-min-sentences", os.getenv("HYPERFRAMES_YOUTUBE_BLOCK_MIN_SENTENCES", "4"),
+            "--block-max-sentences", os.getenv("HYPERFRAMES_YOUTUBE_BLOCK_MAX_SENTENCES", "8"),
+        ])
+    elif layout == "horizontal_simple":
+        cmd_plan.extend(["--plan-target", "remotion"])
     clean_script_context = re.sub(r"\s+", " ", (script or "")).strip()
     if clean_script_context:
         os.makedirs(os.path.dirname(script_context_path), exist_ok=True)
@@ -1220,6 +1232,8 @@ def _run_hyperframes_pipeline(
     os.makedirs(hyperframes_input_dir, exist_ok=True)
     shutil.copy2(out_plan, os.path.join(hyperframes_input_dir, "scene-plan.generated.json"))
     shutil.copy2(out_words, os.path.join(hyperframes_input_dir, "scene-word-cues.generated.json"))
+    if os.path.exists(out_semantic_blocks):
+        shutil.copy2(out_semantic_blocks, os.path.join(hyperframes_input_dir, "semantic-blocks.generated.json"))
     if os.path.exists(out_transcript):
         shutil.copy2(out_transcript, os.path.join(hyperframes_input_dir, "transcript.deepgram.json"))
     else:
@@ -1235,18 +1249,100 @@ def _run_hyperframes_pipeline(
         env["PRODUCER_BROWSER_GPU_MODE"] = env.get("PRODUCER_BROWSER_GPU_MODE", "software")
         env["FFMPEG_ENCODE_TIMEOUT_MS"] = env.get("FFMPEG_ENCODE_TIMEOUT_MS", "1800000")
         env["FFMPEG_PROCESS_TIMEOUT_MS"] = env.get("FFMPEG_PROCESS_TIMEOUT_MS", "1800000")
+        env["HYPERFRAMES_YOUTUBE_KIE_MAX_IMAGES"] = env.get("HYPERFRAMES_YOUTUBE_KIE_MAX_IMAGES", "6")
         return env
 
-    if layout == "horizontal_simple":
-        final_output = os.path.join(out_dir, f"hyperframes_horizontal_{task_id}.mp4")
+    if layout in {"horizontal_simple", "horizontal_youtube"}:
+        if layout == "horizontal_youtube":
+            generated_dir = os.path.join(hyperframes_dir, "assets", "generated")
+            os.makedirs(generated_dir, exist_ok=True)
+            for file_name in os.listdir(generated_dir):
+                if file_name.startswith("youtube-scene-") and file_name.lower().endswith(".png"):
+                    try:
+                        os.remove(os.path.join(generated_dir, file_name))
+                    except OSError as exc:
+                        logging.warning(
+                            "Task %s: failed to remove stale YouTube KIE image %s: %s",
+                            task_id,
+                            file_name,
+                            exc,
+                        )
+
+        def run_horizontal_step(label: str, cmd: list[str]) -> bool:
+            logging.info("Task %s: %s: %s", task_id, label, " ".join(cmd))
+            try:
+                result = subprocess.run(
+                    cmd,
+                    cwd=hyperframes_dir,
+                    capture_output=True,
+                    text=True,
+                    env=build_hf_env(),
+                    timeout=step_timeout_seconds,
+                )
+            except subprocess.TimeoutExpired as exc:
+                logging.error(
+                    "Task %s: %s timed out after %ss. STDOUT: %s\nSTDERR: %s",
+                    task_id,
+                    label,
+                    step_timeout_seconds,
+                    (exc.stdout or "")[-4000:],
+                    (exc.stderr or "")[-4000:],
+                )
+                return False
+            if result.stdout:
+                logging.info("Task %s: %s stdout: %s", task_id, label, result.stdout[-4000:])
+            if result.stderr:
+                logging.info("Task %s: %s stderr: %s", task_id, label, result.stderr[-4000:])
+            if result.returncode != 0:
+                logging.error(
+                    "Task %s: %s failed. STDOUT: %s\nSTDERR: %s",
+                    task_id,
+                    label,
+                    result.stdout,
+                    result.stderr,
+                )
+                return False
+            return True
+
+        if layout == "horizontal_youtube":
+            if (os.getenv("KIE_API_KEY") or "").strip():
+                prompts_ready = run_horizontal_step(
+                    "Hyperframes YouTube prompt generation",
+                    ["npm", "run", "generate:youtube-prompts"],
+                )
+                if prompts_ready:
+                    images_ready = run_horizontal_step(
+                        "Hyperframes YouTube image generation",
+                        ["npm", "run", "generate:images"],
+                    )
+                    if not images_ready:
+                        logging.warning(
+                            "Task %s: KIE image generation failed; continuing horizontal Hyperframes "
+                            "with fallback visual cards.",
+                            task_id,
+                        )
+                else:
+                    logging.warning(
+                        "Task %s: YouTube KIE prompt generation failed; continuing horizontal Hyperframes "
+                        "with fallback visual cards.",
+                        task_id,
+                    )
+            else:
+                logging.warning("Task %s: KIE_API_KEY is not configured; horizontal YouTube render will use fallback visual cards.", task_id)
+
+        final_output = os.path.join(
+            out_dir,
+            f"hyperframes_youtube_{task_id}.mp4" if layout == "horizontal_youtube" else f"hyperframes_horizontal_{task_id}.mp4",
+        )
         cmd = [
             "npm", "run", "render:auto", "--",
+            "--layout", layout,
             "--video", render_input_video,
             "--scene-plan", out_plan,
             "--word-cues", out_words,
             "--out", final_output,
         ]
-        logging.info("Task %s: Hyperframes horizontal simple render: %s", task_id, " ".join(cmd))
+        logging.info("Task %s: Hyperframes %s render: %s", task_id, layout, " ".join(cmd))
         try:
             result = subprocess.run(
                 cmd,
@@ -1271,15 +1367,16 @@ def _run_hyperframes_pipeline(
             logging.info("Task %s: Hyperframes horizontal stderr: %s", task_id, result.stderr[-4000:])
         if result.returncode != 0:
             logging.error(
-                "Task %s: Hyperframes horizontal simple render failed. STDOUT: %s\nSTDERR: %s",
+                "Task %s: Hyperframes %s render failed. STDOUT: %s\nSTDERR: %s",
                 task_id,
+                layout,
                 result.stdout,
                 result.stderr,
             )
             return None
         if is_usable_hyperframes_output(final_output):
             return final_output
-        logging.error("Task %s: Hyperframes horizontal simple render produced no usable output.", task_id)
+        logging.error("Task %s: Hyperframes %s render produced no usable output.", task_id, layout)
         return None
 
     def run_hf_step(label: str, cmd: list[str]) -> bool:
@@ -1544,6 +1641,53 @@ def process_content_task(self, task_id: int):
         }
         task.script_meta = current_meta
         db.commit()
+
+    def _render_avatar_with_graphics(
+        input_video: str,
+        script_text: str,
+        *,
+        transcript_json_path: str | None = None,
+    ) -> tuple[str | None, str]:
+        is_short_avatar = task.type in SHORT_AVATAR_TASK_TYPES
+        use_hyperframes = is_short_avatar or (
+            task.type in AVATAR_HORIZONTAL_TASK_TYPES
+            and AVATAR_HORIZONTAL_RENDERER not in {"remotion", "remotion_only", "remotion-only"}
+        )
+        renderer_name = "Hyperframes" if use_hyperframes else "Remotion"
+        render_output = _get_reusable_avatar_render_path(renderer_name)
+        overlay_coverage = int(getattr(user, "reels_broll_coverage_percent", 50) or 50)
+
+        if not render_output and use_hyperframes:
+            render_output = _run_hyperframes_pipeline(
+                task_id,
+                input_video,
+                script_text,
+                transcript_json_path=transcript_json_path,
+                overlay_coverage_percent=overlay_coverage,
+                layout="vertical_reels" if is_short_avatar else "horizontal_youtube",
+            )
+
+        if (
+            not render_output
+            and not is_short_avatar
+            and AVATAR_HORIZONTAL_RENDERER not in {"hyperframes_only", "hyperframes-only"}
+        ):
+            logging.warning(
+                "Task %s: horizontal Hyperframes render failed or disabled; falling back to Remotion.",
+                task_id,
+            )
+            renderer_name = "Remotion"
+            render_output = _get_reusable_avatar_render_path(renderer_name)
+            if not render_output:
+                render_output = _run_remotion_pipeline(
+                    task_id,
+                    input_video,
+                    script_text,
+                    transcript_json_path=transcript_json_path,
+                    overlay_coverage_percent=overlay_coverage,
+                )
+
+        return render_output, renderer_name
 
     def _parse_iso_timestamp(value: str | None) -> float | None:
         raw = (value or "").strip()
@@ -2642,30 +2786,14 @@ def process_content_task(self, task_id: int):
                 detail=(
                     "Рендерю стильную графику через Hyperframes (AI)."
                     if is_short_avatar
-                    else "Рендерю горизонтальное видео через Remotion."
+                    else "Рендерю YouTube-видео через Hyperframes: смысловые блоки, captions и KIE-визуалы."
                 ),
             )
-            renderer_name = "Hyperframes" if is_short_avatar else "Remotion"
-            render_output = _get_reusable_avatar_render_path(renderer_name)
-            if not render_output:
-                render_output = (
-                    _run_hyperframes_pipeline(
-                        task_id,
-                        local_avatar_video,
-                        thumbnail_script,
-                        transcript_json_path=heygen_transcript_path or None,
-                        overlay_coverage_percent=int(getattr(user, "reels_broll_coverage_percent", 50) or 50),
-                        layout="vertical_reels",
-                    )
-                    if is_short_avatar
-                    else _run_remotion_pipeline(
-                        task_id,
-                        local_avatar_video,
-                        thumbnail_script,
-                        transcript_json_path=heygen_transcript_path or None,
-                        overlay_coverage_percent=int(getattr(user, "reels_broll_coverage_percent", 50) or 50),
-                    )
-                )
+            render_output, renderer_name = _render_avatar_with_graphics(
+                local_avatar_video,
+                thumbnail_script,
+                transcript_json_path=heygen_transcript_path or None,
+            )
             if render_output:
                 local_avatar_video = render_output
                 _save_avatar_render_checkpoint(renderer_name, local_avatar_video)
@@ -3220,28 +3348,13 @@ def process_content_task(self, task_id: int):
                 detail=(
                     "Рендерю стильную графику через Hyperframes (AI)."
                     if is_short_avatar
-                    else "Рендерю горизонтальное видео через Remotion."
+                    else "Рендерю YouTube-видео через Hyperframes: смысловые блоки, captions и KIE-визуалы."
                 ),
             )
-            renderer_name = "Hyperframes" if is_short_avatar else "Remotion"
-            render_output = _get_reusable_avatar_render_path(renderer_name)
-            if not render_output:
-                render_output = (
-                    _run_hyperframes_pipeline(
-                        task_id,
-                        local_avatar_video,
-                        script,
-                        overlay_coverage_percent=int(getattr(user, "reels_broll_coverage_percent", 50) or 50),
-                        layout="vertical_reels",
-                    )
-                    if is_short_avatar
-                    else _run_remotion_pipeline(
-                        task_id,
-                        local_avatar_video,
-                        script,
-                        overlay_coverage_percent=int(getattr(user, "reels_broll_coverage_percent", 50) or 50),
-                    )
-                )
+            render_output, renderer_name = _render_avatar_with_graphics(
+                local_avatar_video,
+                script,
+            )
             if render_output:
                 local_avatar_video = render_output
                 _save_avatar_render_checkpoint(renderer_name, local_avatar_video)

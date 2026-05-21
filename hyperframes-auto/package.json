@@ -10,6 +10,7 @@
     "prepare:heygen": "node scripts/prepare-heygen-video.mjs",
     "apply:scene-plan": "node scripts/apply-scene-plan-to-cards.mjs",
     "direct:timeline": "node scripts/director-timeline.mjs",
+    "generate:youtube-prompts": "node scripts/generate-youtube-image-prompts.mjs",
     "generate:prompts": "node scripts/generate-image-prompts.mjs",
     "generate:images": "node scripts/generate-kie-images.mjs",
     "generate:visuals": "node scripts/generate-image-prompts.mjs && node scripts/generate-kie-images.mjs",
