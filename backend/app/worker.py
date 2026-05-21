@@ -354,7 +354,7 @@ AVATAR_HORIZONTAL_TASK_TYPES = {"avatar_horizontal", "avatar_youtube"}
 AVATAR_READY_HEYGEN_TASK_TYPES = {"avatar_heygen", *AVATAR_VERTICAL_TASK_TYPES, *AVATAR_HORIZONTAL_TASK_TYPES}
 SHORT_AVATAR_TASK_TYPES = AVATAR_VERTICAL_TASK_TYPES
 AVATAR_TASK_TYPES = {*AVATAR_READY_HEYGEN_TASK_TYPES}
-AVATAR_HORIZONTAL_RENDERER = (os.getenv("AVATAR_HORIZONTAL_RENDERER") or "hyperframes").strip().lower()
+AVATAR_HORIZONTAL_RENDERER = (os.getenv("AVATAR_HORIZONTAL_RENDERER") or "hyperframes_only").strip().lower()
 AVATAR_SCRIPT_MIN_MINUTES = int(os.getenv("AVATAR_SCRIPT_MIN_MINUTES", "4"))
 AVATAR_SCRIPT_MAX_MINUTES = int(os.getenv("AVATAR_SCRIPT_MAX_MINUTES", "6"))
 AVATAR_SCRIPT_WPM = int(os.getenv("AVATAR_SCRIPT_WORDS_PER_MINUTE", "110"))
@@ -1177,6 +1177,7 @@ def _run_hyperframes_pipeline(
             "--max-scenes", os.getenv("HYPERFRAMES_YOUTUBE_MAX_SCENES", "12"),
             "--block-min-sentences", os.getenv("HYPERFRAMES_YOUTUBE_BLOCK_MIN_SENTENCES", "4"),
             "--block-max-sentences", os.getenv("HYPERFRAMES_YOUTUBE_BLOCK_MAX_SENTENCES", "8"),
+            "--llm-plan-attempts", os.getenv("HYPERFRAMES_SCENE_PLAN_MAX_ATTEMPTS", "4"),
         ])
     elif layout == "horizontal_simple":
         cmd_plan.extend(["--plan-target", "remotion"])

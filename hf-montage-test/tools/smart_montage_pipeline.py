@@ -945,6 +945,8 @@ def generate_scene_plan_llm(
     llm_model: str,
     timeout_sec: int,
     script_context: str = "",
+    repair_feedback: str = "",
+    attempt: int = 1,
 ) -> dict[str, Any]:
     openrouter_key = os.environ.get("OPENROUTER_API_KEY")
     api_key = openrouter_key or os.environ.get("OPENAI_API_KEY") or os.environ.get("LLM_API_KEY")
@@ -964,6 +966,12 @@ def generate_scene_plan_llm(
         overlay_coverage_percent=overlay_coverage_percent,
         script_context=script_context,
     )
+    if repair_feedback:
+        prompt_payload["previous_quality_gate_error"] = normalize_scene_text(repair_feedback, 1800, 260)
+        prompt_payload["repair_instruction"] = (
+            "Исправь только причину ошибки quality gate. Особенно важно: все title должны быть "
+            "уникальными, предметными, 2-5 слов, без общих формулировок и повторов."
+        )
 
     system_prompt = """
 Ты — элитный смысловой редактор и режиссер монтажа. Верни монтажный план как набор конкретных смысловых beats, строго основанных на транскрипте.
@@ -983,7 +991,9 @@ def generate_scene_plan_llm(
 12. Для обычной illustration запрещен текст внутри картинки. Для realistic_interface/document/screenshot разрешены короткие UI/document labels как часть объекта.
 13. Не добавляй чужую предметную область. Если в речи нет проливов, танкеров, стран, флагов, санкций, портов или войны — не упоминай их.
 14. Если в payload есть script_context, считай его авторитетным сценарием видео. Используй его для тематики, текста карточек и visualIdea; Deepgram нужен для таймингов.
-15. Ответ — только валидный JSON. Никакого Markdown.
+15. Все title должны быть уникальными. Если тема повторяется, назови новый аспект: срок, документ, риск, действие, исключение или результат.
+16. Если payload содержит previous_quality_gate_error, исправь эту ошибку в новой версии плана.
+17. Ответ — только валидный JSON. Никакого Markdown.
 
 ПРИМЕРЫ visualIdea:
 Плохо: "документы, подтверждающие гражданство"
@@ -1019,7 +1029,7 @@ def generate_scene_plan_llm(
 
     req_payload: dict[str, Any] = {
         "model": llm_model,
-        "temperature": 0.2,
+        "temperature": min(0.45, 0.2 + max(0, attempt - 1) * 0.08),
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -1509,6 +1519,97 @@ def _repair_scene_plan_metadata(scenes: list[dict[str, Any]], utterances: list[d
                 )
 
 
+def _candidate_scene_titles(scene: dict[str, Any], window_text: str) -> list[str]:
+    current_title = normalize_plain_text(str(scene.get("title") or ""))
+    source = normalize_plain_text(
+        " ".join(
+            [
+                str(scene.get("sourceText") or ""),
+                str(scene.get("subtitle") or ""),
+                str(scene.get("referenceEssence") or ""),
+                str(scene.get("insight") or ""),
+                window_text,
+            ]
+        )
+    )
+    anchors = scene.get("anchorWords") if isinstance(scene.get("anchorWords"), list) else []
+    clean_anchors = [
+        normalize_scene_text(str(anchor), 40, 5)
+        for anchor in anchors
+        if normalize_plain_text(str(anchor))
+    ]
+    candidates: list[str] = []
+
+    for anchor in clean_anchors:
+        if current_title and anchor.lower() not in current_title.lower():
+            candidates.append(f"{current_title} {anchor}")
+
+    for i in range(len(clean_anchors) - 1):
+        candidates.append(f"{clean_anchors[i]} {clean_anchors[i + 1]}")
+
+    for sentence in split_sentences(source):
+        candidates.append(phrase_from_sentence(sentence, 5))
+
+    keywords = extract_keywords(source, 10)
+    for i in range(0, max(0, len(keywords) - 1), 2):
+        candidates.append(f"{keywords[i]} {keywords[i + 1]}")
+
+    if current_title:
+        candidates.append(current_title)
+    return candidates
+
+
+def _repair_scene_plan_titles(scenes: list[dict[str, Any]], utterances: list[dict[str, Any]]) -> None:
+    seen_titles: set[str] = set()
+    repaired: list[str] = []
+
+    for index, scene in enumerate(scenes):
+        title = normalize_scene_text(str(scene.get("title") or ""), 40, 6)
+        title_key = normalize_plain_text(title).lower()
+        needs_repair = (
+            _is_generic_scene_text(title)
+            or _scene_title_token_count(title) < 2
+            or title_key in seen_titles
+        )
+        if not needs_repair:
+            seen_titles.add(title_key)
+            continue
+
+        try:
+            start = float(scene.get("start", 0.0))
+            end = float(scene.get("end", start))
+        except (TypeError, ValueError):
+            start = 0.0
+            end = 0.0
+        window_text = _scene_window_text(utterances, start, end)
+        candidates = _candidate_scene_titles(scene, window_text)
+        candidates.append(f"АСПЕКТ ВИДЕО {index + 1}")
+
+        replacement = ""
+        for candidate in candidates:
+            candidate = normalize_scene_text(candidate, 40, 6).upper()
+            candidate_key = normalize_plain_text(candidate).lower()
+            if not candidate_key or candidate_key in seen_titles:
+                continue
+            if _is_generic_scene_text(candidate) or _scene_title_token_count(candidate) < 2:
+                continue
+            replacement = candidate
+            break
+
+        if replacement:
+            previous = title or "<empty>"
+            scene["title"] = replacement
+            scene["titleLines"] = [replacement]
+            scene["opener"] = replacement
+            scene["keyword"] = normalize_scene_text(replacement, TEXT_LIMITS["keyword"], WORD_LIMITS["keyword"])
+            title_key = normalize_plain_text(replacement).lower()
+            repaired.append(f"{index}:{previous}->{replacement}")
+        seen_titles.add(title_key)
+
+    if repaired:
+        eprint("Repaired scene titles before quality gate: " + "; ".join(repaired[:12]))
+
+
 def validate_scene_plan_quality(
     scenes: list[dict[str, Any]],
     duration: float,
@@ -1927,6 +2028,7 @@ def normalize_scene_plan(
 
     _ensure_min_scene_count(fixed, utterances_for_norm, duration, target_scene_count)
     _repair_scene_plan_metadata(fixed, utterances_for_norm)
+    _repair_scene_plan_titles(fixed, utterances_for_norm)
     validate_scene_plan_quality(fixed, duration, require_visuals=require_visuals)
 
     # Build chapter metadata so viewer always sees topic context.
@@ -2041,6 +2143,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--language", default="ru", help="BCP-47 language (default: ru)")
     parser.add_argument("--deepgram-model", default="nova-3", help="Deepgram model (default: nova-3)")
     parser.add_argument("--llm-model", default=os.environ.get("LLM_MODEL", "gpt-4o-mini"), help="LLM model")
+    parser.add_argument(
+        "--llm-plan-attempts",
+        type=int,
+        default=int(os.environ.get("HYPERFRAMES_SCENE_PLAN_MAX_ATTEMPTS", "4") or 4),
+        help="Maximum LLM scene-plan attempts after quality-gate failures (default: 4)",
+    )
     parser.add_argument("--max-scenes", type=int, default=8, help="Upper bound on scenes count")
     parser.add_argument(
         "--overlay-coverage-percent",
@@ -2212,29 +2320,45 @@ def main() -> int:
         eprint("Generating deterministic scene-plan because --skip-llm was explicitly requested ...")
         scenes = build_fallback_scene_plan(utterances, semantic_blocks, duration, args.max_scenes)
     else:
-        eprint(f"Generating strict LLM scene-plan with model={args.llm_model} ...")
-        raw_plan = generate_scene_plan_llm(
-            utterances=utterances,
-            semantic_blocks=semantic_blocks,
-            deepgram_payload=transcript_payload,
-            duration=duration,
-            max_scenes=args.max_scenes,
-            target_scene_count=target_scene_count,
-            overlay_coverage_percent=overlay_coverage_percent,
-            llm_model=args.llm_model,
-            timeout_sec=args.timeout,
-            script_context=script_context,
-        )
-        if isinstance(raw_plan, dict):
-            raw_plan["_utterances"] = utterances
-            raw_plan["_target_scene_count"] = target_scene_count
-        scenes = normalize_scene_plan(
-            raw_plan,
-            duration,
-            require_visuals=args.plan_target != "remotion",
-        )
-        if scene_plan_uses_fallback_copy(scenes):
-            raise RuntimeError("LLM scene-plan used generic copy; refusing to render fallback cards")
+        plan_attempts = max(1, int(args.llm_plan_attempts or 1))
+        last_error = ""
+        scenes = []
+        for attempt in range(1, plan_attempts + 1):
+            eprint(f"Generating strict LLM scene-plan with model={args.llm_model} (attempt {attempt}/{plan_attempts}) ...")
+            try:
+                raw_plan = generate_scene_plan_llm(
+                    utterances=utterances,
+                    semantic_blocks=semantic_blocks,
+                    deepgram_payload=transcript_payload,
+                    duration=duration,
+                    max_scenes=args.max_scenes,
+                    target_scene_count=target_scene_count,
+                    overlay_coverage_percent=overlay_coverage_percent,
+                    llm_model=args.llm_model,
+                    timeout_sec=args.timeout,
+                    script_context=script_context,
+                    repair_feedback=last_error,
+                    attempt=attempt,
+                )
+                if isinstance(raw_plan, dict):
+                    raw_plan["_utterances"] = utterances
+                    raw_plan["_target_scene_count"] = target_scene_count
+                scenes = normalize_scene_plan(
+                    raw_plan,
+                    duration,
+                    require_visuals=args.plan_target != "remotion",
+                )
+                if scene_plan_uses_fallback_copy(scenes):
+                    raise RuntimeError("LLM scene-plan used generic copy; refusing to render fallback cards")
+                break
+            except Exception as err:
+                last_error = str(err)
+                if attempt >= plan_attempts:
+                    raise
+                eprint(
+                    "Scene-plan quality gate failed; retrying LLM with feedback: "
+                    + normalize_scene_text(last_error, 1200, 180)
+                )
 
     out_plan.write_text(json.dumps(scenes, ensure_ascii=False, indent=2), encoding="utf-8")
     scene_word_cues = extract_word_cues(transcript_payload, scenes)
