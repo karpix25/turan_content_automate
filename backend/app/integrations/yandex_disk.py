@@ -96,22 +96,6 @@ class YandexDiskClient:
         normalized_remote = self._normalize_disk_path(remote_path)
         encoded_path = quote(normalized_remote, safe=":/")
         encoded_overwrite = "true" if overwrite else "false"
-        get_href_response = self._request(
-            "GET",
-            f"/resources/upload?path={encoded_path}&overwrite={encoded_overwrite}",
-        )
-        if get_href_response.status_code != 200:
-            if get_href_response.status_code == 401:
-                raise RuntimeError("Yandex.Disk authorization failed (401). Check YANDEX_DISK_TOKEN.")
-            raise RuntimeError(
-                f"Failed to get Yandex.Disk upload URL for '{normalized_remote}': "
-                f"{get_href_response.status_code} {get_href_response.text[:300]}"
-            )
-
-        href = (get_href_response.json() or {}).get("href")
-        if not href:
-            raise RuntimeError(f"Yandex.Disk upload URL is missing for '{normalized_remote}'")
-
         upload_timeout = httpx.Timeout(
             connect=min(self.timeout_seconds, 30.0),
             read=self.upload_timeout_seconds,
@@ -122,6 +106,30 @@ class YandexDiskClient:
         last_upload_error: Exception | None = None
         upload_response: httpx.Response | None = None
         for attempt in range(1, self.upload_retries + 2):
+            get_href_response = self._request(
+                "GET",
+                f"/resources/upload?path={encoded_path}&overwrite={encoded_overwrite}",
+            )
+            if get_href_response.status_code != 200:
+                if get_href_response.status_code == 401:
+                    raise RuntimeError("Yandex.Disk authorization failed (401). Check YANDEX_DISK_TOKEN.")
+                last_upload_error = RuntimeError(
+                    f"Failed to get Yandex.Disk upload URL for '{normalized_remote}': "
+                    f"{get_href_response.status_code} {get_href_response.text[:500]}"
+                )
+                if attempt >= self.upload_retries + 1:
+                    break
+                time.sleep(self.upload_retry_backoff_seconds * attempt)
+                continue
+
+            href = (get_href_response.json() or {}).get("href")
+            if not href:
+                last_upload_error = RuntimeError(f"Yandex.Disk upload URL is missing for '{normalized_remote}'")
+                if attempt >= self.upload_retries + 1:
+                    break
+                time.sleep(self.upload_retry_backoff_seconds * attempt)
+                continue
+
             deadline = (
                 time.monotonic() + self.upload_total_deadline_seconds
                 if self.upload_total_deadline_seconds > 0
@@ -149,7 +157,16 @@ class YandexDiskClient:
                         headers={"Content-Length": str(file_size)},
                     )
                 last_upload_error = None
-                break
+                if upload_response.status_code in {201, 202}:
+                    break
+                last_upload_error = RuntimeError(
+                    f"Yandex.Disk uploader returned {upload_response.status_code} for '{normalized_remote}' "
+                    f"(attempt {attempt}/{self.upload_retries + 1}, bytes={file_size}): "
+                    f"{upload_response.text[:500]}"
+                )
+                if attempt >= self.upload_retries + 1:
+                    break
+                time.sleep(self.upload_retry_backoff_seconds * attempt)
             except (httpx.ReadTimeout, httpx.WriteTimeout, httpx.ConnectTimeout, httpx.TransportError, TimeoutError) as exc:
                 last_upload_error = exc
                 if attempt >= self.upload_retries + 1:
@@ -157,6 +174,8 @@ class YandexDiskClient:
                 time.sleep(self.upload_retry_backoff_seconds * attempt)
 
         if last_upload_error is not None:
+            if isinstance(last_upload_error, RuntimeError):
+                raise last_upload_error
             raise RuntimeError(
                 f"Yandex.Disk upload failed or timed out for '{normalized_remote}' "
                 f"after {self.upload_retries + 1} attempts"
@@ -167,7 +186,7 @@ class YandexDiskClient:
         if upload_response.status_code not in {201, 202}:
             raise RuntimeError(
                 f"Failed to upload '{normalized_remote}' to Yandex.Disk: "
-                f"{upload_response.status_code} {upload_response.text[:300]}"
+                f"{upload_response.status_code} bytes={file_size} {upload_response.text[:500]}"
             )
         return normalized_remote
 

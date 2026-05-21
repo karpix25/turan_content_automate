@@ -8,10 +8,12 @@ import datetime
 import time
 import math
 import selectors
+import uuid
 from typing import List
 from urllib.parse import urlparse, parse_qs
 from billiard.exceptions import SoftTimeLimitExceeded
 from celery import Celery
+import redis
 from .integrations.vizard import VizardClient
 from .integrations.scrape_creators import ScrapeCreatorsClient
 from .integrations.llm import LLMClient
@@ -81,10 +83,15 @@ load_dotenv()
 init_database()
 
 celery_app = Celery('tasks', broker=(os.getenv("REDIS_URL") or "redis://localhost:6379/0").strip())
+redis_client = redis.Redis.from_url((os.getenv("REDIS_URL") or "redis://localhost:6379/0").strip())
 CELERY_TASK_SOFT_TIME_LIMIT_SECONDS = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT_SECONDS", "5400"))
 CELERY_TASK_TIME_LIMIT_SECONDS = int(os.getenv("CELERY_TASK_TIME_LIMIT_SECONDS", "7200"))
 YANDEX_UPLOAD_SOFT_TIME_LIMIT_SECONDS = int(os.getenv("YANDEX_UPLOAD_SOFT_TIME_LIMIT_SECONDS", "1800"))
 YANDEX_UPLOAD_TIME_LIMIT_SECONDS = int(os.getenv("YANDEX_UPLOAD_TIME_LIMIT_SECONDS", "2400"))
+YANDEX_UPLOAD_LOCK_TTL_SECONDS = max(
+    600,
+    int(os.getenv("YANDEX_UPLOAD_LOCK_TTL_SECONDS", str(YANDEX_UPLOAD_TIME_LIMIT_SECONDS + 600))),
+)
 AVATAR_INSERT_MONTAGE_TIMEOUT_SECONDS = max(
     60,
     int(os.getenv("AVATAR_INSERT_MONTAGE_TIMEOUT_SECONDS", "900")),
@@ -201,6 +208,15 @@ def _upload_files_to_yandex_disk(file_paths: List[str]) -> List[dict]:
     return uploaded
 
 
+def _release_redis_lock(lock_key: str, lock_token: str) -> None:
+    try:
+        current = redis_client.get(lock_key)
+        if current and current.decode("utf-8", errors="ignore") == lock_token:
+            redis_client.delete(lock_key)
+    except Exception as exc:
+        logging.warning("Failed to release Redis lock %s: %s", lock_key, exc)
+
+
 @celery_app.task(
     name="upload_yandex_disk_task",
     bind=True,
@@ -209,12 +225,26 @@ def _upload_files_to_yandex_disk(file_paths: List[str]) -> List[dict]:
     time_limit=YANDEX_UPLOAD_TIME_LIMIT_SECONDS,
 )
 def upload_yandex_disk_task(self, task_id: int, file_paths: List[str] | None = None):
+    lock_key = f"yandex_disk_upload:{task_id}"
+    lock_token = str(uuid.uuid4())
+    lock_acquired = False
     db = SessionLocal()
     task = db.query(models.VideoTask).get(task_id)
     if not task:
         db.close()
         return
     try:
+        try:
+            lock_acquired = bool(
+                redis_client.set(lock_key, lock_token, nx=True, ex=YANDEX_UPLOAD_LOCK_TTL_SECONDS)
+            )
+        except Exception as exc:
+            logging.warning("Task %s: Redis upload lock unavailable, continuing without lock: %s", task_id, exc)
+            lock_acquired = True
+        if not lock_acquired:
+            logging.info("Task %s: Yandex.Disk upload is already locked by another worker; skipping duplicate.", task_id)
+            return
+
         paths = _collect_yandex_disk_upload_paths(task) if file_paths is None else list(file_paths)
         if not paths:
             logging.warning("Task %s: no files available for Yandex.Disk upload", task_id)
@@ -224,10 +254,14 @@ def upload_yandex_disk_task(self, task_id: int, file_paths: List[str] | None = N
             logging.info("Task %s: Yandex.Disk upload is already completed; skipping duplicate upload.", task_id)
             return
         if current_meta.get("yandex_disk_upload_status") == "in_progress":
-            logging.info("Task %s: Yandex.Disk upload is already in progress; skipping duplicate upload.", task_id)
-            return
+            logging.warning(
+                "Task %s: Yandex.Disk upload was marked in_progress but no active lock was found; resuming upload.",
+                task_id,
+            )
         current_meta["yandex_disk_upload_status"] = "in_progress"
         current_meta["yandex_disk_upload_started_at"] = datetime.datetime.utcnow().isoformat()
+        current_meta["yandex_disk_upload_lock_key"] = lock_key
+        current_meta["yandex_disk_upload_attempt"] = int(self.request.retries or 0) + 1
         task.script_meta = current_meta
         db.commit()
 
@@ -256,7 +290,22 @@ def upload_yandex_disk_task(self, task_id: int, file_paths: List[str] | None = N
             detail="Финальный файл собран и сохранен в Яндекс.Диск.",
             ok=True,
         )
-    except SoftTimeLimitExceeded:
+    except SoftTimeLimitExceeded as exc:
+        logging.exception("Task %s: Yandex.Disk async upload exceeded soft time limit", task_id)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        task = db.query(models.VideoTask).get(task_id)
+        if task:
+            current_meta = dict(task.script_meta or {})
+            current_meta["yandex_disk_upload_status"] = "retrying" if self.request.retries < self.max_retries else "failed"
+            current_meta["yandex_disk_upload_error"] = "Yandex.Disk upload exceeded soft time limit"
+            current_meta["yandex_disk_upload_failed_at"] = datetime.datetime.utcnow().isoformat()
+            task.script_meta = current_meta
+            db.commit()
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=exc, countdown=60 * (self.request.retries + 1))
         raise
     except Exception as exc:
         logging.exception("Task %s: Yandex.Disk async upload failed: %s", task_id, exc)
@@ -267,8 +316,11 @@ def upload_yandex_disk_task(self, task_id: int, file_paths: List[str] | None = N
         task = db.query(models.VideoTask).get(task_id)
         if task:
             current_meta = dict(task.script_meta or {})
-            current_meta["yandex_disk_upload_status"] = "failed"
+            current_meta["yandex_disk_upload_status"] = (
+                "retrying" if self.request.retries < self.max_retries else "failed"
+            )
             current_meta["yandex_disk_upload_error"] = str(exc)[:500]
+            current_meta["yandex_disk_upload_failed_at"] = datetime.datetime.utcnow().isoformat()
             task.script_meta = current_meta
             db.commit()
         if self.request.retries < self.max_retries:
@@ -282,6 +334,8 @@ def upload_yandex_disk_task(self, task_id: int, file_paths: List[str] | None = N
                 ok=True,
             )
     finally:
+        if lock_acquired:
+            _release_redis_lock(lock_key, lock_token)
         db.close()
 
 
@@ -1429,7 +1483,7 @@ def process_content_task(self, task_id: int):
         existing_meta = dict(task.script_meta or {})
         if (
             task.type in AVATAR_TASK_TYPES
-            and existing_meta.get("yandex_disk_upload_status") == "pending"
+            and existing_meta.get("yandex_disk_upload_status") in {"pending", "queued", "retrying", "failed"}
             and yandex_disk.is_configured
         ):
             upload_paths = _collect_yandex_disk_upload_paths(task)
@@ -3651,6 +3705,10 @@ def process_content_task(self, task_id: int):
             if current_meta.get("yandex_disk_upload_status") == "pending" and upload_paths:
                 logging.info("Task %s: enqueue upload_yandex_disk_task for %s file(s)", task.id, len(upload_paths))
                 celery_app.send_task("upload_yandex_disk_task", args=[task.id, upload_paths])
+                current_meta["yandex_disk_upload_status"] = "queued"
+                current_meta["yandex_disk_upload_queued_at"] = datetime.datetime.utcnow().isoformat()
+                task.script_meta = current_meta
+                db.commit()
         if task.type in SHORT_AVATAR_TASK_TYPES and task.output_path:
             if task.type == "avatar_instagram":
                 label = "Reels Avatar"
