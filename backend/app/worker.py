@@ -1278,7 +1278,7 @@ def _run_hyperframes_pipeline(
             "HYPERFRAMES_YOUTUBE_COMPOSITE_SOURCE_VIDEO",
             "true",
         )
-        env["HYPERFRAMES_YOUTUBE_FPS"] = env.get("HYPERFRAMES_YOUTUBE_FPS", "15")
+        env["HYPERFRAMES_YOUTUBE_FPS"] = env.get("HYPERFRAMES_YOUTUBE_FPS", "24")
         env["HYPERFRAMES_RENDER_QUALITY"] = env.get("HYPERFRAMES_RENDER_QUALITY", "high")
         env["HYPERFRAMES_RENDER_CRF"] = env.get("HYPERFRAMES_RENDER_CRF", "18")
         return env

@@ -45,7 +45,7 @@ const maxDurationSecArg = Number(getArgValue('max-duration-sec', '0'));
 const layout = getArgValue('layout', 'horizontal_simple');
 const isYoutubeLayout = layout === 'horizontal_youtube';
 const defaultFps = isYoutubeLayout
-  ? (process.env.HYPERFRAMES_YOUTUBE_FPS || process.env.HYPERFRAMES_RENDER_FPS || '15')
+  ? (process.env.HYPERFRAMES_YOUTUBE_FPS || process.env.HYPERFRAMES_RENDER_FPS || '24')
   : (process.env.HYPERFRAMES_RENDER_FPS || '30');
 const fps = Number(getArgValue('fps', defaultFps));
 const youtubeCompositeSourceVideo =
