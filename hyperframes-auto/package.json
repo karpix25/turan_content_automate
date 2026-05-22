@@ -8,6 +8,7 @@
     "render": "hyperframes render",
     "render:auto": "node scripts/render-auto.mjs",
     "prepare:youtube-preview": "node scripts/prepare-youtube-preview.mjs",
+    "convert:whisper": "node scripts/whisper-to-deepgram.mjs",
     "dev:youtube-preview": "hyperframes preview .preview/youtube",
     "preview:youtube": "npm run prepare:youtube-preview -- && hyperframes preview .preview/youtube",
     "prepare:heygen": "node scripts/prepare-heygen-video.mjs",

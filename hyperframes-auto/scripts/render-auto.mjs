@@ -197,6 +197,25 @@ const readJsonArray = (filePath, label) => {
   return parsed;
 };
 
+const probeMediaDurationSec = (filePath) => {
+  const result = spawnSync(
+    'ffprobe',
+    [
+      '-v',
+      'error',
+      '-show_entries',
+      'format=duration',
+      '-of',
+      'default=noprint_wrappers=1:nokey=1',
+      filePath,
+    ],
+    {encoding: 'utf8'}
+  );
+  if (result.status !== 0 || result.error) return 0;
+  const duration = Number(String(result.stdout || '').trim());
+  return Number.isFinite(duration) && duration > 0 ? duration : 0;
+};
+
 assertExists(sourceVideoPath, 'Video file');
 assertExists(scenePlanPath, 'Scene plan file');
 assertExists(wordCuesPath, 'Word cues file');
@@ -230,8 +249,12 @@ if (!scenes.length) {
 fs.writeFileSync(copiedScenePlanPath, `${JSON.stringify(scenes, null, 2)}\n`, 'utf8');
 
 const detectedDurationSec = scenes.reduce((max, scene) => Math.max(max, scene.end), 0);
+const sourceDurationSec = probeMediaDurationSec(copiedVideoPath);
+const timelineDurationSec = youtubeCompositeSourceVideo
+  ? detectedDurationSec
+  : Math.max(detectedDurationSec, sourceDurationSec);
 const maxDurationSec = Number.isFinite(maxDurationSecArg) ? maxDurationSecArg : 0;
-const durationSec = maxDurationSec > 0 ? Math.min(detectedDurationSec, maxDurationSec) : detectedDurationSec;
+const durationSec = maxDurationSec > 0 ? Math.min(timelineDurationSec, maxDurationSec) : timelineDurationSec;
 const rootDuration = assertFinitePositive(durationSec, 1);
 const renderFps = Math.round(assertFinitePositive(fps, 30));
 
