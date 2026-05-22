@@ -209,14 +209,7 @@ if (!successfulIds.size) {
 
 const indexHtml = await readFile(indexPath, "utf8");
 const currentMatch = indexHtml.match(/data-generated-images="([^"]*)"/);
-const currentIds = new Set(
-  (currentMatch?.[1] || "")
-    .split(",")
-    .map((id) => id.trim())
-    .filter(Boolean),
-);
-successfulIds.forEach((id) => currentIds.add(id));
-const nextIds = [...currentIds].sort().join(",");
+const nextIds = [...successfulIds].sort().join(",");
 const nextHtml = currentMatch
   ? indexHtml.replace(/data-generated-images="[^"]*"/, `data-generated-images="${nextIds}"`)
   : indexHtml.replace("<html ", `<html data-generated-images="${nextIds}" `);
