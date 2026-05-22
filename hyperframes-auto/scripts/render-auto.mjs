@@ -71,6 +71,19 @@ const generatedCompositionName =
     ? 'horizontal-youtube.generated.html'
     : 'horizontal-simple.generated.html';
 
+const browserPathCandidates = [
+  process.env.HYPERFRAMES_BROWSER_PATH,
+  process.env.PRODUCER_HEADLESS_SHELL_PATH,
+  process.env.PUPPETEER_EXECUTABLE_PATH,
+  process.env.CHROME_BIN,
+  '/usr/bin/chromium-headless-shell',
+].filter(Boolean);
+const preferredBrowserPath = browserPathCandidates.find((candidate) => fs.existsSync(candidate));
+if (preferredBrowserPath) {
+  process.env.HYPERFRAMES_BROWSER_PATH = preferredBrowserPath;
+  process.env.PRODUCER_HEADLESS_SHELL_PATH = preferredBrowserPath;
+}
+
 const assertExists = (filePath, label) => {
   if (!fs.existsSync(filePath)) {
     throw new Error(`${label} not found: ${filePath}`);

@@ -355,6 +355,15 @@ AVATAR_READY_HEYGEN_TASK_TYPES = {"avatar_heygen", *AVATAR_VERTICAL_TASK_TYPES, 
 SHORT_AVATAR_TASK_TYPES = AVATAR_VERTICAL_TASK_TYPES
 AVATAR_TASK_TYPES = {*AVATAR_READY_HEYGEN_TASK_TYPES}
 AVATAR_HORIZONTAL_RENDERER = (os.getenv("AVATAR_HORIZONTAL_RENDERER") or "hyperframes_only").strip().lower()
+AVATAR_HORIZONTAL_REMOTION_FALLBACK_RENDERERS = {
+    "auto",
+    "hybrid",
+    "hyperframes_fallback",
+    "hyperframes-with-remotion-fallback",
+    "hyperframes_with_remotion_fallback",
+    "remotion_fallback",
+    "remotion-fallback",
+}
 AVATAR_SCRIPT_MIN_MINUTES = int(os.getenv("AVATAR_SCRIPT_MIN_MINUTES", "4"))
 AVATAR_SCRIPT_MAX_MINUTES = int(os.getenv("AVATAR_SCRIPT_MAX_MINUTES", "6"))
 AVATAR_SCRIPT_WPM = int(os.getenv("AVATAR_SCRIPT_WORDS_PER_MINUTE", "110"))
@@ -1242,6 +1251,18 @@ def _run_hyperframes_pipeline(
 
     def build_hf_env() -> dict:
         env = os.environ.copy()
+        browser_path = (
+            env.get("HYPERFRAMES_BROWSER_PATH")
+            or env.get("PRODUCER_HEADLESS_SHELL_PATH")
+            or env.get("PUPPETEER_EXECUTABLE_PATH")
+            or env.get("CHROME_BIN")
+            or "/usr/bin/chromium-headless-shell"
+        )
+        if browser_path and os.path.exists(browser_path):
+            # HyperFrames checks its cached browser before system Chrome unless
+            # this is set. In containers, the cached binary can miss shared libs.
+            env["HYPERFRAMES_BROWSER_PATH"] = browser_path
+            env["PRODUCER_HEADLESS_SHELL_PATH"] = browser_path
         env["HYPERFRAMES_OVERLAY_COVERAGE_PERCENT"] = str(overlay_coverage_percent)
         env["PRODUCER_ENABLE_STREAMING_ENCODE"] = env.get("PRODUCER_ENABLE_STREAMING_ENCODE", "false")
         env["PRODUCER_ENABLE_CHUNKED_ENCODE"] = env.get("PRODUCER_ENABLE_CHUNKED_ENCODE", "true")
@@ -1679,7 +1700,7 @@ def process_content_task(self, task_id: int):
         if (
             not render_output
             and not is_short_avatar
-            and AVATAR_HORIZONTAL_RENDERER not in {"hyperframes_only", "hyperframes-only"}
+            and AVATAR_HORIZONTAL_RENDERER in AVATAR_HORIZONTAL_REMOTION_FALLBACK_RENDERERS
         ):
             logging.warning(
                 "Task %s: horizontal Hyperframes render failed or disabled; falling back to Remotion.",
