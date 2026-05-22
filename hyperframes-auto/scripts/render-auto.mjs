@@ -42,9 +42,12 @@ const scenePlanPath = resolveFromProject(getArgValue('scene-plan', defaultSceneP
 const wordCuesPath = resolveFromProject(getArgValue('word-cues', defaultWordCues));
 const outputPath = resolveFromProject(getArgValue('out', defaultOutput));
 const maxDurationSecArg = Number(getArgValue('max-duration-sec', '0'));
-const fps = Number(getArgValue('fps', '30'));
 const layout = getArgValue('layout', 'horizontal_simple');
 const isYoutubeLayout = layout === 'horizontal_youtube';
+const defaultFps = isYoutubeLayout
+  ? (process.env.HYPERFRAMES_YOUTUBE_FPS || process.env.HYPERFRAMES_RENDER_FPS || '15')
+  : (process.env.HYPERFRAMES_RENDER_FPS || '30');
+const fps = Number(getArgValue('fps', defaultFps));
 const youtubeCompositeSourceVideo =
   isYoutubeLayout && envFlag('HYPERFRAMES_YOUTUBE_COMPOSITE_SOURCE_VIDEO', true);
 const youtubeCaptionsEnabled =

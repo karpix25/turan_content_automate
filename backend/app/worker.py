@@ -1278,6 +1278,7 @@ def _run_hyperframes_pipeline(
             "HYPERFRAMES_YOUTUBE_COMPOSITE_SOURCE_VIDEO",
             "true",
         )
+        env["HYPERFRAMES_YOUTUBE_FPS"] = env.get("HYPERFRAMES_YOUTUBE_FPS", "15")
         env["HYPERFRAMES_RENDER_QUALITY"] = env.get("HYPERFRAMES_RENDER_QUALITY", "high")
         env["HYPERFRAMES_RENDER_CRF"] = env.get("HYPERFRAMES_RENDER_CRF", "18")
         return env
@@ -1372,36 +1373,132 @@ def _run_hyperframes_pipeline(
             "--word-cues", out_words,
             "--out", final_output,
         ]
-        logging.info("Task %s: Hyperframes %s render: %s", task_id, layout, " ".join(cmd))
-        try:
-            result = subprocess.run(
-                cmd,
-                cwd=hyperframes_dir,
-                capture_output=True,
-                text=True,
-                env=build_hf_env(),
-                timeout=render_timeout_seconds,
-            )
-        except subprocess.TimeoutExpired as exc:
-            logging.error(
-                "Task %s: Hyperframes horizontal simple render timed out after %ss. STDOUT: %s\nSTDERR: %s",
-                task_id,
-                render_timeout_seconds,
-                (exc.stdout or "")[-4000:],
-                (exc.stderr or "")[-4000:],
-            )
-            return None
-        if result.stdout:
-            logging.info("Task %s: Hyperframes horizontal stdout: %s", task_id, result.stdout[-4000:])
-        if result.stderr:
-            logging.info("Task %s: Hyperframes horizontal stderr: %s", task_id, result.stderr[-4000:])
-        if result.returncode != 0:
-            logging.error(
-                "Task %s: Hyperframes %s render failed. STDOUT: %s\nSTDERR: %s",
+        progress_re = re.compile(r"(\d{1,3})%\s*([^\r\n]*)")
+
+        def run_hyperframes_horizontal_render_with_watchdog() -> tuple[int | None, str]:
+            output_tail = ""
+            started_at = time.monotonic()
+            last_log_at = started_at
+            best_percent = 0
+            stage = "starting"
+
+            logging.info(
+                "Task %s: Hyperframes %s render with watchdog: %s (timeout=%ss)",
                 task_id,
                 layout,
-                result.stdout,
-                result.stderr,
+                " ".join(cmd),
+                render_timeout_seconds,
+            )
+            process = subprocess.Popen(
+                cmd,
+                cwd=hyperframes_dir,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                env=build_hf_env(),
+                bufsize=0,
+            )
+            selector = selectors.DefaultSelector()
+            if process.stdout:
+                selector.register(process.stdout, selectors.EVENT_READ)
+
+            try:
+                while True:
+                    now = time.monotonic()
+                    return_code = process.poll()
+                    events = selector.select(timeout=1.0)
+
+                    for key, _ in events:
+                        try:
+                            chunk_bytes = os.read(key.fileobj.fileno(), 8192)
+                        except OSError:
+                            chunk_bytes = b""
+                        if not chunk_bytes:
+                            continue
+                        chunk = chunk_bytes.decode("utf-8", errors="replace")
+                        output_tail = (output_tail + chunk)[-16000:]
+                        for match in progress_re.finditer(chunk.replace("\r", "\n")):
+                            percent = int(match.group(1))
+                            if 0 <= percent <= 100 and percent >= best_percent:
+                                best_percent = percent
+                                next_stage = re.sub(r"\s+", " ", match.group(2)).strip()
+                                if next_stage:
+                                    stage = next_stage[:160]
+
+                    if return_code is not None:
+                        if process.stdout:
+                            try:
+                                remaining = process.stdout.read() or b""
+                                output_tail = (output_tail + remaining.decode("utf-8", errors="replace"))[-16000:]
+                            except Exception:
+                                pass
+                        return return_code, output_tail
+
+                    runtime = now - started_at
+                    if now - last_log_at >= 60:
+                        logging.info(
+                            "Task %s: Hyperframes %s still rendering: progress=%s%% stage=%s runtime=%ss",
+                            task_id,
+                            layout,
+                            best_percent,
+                            stage,
+                            int(runtime),
+                        )
+                        last_log_at = now
+
+                    if runtime > render_timeout_seconds:
+                        process.kill()
+                        process.wait(timeout=30)
+                        logging.error(
+                            "Task %s: Hyperframes %s render exceeded timeout %ss. "
+                            "Last progress=%s%% stage=%s. Output tail: %s",
+                            task_id,
+                            layout,
+                            render_timeout_seconds,
+                            best_percent,
+                            stage,
+                            output_tail[-4000:],
+                        )
+                        return None, output_tail
+            except SoftTimeLimitExceeded:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=30)
+                logging.exception(
+                    "Task %s: soft time limit while Hyperframes %s render was running. "
+                    "Last progress=%s%% stage=%s. Output tail: %s",
+                    task_id,
+                    layout,
+                    best_percent,
+                    stage,
+                    output_tail[-4000:],
+                )
+                raise
+            finally:
+                selector.close()
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=30)
+
+        render_returncode, render_output_tail = run_hyperframes_horizontal_render_with_watchdog()
+        if render_output_tail:
+            logging.info("Task %s: Hyperframes %s output tail: %s", task_id, layout, render_output_tail[-4000:])
+        if render_returncode is None:
+            if is_usable_hyperframes_output(final_output):
+                logging.warning(
+                    "Task %s: Hyperframes %s render watchdog stopped, but output MP4 is valid. Accepting: %s",
+                    task_id,
+                    layout,
+                    final_output,
+                )
+                return final_output
+            return None
+        if render_returncode != 0:
+            logging.error(
+                "Task %s: Hyperframes %s render failed with exit code %s. Output tail: %s",
+                task_id,
+                layout,
+                render_returncode,
+                render_output_tail,
             )
             return None
         if is_usable_hyperframes_output(final_output):
