@@ -1,10 +1,9 @@
 FROM python:3.10-slim-bookworm
 
-# Install system dependencies
+# The API image should stay light. Heavy video work runs in the worker image;
+# keeping ffmpeg/Chromium out of this image makes Coolify builds much less fragile.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
-    libpq-dev \
-    gcc \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
