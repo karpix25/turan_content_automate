@@ -84,8 +84,8 @@ init_database()
 
 celery_app = Celery('tasks', broker=(os.getenv("REDIS_URL") or "redis://localhost:6379/0").strip())
 redis_client = redis.Redis.from_url((os.getenv("REDIS_URL") or "redis://localhost:6379/0").strip())
-CELERY_TASK_SOFT_TIME_LIMIT_SECONDS = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT_SECONDS", "5400"))
-CELERY_TASK_TIME_LIMIT_SECONDS = int(os.getenv("CELERY_TASK_TIME_LIMIT_SECONDS", "7200"))
+CELERY_TASK_SOFT_TIME_LIMIT_SECONDS = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT_SECONDS", "21600"))
+CELERY_TASK_TIME_LIMIT_SECONDS = int(os.getenv("CELERY_TASK_TIME_LIMIT_SECONDS", "25200"))
 YANDEX_UPLOAD_SOFT_TIME_LIMIT_SECONDS = int(os.getenv("YANDEX_UPLOAD_SOFT_TIME_LIMIT_SECONDS", "1800"))
 YANDEX_UPLOAD_TIME_LIMIT_SECONDS = int(os.getenv("YANDEX_UPLOAD_TIME_LIMIT_SECONDS", "2400"))
 YANDEX_UPLOAD_LOCK_TTL_SECONDS = max(

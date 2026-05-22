@@ -113,7 +113,7 @@ services:
     init: true
     shm_size: "1gb"
     stop_grace_period: 120s
-    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=${CELERY_WORKER_CONCURRENCY:-1} --prefetch-multiplier=1 --max-tasks-per-child=5 --soft-time-limit=${CELERY_TASK_SOFT_TIME_LIMIT_SECONDS:-10800} --time-limit=${CELERY_TASK_TIME_LIMIT_SECONDS:-12600} -Ofair
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=${CELERY_WORKER_CONCURRENCY:-1} --prefetch-multiplier=1 --max-tasks-per-child=5 --soft-time-limit=${CELERY_TASK_SOFT_TIME_LIMIT_SECONDS:-21600} --time-limit=${CELERY_TASK_TIME_LIMIT_SECONDS:-25200} -Ofair
     volumes:
       - media_data:/app/database/media
     environment:
@@ -142,8 +142,8 @@ services:
       - PLATES_DIR=/app/database/media/plates
       - CTA_DIR=/app/database/media/cta
       - OUTPUT_DIR=/app/database/media/output
-      - CELERY_TASK_SOFT_TIME_LIMIT_SECONDS=${CELERY_TASK_SOFT_TIME_LIMIT_SECONDS:-10800}
-      - CELERY_TASK_TIME_LIMIT_SECONDS=${CELERY_TASK_TIME_LIMIT_SECONDS:-12600}
+      - CELERY_TASK_SOFT_TIME_LIMIT_SECONDS=${CELERY_TASK_SOFT_TIME_LIMIT_SECONDS:-21600}
+      - CELERY_TASK_TIME_LIMIT_SECONDS=${CELERY_TASK_TIME_LIMIT_SECONDS:-25200}
       - REMOTION_RENDER_TIMEOUT_SECONDS=${REMOTION_RENDER_TIMEOUT_SECONDS:-7200}
       - REMOTION_RENDER_MAX_RUNTIME_SECONDS=${REMOTION_RENDER_MAX_RUNTIME_SECONDS:-10200}
       - REMOTION_RENDER_IDLE_TIMEOUT_SECONDS=${REMOTION_RENDER_IDLE_TIMEOUT_SECONDS:-1200}
