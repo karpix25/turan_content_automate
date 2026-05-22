@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 const scenePlanPath = new URL("../assets/input/scene-plan.generated.json", import.meta.url);
 const outputPath = new URL("../assets/generated/prompts.json", import.meta.url);
 
-const maxImages = Math.max(0, Number(process.env.HYPERFRAMES_YOUTUBE_KIE_MAX_IMAGES || 6));
+const maxImages = Math.max(0, Number(process.env.HYPERFRAMES_YOUTUBE_KIE_MAX_IMAGES || 12));
 
 const STYLE = [
   "Premium editorial YouTube 16:9 visual insert for an expert talking-head video.",

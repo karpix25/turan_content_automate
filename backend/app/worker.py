@@ -1248,9 +1248,17 @@ def _run_hyperframes_pipeline(
         env["PRODUCER_CHUNK_SIZE_FRAMES"] = env.get("PRODUCER_CHUNK_SIZE_FRAMES", "180")
         env["PRODUCER_FORCE_SCREENSHOT"] = env.get("PRODUCER_FORCE_SCREENSHOT", "true")
         env["PRODUCER_BROWSER_GPU_MODE"] = env.get("PRODUCER_BROWSER_GPU_MODE", "software")
-        env["FFMPEG_ENCODE_TIMEOUT_MS"] = env.get("FFMPEG_ENCODE_TIMEOUT_MS", "1800000")
-        env["FFMPEG_PROCESS_TIMEOUT_MS"] = env.get("FFMPEG_PROCESS_TIMEOUT_MS", "1800000")
-        env["HYPERFRAMES_YOUTUBE_KIE_MAX_IMAGES"] = env.get("HYPERFRAMES_YOUTUBE_KIE_MAX_IMAGES", "6")
+        env["FFMPEG_ENCODE_TIMEOUT_MS"] = env.get("FFMPEG_ENCODE_TIMEOUT_MS", "7200000")
+        env["FFMPEG_PROCESS_TIMEOUT_MS"] = env.get("FFMPEG_PROCESS_TIMEOUT_MS", "7200000")
+        env["HYPERFRAMES_YOUTUBE_KIE_MAX_IMAGES"] = env.get("HYPERFRAMES_YOUTUBE_KIE_MAX_IMAGES", "12")
+        env["HYPERFRAMES_YOUTUBE_CAPTIONS"] = env.get("HYPERFRAMES_YOUTUBE_CAPTIONS", "false")
+        env["HYPERFRAMES_YOUTUBE_CHAPTER_RIBBON"] = env.get("HYPERFRAMES_YOUTUBE_CHAPTER_RIBBON", "false")
+        env["HYPERFRAMES_YOUTUBE_COMPOSITE_SOURCE_VIDEO"] = env.get(
+            "HYPERFRAMES_YOUTUBE_COMPOSITE_SOURCE_VIDEO",
+            "true",
+        )
+        env["HYPERFRAMES_RENDER_QUALITY"] = env.get("HYPERFRAMES_RENDER_QUALITY", "high")
+        env["HYPERFRAMES_RENDER_CRF"] = env.get("HYPERFRAMES_RENDER_CRF", "18")
         return env
 
     if layout in {"horizontal_simple", "horizontal_youtube"}:

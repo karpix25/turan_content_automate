@@ -21,6 +21,17 @@ const hasFlag = (name) => argv.includes(`--${name}`);
 const resolveFromProject = (inputPath) =>
   path.isAbsolute(inputPath) ? inputPath : path.resolve(projectRoot, inputPath);
 
+const envFlag = (name, fallback = false) => {
+  const raw = String(process.env[name] ?? '').trim().toLowerCase();
+  if (!raw) return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(raw);
+};
+
+const envNumber = (name, fallback) => {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+};
+
 const defaultVideo = '../hf-montage-test/source_optimized_45s.mp4';
 const defaultScenePlan = '../hf-montage-test/data/scene-plan.generated.json';
 const defaultWordCues = '../hf-montage-test/data/scene-word-cues.generated.json';
@@ -33,9 +44,30 @@ const outputPath = resolveFromProject(getArgValue('out', defaultOutput));
 const maxDurationSecArg = Number(getArgValue('max-duration-sec', '0'));
 const fps = Number(getArgValue('fps', '30'));
 const layout = getArgValue('layout', 'horizontal_simple');
+const isYoutubeLayout = layout === 'horizontal_youtube';
+const youtubeCompositeSourceVideo =
+  isYoutubeLayout && envFlag('HYPERFRAMES_YOUTUBE_COMPOSITE_SOURCE_VIDEO', true);
+const youtubeCaptionsEnabled =
+  isYoutubeLayout && envFlag('HYPERFRAMES_YOUTUBE_CAPTIONS', false);
+const youtubeChapterRibbonEnabled =
+  isYoutubeLayout && envFlag('HYPERFRAMES_YOUTUBE_CHAPTER_RIBBON', false);
+const renderQuality = getArgValue(
+  'quality',
+  process.env.HYPERFRAMES_RENDER_QUALITY || (isYoutubeLayout ? 'high' : 'standard')
+);
+const renderCrf = getArgValue(
+  'crf',
+  process.env.HYPERFRAMES_RENDER_CRF || (isYoutubeLayout ? '18' : '')
+);
+const renderVideoBitrate = getArgValue(
+  'video-bitrate',
+  process.env.HYPERFRAMES_RENDER_VIDEO_BITRATE || ''
+);
+const ffmpegPreset = process.env.FFMPEG_X264_PRESET || 'veryfast';
+const ffmpegCompositeTimeoutMs = envNumber('FFMPEG_ENCODE_TIMEOUT_MS', 7200000);
 const dryRun = hasFlag('dry-run');
 const generatedCompositionName =
-  layout === 'horizontal_youtube'
+  isYoutubeLayout
     ? 'horizontal-youtube.generated.html'
     : 'horizontal-simple.generated.html';
 
@@ -46,6 +78,29 @@ const assertExists = (filePath, label) => {
 };
 
 const normalizeText = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+
+const meaningfulWords = (value) =>
+  (normalizeText(value).toLowerCase().match(/[\p{L}\p{N}-]{4,}/gu) || []);
+
+const textOverlapRatio = (left, right) => {
+  const leftWords = meaningfulWords(left);
+  const rightWords = new Set(meaningfulWords(right));
+  if (!leftWords.length || !rightWords.size) return 0;
+  return leftWords.filter((word) => rightWords.has(word)).length / leftWords.length;
+};
+
+const shouldHideSubtitle = (title, subtitle) => {
+  const cleanTitle = normalizeText(title).toLowerCase();
+  const cleanSubtitle = normalizeText(subtitle).toLowerCase();
+  if (!cleanSubtitle) return true;
+  if (!cleanTitle) return false;
+  return (
+    cleanSubtitle === cleanTitle ||
+    cleanSubtitle.includes(cleanTitle) ||
+    cleanTitle.includes(cleanSubtitle) ||
+    textOverlapRatio(title, subtitle) >= 0.65
+  );
+};
 
 const trimOpener = (value) => {
   const clean = normalizeText(value).replace(/["'«»]+/g, '').trim();
@@ -200,17 +255,19 @@ const simpleTimelineTweens = scenes
 const youtubeDirectorClips = scenes
   .map((scene, index) => {
     const title = pickSceneTitle(scene);
-    const subtitle = pickSceneSubtitle(scene);
+    const rawSubtitle = pickSceneSubtitle(scene);
+    const subtitle = shouldHideSubtitle(title, rawSubtitle) ? '' : rawSubtitle;
     if (!title && !subtitle) return '';
     const duration = sceneDuration(scene, index, 9);
     const imageExists = fs.existsSync(generatedImagePath(index));
-    const elements = visualElements(scene);
-    const elementBadges = elements
-      .map((item) => `<span>${escapeHtml(item)}</span>`)
-      .join('');
     const imageMarkup = imageExists
       ? `<img class="director-image" src="./assets/generated/${escapeHtml(generatedImageFile(index))}" />`
-      : `<div class="director-fallback">${elementBadges || '<span>Ключевой блок</span>'}</div>`;
+      : `<div class="director-fallback" aria-hidden="true">
+          <div class="fallback-panel"></div>
+          <div class="fallback-line fallback-line-one"></div>
+          <div class="fallback-line fallback-line-two"></div>
+          <div class="fallback-line fallback-line-three"></div>
+        </div>`;
     return `
       <div
         id="director-${index}"
@@ -293,7 +350,8 @@ const youtubeCaptionClips = captionChunks
 const youtubeTimelineTweens = [
   ...scenes.map((scene, index) => {
     const title = pickSceneTitle(scene);
-    const subtitle = pickSceneSubtitle(scene);
+    const rawSubtitle = pickSceneSubtitle(scene);
+    const subtitle = shouldHideSubtitle(title, rawSubtitle) ? '' : rawSubtitle;
     if (!title && !subtitle) return '';
     const duration = sceneDuration(scene, index, 9);
     const fadeOutAt = Math.max(scene.start + 0.6, scene.start + duration - 0.4);
@@ -301,7 +359,7 @@ const youtubeTimelineTweens = [
       tl.fromTo("#director-${index}", { opacity: 0, x: 64, scale: 0.985 }, { opacity: 1, x: 0, scale: 1, duration: 0.52, ease: "power3.out" }, ${scene.start.toFixed(3)});
       tl.to("#director-${index}", { opacity: 0, x: 38, duration: 0.34, ease: "power2.in" }, ${fadeOutAt.toFixed(3)});`;
   }),
-  ...scenes.map((scene, index) => {
+  ...(youtubeChapterRibbonEnabled ? scenes.map((scene, index) => {
     const opener = pickSceneOpener(scene);
     if (!opener) return '';
     const duration = sceneDuration(scene, index, 5.2);
@@ -309,20 +367,50 @@ const youtubeTimelineTweens = [
     return `
       tl.fromTo("#chapter-${index}", { opacity: 0, y: -18 }, { opacity: 1, y: 0, duration: 0.34, ease: "power3.out" }, ${scene.start.toFixed(3)});
       tl.to("#chapter-${index}", { opacity: 0, y: -12, duration: 0.24, ease: "power2.in" }, ${fadeOutAt.toFixed(3)});`;
-  }),
-  ...captionChunks.map((caption, index) => {
+  }) : []),
+  ...(youtubeCaptionsEnabled ? captionChunks.map((caption, index) => {
     const fadeOutAt = Math.max(caption.start + 0.25, caption.start + caption.duration - 0.18);
     return `
       tl.fromTo("#caption-${index}", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.18, ease: "power2.out" }, ${caption.start.toFixed(3)});
       tl.to("#caption-${index}", { opacity: 0, y: 8, duration: 0.16, ease: "power2.in" }, ${fadeOutAt.toFixed(3)});`;
-  }),
+  }) : []),
 ].filter(Boolean).join('\n');
 
-const isYoutubeLayout = layout === 'horizontal_youtube';
 const overlayClips = isYoutubeLayout
-  ? `${youtubeDirectorClips}\n${youtubeChapterClips}\n${youtubeCaptionClips}`
+  ? [
+      youtubeDirectorClips,
+      youtubeChapterRibbonEnabled ? youtubeChapterClips : '',
+      youtubeCaptionsEnabled ? youtubeCaptionClips : '',
+    ].filter(Boolean).join('\n')
   : simpleOverlayClips;
 const timelineTweens = isYoutubeLayout ? youtubeTimelineTweens : simpleTimelineTweens;
+const pageBackground = youtubeCompositeSourceVideo ? 'transparent' : '#000';
+const sourceMediaClips = youtubeCompositeSourceVideo
+  ? ''
+  : `
+      <video
+        id="source-video"
+        class="clip background-video"
+        data-start="0"
+        data-duration="${rootDuration.toFixed(3)}"
+        data-track-index="0"
+        data-volume="0"
+        data-has-audio="false"
+        src="./assets/input/${escapeHtml(copiedVideoName)}"
+        muted
+        playsinline
+        preload="auto"
+      ></video>
+      <audio
+        id="source-audio"
+        class="clip"
+        data-start="0"
+        data-duration="${rootDuration.toFixed(3)}"
+        data-track-index="2"
+        data-volume="1"
+        src="./assets/input/${escapeHtml(copiedVideoName)}"
+        preload="auto"
+      ></audio>`;
 
 const html = `<!doctype html>
 <html lang="en">
@@ -336,7 +424,7 @@ const html = `<!doctype html>
         width: 1920px;
         height: 1080px;
         overflow: hidden;
-        background: #000;
+        background: ${pageBackground};
         font-family: Montserrat, Arial, sans-serif;
       }
       #main {
@@ -344,7 +432,7 @@ const html = `<!doctype html>
         width: 1920px;
         height: 1080px;
         overflow: hidden;
-        background: #000;
+        background: ${pageBackground};
       }
       .background-video {
         position: absolute;
@@ -450,24 +538,53 @@ const html = `<!doctype html>
         display: block;
       }
       .director-fallback {
+        position: relative;
         width: 100%;
         height: 100%;
-        padding: 28px;
-        display: flex;
-        flex-wrap: wrap;
-        align-content: center;
-        gap: 14px;
+        overflow: hidden;
         background:
           linear-gradient(135deg, rgba(180, 60, 52, 0.15), rgba(29, 79, 143, 0.14)),
           #f8fafc;
       }
-      .director-fallback span {
-        padding: 10px 14px;
-        background: #0f172a;
-        color: #fff;
-        font-size: 24px;
-        font-weight: 800;
-        line-height: 1.05;
+      .director-fallback::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(90deg, rgba(15, 23, 42, 0.06) 1px, transparent 1px),
+          linear-gradient(0deg, rgba(15, 23, 42, 0.05) 1px, transparent 1px);
+        background-size: 42px 42px;
+      }
+      .fallback-panel {
+        position: absolute;
+        left: 36px;
+        top: 44px;
+        width: 58%;
+        height: 48%;
+        border-radius: 6px;
+        border: 1px solid rgba(15, 23, 42, 0.14);
+        background: rgba(255, 255, 255, 0.58);
+        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.10);
+      }
+      .fallback-line {
+        position: absolute;
+        left: 72px;
+        height: 16px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.22);
+      }
+      .fallback-line-one {
+        top: 88px;
+        width: 44%;
+      }
+      .fallback-line-two {
+        top: 126px;
+        width: 35%;
+      }
+      .fallback-line-three {
+        top: 164px;
+        width: 49%;
+        background: rgba(180, 60, 52, 0.28);
       }
       .chapter-ribbon {
         position: absolute;
@@ -524,25 +641,7 @@ const html = `<!doctype html>
       data-width="1920"
       data-height="1080"
     >
-      <video
-        id="source-video"
-        class="clip background-video"
-        data-start="0"
-        data-duration="${rootDuration.toFixed(3)}"
-        data-track-index="0"
-        src="./assets/input/${escapeHtml(copiedVideoName)}"
-        muted
-        playsinline
-      ></video>
-      <audio
-        id="source-audio"
-        class="clip"
-        data-start="0"
-        data-duration="${rootDuration.toFixed(3)}"
-        data-track-index="2"
-        data-volume="1"
-        src="./assets/input/${escapeHtml(copiedVideoName)}"
-      ></audio>
+${sourceMediaClips}
       ${isYoutubeLayout ? '<div class="scene-vignette"></div>' : ''}
 ${overlayClips}
     </div>
@@ -562,17 +661,61 @@ fs.writeFileSync(path.join(projectRoot, generatedCompositionName), html, 'utf8')
 const outputDir = path.dirname(outputPath);
 fs.mkdirSync(outputDir, {recursive: true});
 
+const outputExtension = path.extname(outputPath) || '.mp4';
+const outputStem = outputPath.slice(0, -outputExtension.length) || outputPath;
+const overlayOutputPath = `${outputStem}.overlay.webm`;
+const hyperframesOutputPath = youtubeCompositeSourceVideo ? overlayOutputPath : outputPath;
+
 const renderArgs = [
   'hyperframes',
   'render',
   '--composition',
   generatedCompositionName,
   '--output',
-  outputPath,
+  hyperframesOutputPath,
   '--fps',
   String(renderFps),
   '--quality',
-  'standard',
+  renderQuality,
+];
+
+if (youtubeCompositeSourceVideo) {
+  renderArgs.push('--format', 'webm');
+} else if (renderCrf) {
+  renderArgs.push('--crf', renderCrf);
+} else if (renderVideoBitrate) {
+  renderArgs.push('--video-bitrate', renderVideoBitrate);
+}
+
+const ffmpegArgs = [
+  '-y',
+  '-i',
+  copiedVideoPath,
+  '-c:v',
+  'libvpx-vp9',
+  '-i',
+  overlayOutputPath,
+  '-filter_complex',
+  '[0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080[base];[base][1:v]overlay=0:0:eof_action=pass:format=auto[v]',
+  '-map',
+  '[v]',
+  '-map',
+  '0:a?',
+  '-c:v',
+  'libx264',
+  '-preset',
+  ffmpegPreset,
+  '-crf',
+  renderCrf || '18',
+  '-pix_fmt',
+  'yuv420p',
+  '-movflags',
+  '+faststart',
+  '-c:a',
+  'aac',
+  '-b:a',
+  '160k',
+  outputPath,
 ];
 
 console.log('[render-auto] Prepared Hyperframes input files:');
@@ -582,10 +725,16 @@ console.log(`  word-cues: ${wordCuesPath}`);
 console.log(`  output: ${outputPath}`);
 console.log(`  duration: ${rootDuration}s`);
 console.log(`  layout: ${layout}`);
+console.log(`  quality: ${renderQuality}`);
+console.log(`  source-composite: ${youtubeCompositeSourceVideo ? 'ffmpeg' : 'hyperframes'}`);
 
 if (dryRun) {
   console.log('[render-auto] Dry run mode enabled. Render command:');
   console.log(`npx ${renderArgs.join(' ')}`);
+  if (youtubeCompositeSourceVideo) {
+    console.log('[render-auto] Composite command:');
+    console.log(`ffmpeg ${ffmpegArgs.join(' ')}`);
+  }
   process.exit(0);
 }
 
@@ -598,4 +747,27 @@ if (result.error) {
   throw result.error;
 }
 
-process.exit(result.status ?? 1);
+if (result.status !== 0) {
+  process.exit(result.status ?? 1);
+}
+
+if (youtubeCompositeSourceVideo) {
+  console.log('[render-auto] Compositing Hyperframes overlay over source video with ffmpeg...');
+  const compositeResult = spawnSync('ffmpeg', ffmpegArgs, {
+    cwd: projectRoot,
+    stdio: 'inherit',
+    timeout: ffmpegCompositeTimeoutMs,
+  });
+
+  if (compositeResult.error) {
+    throw compositeResult.error;
+  }
+  if (compositeResult.status !== 0) {
+    process.exit(compositeResult.status ?? 1);
+  }
+  if (process.env.KEEP_TEMP !== '1') {
+    fs.rmSync(overlayOutputPath, {force: true});
+  }
+}
+
+process.exit(0);
