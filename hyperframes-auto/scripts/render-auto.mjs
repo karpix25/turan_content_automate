@@ -316,7 +316,6 @@ const youtubeDirectorClips = scenes
         data-track-index="1"
       >
         <div class="director-copy">
-          <div class="director-kicker">Блок ${escapeHtml(String(scene.chapterIndex || index + 1))}</div>
           <h2>${escapeHtml(title || pickSceneOpener(scene))}</h2>
           ${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ''}
         </div>
@@ -479,6 +478,8 @@ const html = `<!doctype html>
         width: 100%;
         height: 100%;
         object-fit: cover;
+        transform: scale(1.01);
+        transform-origin: center center;
         z-index: 0;
       }
       .scene-vignette {
@@ -520,55 +521,72 @@ const html = `<!doctype html>
         position: absolute;
         right: 64px;
         top: 92px;
-        width: 690px;
-        min-height: 760px;
-        padding: 30px;
-        border-radius: 8px;
-        background: rgba(248, 250, 252, 0.94);
-        border: 1px solid rgba(15, 23, 42, 0.10);
-        box-shadow: 0 28px 70px rgba(0, 0, 0, 0.32);
+        width: 600px;
+        height: 760px;
+        padding: 28px;
+        border-radius: 6px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 247, 251, 0.94)),
+          #f8fafc;
+        border: 2px solid rgba(15, 23, 42, 0.14);
+        box-shadow: 0 34px 76px rgba(0, 0, 0, 0.36);
         color: #0f172a;
         z-index: 4;
         pointer-events: none;
-        display: flex;
-        flex-direction: column;
-        gap: 22px;
+        display: grid;
+        grid-template-rows: 212px 1fr;
+        gap: 20px;
       }
       .director-copy {
+        position: relative;
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        justify-content: center;
+        gap: 14px;
+        min-height: 0;
+        padding-left: 22px;
+        overflow: hidden;
       }
-      .director-kicker {
-        width: max-content;
-        max-width: 100%;
-        padding: 8px 12px;
+      .director-copy::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 12px;
+        bottom: 12px;
+        width: 5px;
+        border-radius: 999px;
         background: #b43c34;
-        color: #fff;
-        font-size: 22px;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: 0;
       }
       .director-card h2 {
-        font-size: 54px;
-        line-height: 0.96;
+        font-size: 44px;
+        line-height: 1.04;
         font-weight: 900;
         letter-spacing: 0;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
       }
       .director-card p {
         color: #334155;
-        font-size: 28px;
-        line-height: 1.18;
-        font-weight: 650;
+        font-size: 25px;
+        line-height: 1.2;
+        font-weight: 700;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
       }
       .director-visual {
-        width: 100%;
-        aspect-ratio: 16 / 9;
+        width: min(100%, 456px);
+        aspect-ratio: 1 / 1;
+        justify-self: center;
+        align-self: center;
         overflow: hidden;
-        border-radius: 6px;
-        background: #e2e8f0;
-        border: 1px solid rgba(15, 23, 42, 0.12);
+        border-radius: 8px;
+        background: #e7edf5;
+        border: 2px solid rgba(15, 23, 42, 0.14);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.56);
       }
       .director-image {
         width: 100%;
@@ -735,7 +753,7 @@ const ffmpegArgs = [
   '-i',
   overlayOutputPath,
   '-filter_complex',
-  '[0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080[base];[base][1:v]overlay=0:0:eof_action=pass:format=auto[v]',
+  '[0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,scale=ceil(iw*1.01/2)*2:ceil(ih*1.01/2)*2,crop=1920:1080[base];[base][1:v]overlay=0:0:eof_action=pass:format=auto[v]',
   '-map',
   '[v]',
   '-map',

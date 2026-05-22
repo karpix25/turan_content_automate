@@ -203,6 +203,44 @@ def extract_utterances(transcript_payload: dict[str, Any]) -> list[dict[str, Any
     return out
 
 
+def _anchor_token(text: str) -> str:
+    tokens = re.findall(r"[A-Za-zА-Яа-яЁё0-9]+", str(text).lower().replace("ё", "е"))
+    return tokens[0] if len(tokens) == 1 else " ".join(tokens)
+
+
+def extract_transcript_words(transcript_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    results = transcript_payload.get("results", {})
+    channels = results.get("channels") or []
+    if not channels:
+        return []
+    alternatives = channels[0].get("alternatives") or []
+    if not alternatives:
+        return []
+    words = alternatives[0].get("words") or []
+    out: list[dict[str, Any]] = []
+    for idx, word in enumerate(words):
+        text = str(word.get("punctuated_word") or word.get("word") or "").strip()
+        if not text:
+            continue
+        try:
+            start = float(word.get("start", 0.0))
+            end = float(word.get("end", start))
+        except (TypeError, ValueError):
+            continue
+        if end < start:
+            end = start
+        out.append(
+            {
+                "id": word.get("id") or f"word-{idx:06d}",
+                "start": start,
+                "end": end,
+                "text": text,
+                "_token": _anchor_token(text),
+            }
+        )
+    return [word for word in out if word.get("_token")]
+
+
 def _text_from_tokens(tokens: list[str]) -> str:
     text = " ".join(t for t in tokens if t)
     text = re.sub(r"\s+([,.;!?])", r"\1", text)
@@ -939,6 +977,7 @@ def build_llm_prompt_payload(
             "scene_min_seconds": 2.0,
             "scene_max_seconds": 5.5,
             "visual_density": "Карточка должна появляться на сильной фразе, а не закрывать весь ролик.",
+            "timing_anchor_rule": "Карточка должна появляться за 0.1-0.3 сек до первого слова новой темы. Не ставь start после того, как смысловой блок уже начался.",
             "block_names": ["ПРОБЛЕМА", "ПРИЧИНА", "ПОВОРОТ", "ДЕЙСТВИЕ", "РИСК", "ВЫВОД"],
             "editorial_strategy": {
                 "philosophy": "МЕНЬШЕ — ЭТО БОЛЬШЕ. Аватар должен быть виден 70% времени. Плашка — это акцент, а не фон.",
@@ -961,9 +1000,9 @@ def build_llm_prompt_payload(
                 "expert_tone": "Используй терминологию только из исходного транскрипта и semantic_blocks. Не добавляй чужую предметную область.",
                 "no_verbatim_transcript": True,
                 "focus_on_essence": True,
-                "news_editorial_copy": "Пиши как редактор новостного YouTube: title = суть/конфликт/поворот; subtitle = почему важно/условие/последствие/что делать. Они не должны повторять одну и ту же фразу.",
-                "title_role": "title: 2-5 слов, новостной заголовок, конкретный поворот мысли. Нельзя брать сырую фразу из речи со словами 'вроде как', 'с одной стороны', 'получается', 'то есть', 'вам'.",
-                "subtitle_role": "subtitle: 5-10 слов, добавляет новый слой смысла: условие, риск, срок, документ, действие или последствие. Не пересказывает title другими словами.",
+                "news_editorial_copy": "Пиши как живой редактор новостного YouTube: title = человеческий крючок, а не цитата и не рубрика. Title должен назвать конкретную ставку для зрителя: деньги, штраф, отказ, заморозка, дедлайн, лишний шаг, что потеряет или что может вернуть. Subtitle объясняет механизм: почему, кому, когда, чем грозит, что проверить.",
+                "title_role": "title: 2-4 слова, короткий человеческий заголовок. Не повторяй речь дословно. Избегай канцелярита и абстракций вроде 'контроль стал нормой', 'статус решает выплату', 'главное условие'. Лучше конкретно: 'СЧЕТ МОГУТ ЗАМОРОЗИТЬ', 'ВЫЧЕТ ДАДУТ НЕ ВСЕМ', 'ВТОРАЯ МАШИНА МЕШАЕТ'.",
+                "subtitle_role": "subtitle: 5-8 слов, простое пояснение без лозунга. Он должен добавлять фактуру к title: условие, риск, срок, документ, действие или последствие. Не пересказывает title другими словами.",
                 "no_generic_titles": "Запрещены общие заголовки вроде 'ГЛАВНЫЙ РИСК', 'ЧТО МЕНЯЕТСЯ', 'ФОКУС НА ГЛАВНОМ', если в них нет конкретного смысла из речи.",
                 "anchor_required": "Каждый beat обязан иметь 2-5 anchorWords — точные слова или короткие фразы из транскрипта, по которым понятно, почему этот beat существует.",
                 "visual_required": "Каждый beat обязан иметь visualIdea и visualElements. visualIdea — это конкретный кадр с субъектом, местом, объектами и конфликтом/действием, а не тема или список существительных.",
@@ -1049,9 +1088,9 @@ def generate_scene_plan_llm(
 ЖЕСТКИЕ ПРАВИЛА:
 1. Каждый scene — один отдельный смысл: проблема, причина, поворот, действие, риск или вывод.
 2. Верни количество scenes, заданное в constraints.target_scene_count. Это число рассчитано из пользовательской настройки процента перебивок. Не склеивай весь ролик в слишком малое количество сцен.
-3. start/end должны попадать в реальный момент речи, где звучат anchorWords. Длительность сцены 2.0-5.5 секунд.
-4. title: 2-5 слов, как в новостях: суть, конфликт, поворот или сильное условие. Не копируй сырую речь и не начинай с вводных: "с одной стороны", "вроде как", "получается", "то есть", "вам". Запрещены общие фразы: "ГЛАВНЫЙ РИСК", "ЧТО МЕНЯЕТСЯ", "ФОКУС НА ГЛАВНОМ", "НОВАЯ РЕАЛЬНОСТЬ", если они не содержат предметный смысл.
-5. subtitle: 5-10 слов, добавляет новый смысл к title: почему важно, какой риск, какое условие, срок, документ, действие или последствие. Не повторяй title и не пересказывай его теми же словами.
+3. start/end должны попадать в реальный момент речи, где звучат anchorWords. start ставь на начало фразы или за 0.1-0.3 сек до первого anchorWord, чтобы плашка сопровождала новую тему сразу, как в новостях. Длительность сцены 2.0-5.5 секунд.
+4. title: 2-4 слова, как в новостях и retention-роликах: не цитата, а человеческий крючок. Назови конкретную ставку для зрителя: деньги, штраф, отказ, заморозка, дедлайн, лишний шаг, что потеряет или что может вернуть. Хорошо: "СЧЕТ МОГУТ ЗАМОРОЗИТЬ", "ВЫЧЕТ ДАДУТ НЕ ВСЕМ", "ВТОРАЯ МАШИНА МЕШАЕТ", "НДС ПОПРОСЯТ ЗАРАНЕЕ". Плохо: "СТАТУС РЕШАЕТ ВЫПЛАТУ", "КОНТРОЛЬ СТАЛ НОРМОЙ", "ГЛАВНОЕ УСЛОВИЕ". Не копируй сырую речь и не начинай с вводных: "с одной стороны", "вроде как", "получается", "то есть", "вам".
+5. subtitle: 5-8 слов, объясняет механику крючка простыми словами: почему важно, кому грозит, какой риск, какое условие, срок, документ, действие или последствие. Не повторяй title и не пересказывай его теми же словами.
 6. anchorWords: 2-5 точных слов/коротких фраз из транскрипта. Это якоря, которые доказывают, что сцена привязана к речи.
 7. Первая scene обязана иметь hookText и hookPromise. Это первые 1-3 секунды: боль, конфликт или сильное обещание, чтобы зритель не свайпнул.
 8. referenceEssence: коротко объясни, какую суть исходной речи/референса ты повторяешь своими словами. Не копируй формулировку, сохраняй смысл.
@@ -1486,6 +1525,202 @@ def _derive_anchor_words_from_text(text: str, limit: int = 4) -> list[str]:
     return anchors
 
 
+def _anchor_phrase_tokens(text: str) -> list[str]:
+    return [
+        token
+        for token in re.findall(r"[A-Za-zА-Яа-яЁё0-9]+", normalize_plain_text(text).lower().replace("ё", "е"))
+        if token
+    ]
+
+
+def _find_anchor_phrase_start(
+    words: list[dict[str, Any]],
+    phrase: str,
+    *,
+    start: float,
+    end: float,
+    max_lookback: float = 8.0,
+    max_lookahead: float = 2.5,
+) -> float | None:
+    phrase_tokens = _anchor_phrase_tokens(phrase)
+    if not phrase_tokens or not words:
+        return None
+
+    window_start = max(0.0, start - max_lookback)
+    window_end = end + max_lookahead
+    tokens = [str(word.get("_token") or _anchor_token(str(word.get("text") or ""))) for word in words]
+    candidates: list[tuple[float, float]] = []
+
+    phrase_len = len(phrase_tokens)
+    if phrase_len > 1:
+        for idx in range(0, max(0, len(tokens) - phrase_len + 1)):
+            if tokens[idx : idx + phrase_len] != phrase_tokens:
+                continue
+            try:
+                match_start = float(words[idx].get("start", 0.0))
+            except (TypeError, ValueError):
+                continue
+            if match_start < window_start or match_start > window_end:
+                continue
+            distance = abs(match_start - start)
+            if match_start <= start + 0.2:
+                distance *= 0.65
+            candidates.append((distance, match_start))
+    else:
+        # Single-word anchors are useful only when they are distinctive in this window.
+        token = phrase_tokens[0]
+        if len(token) < 4:
+            return None
+        matches: list[float] = []
+        for idx, current in enumerate(tokens):
+            if current != token:
+                continue
+            try:
+                match_start = float(words[idx].get("start", 0.0))
+            except (TypeError, ValueError):
+                continue
+            if window_start <= match_start <= window_end:
+                matches.append(match_start)
+        if len(matches) == 1:
+            candidates.append((abs(matches[0] - start), matches[0]))
+        else:
+            nearby = [t for t in matches if abs(t - start) <= 2.0]
+            for match_start in nearby[:2]:
+                candidates.append((abs(match_start - start), match_start))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1]))
+    return candidates[0][1]
+
+
+def _semantic_sentence_start_near(
+    semantic_blocks: list[dict[str, Any]],
+    target_time: float,
+    *,
+    max_shift_back: float = 5.0,
+) -> float | None:
+    for block in semantic_blocks:
+        sentences = block.get("sentences") if isinstance(block.get("sentences"), list) else []
+        for sentence in sentences:
+            try:
+                sent_start = float(sentence.get("start", 0.0))
+                sent_end = float(sentence.get("end", sent_start))
+            except (TypeError, ValueError):
+                continue
+            if sent_start <= target_time <= sent_end and target_time - sent_start <= max_shift_back:
+                return sent_start
+    return None
+
+
+def _semantic_block_anchor_start(
+    semantic_blocks: list[dict[str, Any]],
+    anchor_candidates: list[str],
+    *,
+    start: float,
+    end: float,
+    max_lookback: float = 8.0,
+    max_lookahead: float = 2.5,
+) -> float | None:
+    if not semantic_blocks or not anchor_candidates:
+        return None
+    window_start = max(0.0, start - max_lookback)
+    window_end = end + max_lookahead
+    normalized_anchors = [
+        normalize_plain_text(anchor).lower().replace("ё", "е")
+        for anchor in anchor_candidates
+        if normalize_plain_text(anchor)
+    ]
+    for block in semantic_blocks:
+        try:
+            block_start = float(block.get("start", 0.0))
+            block_end = float(block.get("end", block_start))
+        except (TypeError, ValueError):
+            continue
+        if block_end < window_start or block_start > window_end:
+            continue
+        block_text = normalize_plain_text(str(block.get("text") or "")).lower().replace("ё", "е")
+        if any(anchor and anchor in block_text for anchor in normalized_anchors):
+            return max(0.0, block_start)
+    return None
+
+
+def _snap_scene_timing_to_anchor(
+    *,
+    item: dict[str, Any],
+    words: list[dict[str, Any]],
+    semantic_blocks: list[dict[str, Any]],
+    start: float,
+    end: float,
+    total_duration: float,
+) -> tuple[float, float]:
+    raw_anchors = item.get("anchorWords") if isinstance(item.get("anchorWords"), list) else []
+    anchor_candidates = [
+        str(anchor)
+        for anchor in raw_anchors
+        if normalize_plain_text(str(anchor))
+    ]
+    source_text = normalize_plain_text(str(item.get("sourceText") or ""))
+    if source_text:
+        anchor_candidates.extend(_derive_anchor_words_from_text(source_text, limit=3))
+    if not anchor_candidates:
+        return start, end
+
+    max_lookback = 8.0
+    max_lookahead = 2.5
+    anchor_starts: list[float] = []
+    for anchor in anchor_candidates:
+        anchor_start = _find_anchor_phrase_start(
+            words,
+            anchor,
+            start=start,
+            end=end,
+            max_lookback=max_lookback,
+            max_lookahead=max_lookahead,
+        )
+        if anchor_start is not None:
+            anchor_starts.append(anchor_start)
+
+    if anchor_starts:
+        # Prefer the first anchor that already happened before the planned card.
+        past_or_now = [t for t in anchor_starts if t <= start + 0.25]
+        anchor_start = min(past_or_now) if past_or_now else min(anchor_starts, key=lambda t: abs(t - start))
+    else:
+        semantic_start = _semantic_block_anchor_start(
+            semantic_blocks,
+            anchor_candidates,
+            start=start,
+            end=end,
+            max_lookback=max_lookback,
+            max_lookahead=max_lookahead,
+        )
+        if semantic_start is None:
+            return start, end
+        anchor_start = semantic_start
+
+    sentence_start = _semantic_sentence_start_near(semantic_blocks, anchor_start)
+    if sentence_start is not None and 0.0 <= anchor_start - sentence_start <= 5.0:
+        anchor_start = sentence_start
+
+    if anchor_start < start - max_lookback or anchor_start > end + max_lookahead:
+        return start, end
+
+    preroll = 0.18
+    snapped_start = max(0.0, round(anchor_start - preroll, 2))
+    if abs(snapped_start - start) < 0.12:
+        return start, end
+
+    original_duration = max(1.2, end - start)
+    max_duration = 7.0
+    if snapped_start < start:
+        snapped_end = min(total_duration, max(end, snapped_start + original_duration), snapped_start + max_duration)
+    else:
+        snapped_end = min(total_duration, snapped_start + original_duration)
+    if snapped_end - snapped_start < 1.2:
+        snapped_end = min(total_duration, snapped_start + 1.2)
+    return snapped_start, round(snapped_end, 2)
+
+
 def _derive_visual_elements_from_text(text: str, title: str = "", limit: int = 6) -> list[str]:
     source = normalize_plain_text(" ".join([text, title]))
     keywords = [
@@ -1641,6 +1876,31 @@ def _editorial_title_candidates(scene: dict[str, Any], source: str, index: int) 
 
     candidates: list[str] = []
 
+    if _source_has_any(lower, ("июн", "новых правил", "новые правила")) and _source_has_any(lower, ("штраф", "стоить", "дорого", "закон")):
+        candidates.extend(["В ИЮНЕ МОГУТ ОШТРАФОВАТЬ", "ПРАВИЛА УДАРЯТ ПО ДЕНЬГАМ"])
+    if _source_has_any(lower, ("вычет", "сем", "ребен", "ндфл")):
+        candidates.extend(["ВЫЧЕТ ДАДУТ НЕ ВСЕМ", "ДЕНЬГИ ВЕРНУТ НЕ ВСЕМ"])
+    if _source_has_any(lower, ("6%", "6 %", "шесть", "льготн")) and _source_has_any(lower, ("ндфл", "ставк", "возврат", "вернут")):
+        candidates.extend(["6% МОЖНО ВЕРНУТЬ", "РАЗНИЦУ МОГУТ ДОПЛАТИТЬ"])
+    if _source_has_any(lower, ("доход", "прожиточ", "минимум", "лимит")):
+        candidates.extend(["ЛИМИТ ДОХОДА ЖЕСТКИЙ", "ЛИШНИЕ РУБЛИ ОТРЕЖУТ ВЫПЛАТУ"])
+    if _source_has_any(lower, ("официальн", "гражданств", "резидент", "183", "ста")):
+        candidates.extend(["БЕЛАЯ РАБОТА ОБЯЗАТЕЛЬНА", "БЕЗ СТАТУСА НЕ ВЕРНУТ"])
+    if _source_has_any(lower, ("автомоб", "машин", "квартир", "имуществ")):
+        candidates.extend(["ВТОРАЯ МАШИНА МЕШАЕТ", "ИМУЩЕСТВО ТОЖЕ ПРОВЕРЯТ"])
+    if _source_has_any(lower, ("зарубеж", "счет")) and _source_has_any(lower, ("1 июня", "отчит", "движен")):
+        candidates.extend(["ДО 1 ИЮНЯ ОТЧИТАЙТЕСЬ", "СЧЕТА ЗА ГРАНИЦЕЙ ПРОВЕРЯТ"])
+    if _source_has_any(lower, ("115", "блокиров", "банк", "счет")):
+        candidates.extend(["СЧЕТ МОГУТ ЗАМОРОЗИТЬ", "БАНК ДАСТ СУТКИ"])
+    if _source_has_any(lower, ("патент", "усн", "упрощен")):
+        candidates.extend(["ПАТЕНТ ЕЩЕ МОЖНО СПАСТИ", "УСН МОЖНО ВЕРНУТЬ"])
+    if _source_has_any(lower, ("ндс", "акциз", "импорт", "импортер")):
+        candidates.extend(["НДС ПОПРОСЯТ ЗАРАНЕЕ", "ИМПОРТ СТАНЕТ ДОРОЖЕ"])
+    if _source_has_any(lower, ("маркетплейс", "покупател", "потребител", "чек")):
+        candidates.extend(["ЗАПЛАТИТ ПОКУПАТЕЛЬ", "ЦЕНА УЙДЕТ В ЧЕК"])
+    if _source_has_any(lower, ("контроль", "гайки", "провер", "схем")):
+        candidates.extend(["СТАРЫЕ СХЕМЫ НЕ ПРОЙДУТ", "ПРОВЕРКИ СТАНУТ ОБЫЧНЫМИ"])
+
     if _source_has_any(lower, ("код", "кода")) and _source_has_any(lower, ("фур", "границ", "тамож")):
         candidates.extend(["БЕЗ КОДА НЕ ПРОПУСТЯТ", "КОД РЕШАЕТ ПРОХОД"])
     if _source_has_any(lower, ("заявлен", "заявк", "подат", "подач")):
@@ -1695,6 +1955,28 @@ def _editorial_subtitle_candidates(scene: dict[str, Any], source: str, title: st
 
     if _source_has_any(lower, ("код", "кода")) and _source_has_any(lower, ("фур", "границ", "тамож")):
         candidates.append("без нужного кода фуру остановят на границе")
+    if _source_has_any(lower, ("вычет", "сем", "ребен", "ндфл")):
+        candidates.append("вернут деньги только при совпадении условий")
+    if _source_has_any(lower, ("6%", "6 %", "шесть", "льготн")) and _source_has_any(lower, ("ндфл", "ставк", "возврат", "вернут")):
+        candidates.append("Соцфонд доплатит разницу после проверки")
+    if _source_has_any(lower, ("доход", "прожиточ", "минимум", "лимит")):
+        candidates.append("лишние рубли могут забрать всю выплату")
+    if _source_has_any(lower, ("официальн", "гражданств", "резидент", "183", "ста")):
+        candidates.append("без статуса и стажа возврата не будет")
+    if _source_has_any(lower, ("автомоб", "машин", "квартир", "имуществ")):
+        candidates.append("имущество семьи тоже проверят")
+    if _source_has_any(lower, ("зарубеж", "счет")) and _source_has_any(lower, ("1 июня", "отчит", "движен")):
+        candidates.append("по зарубежным счетам ждут движение денег")
+    if _source_has_any(lower, ("115", "блокиров", "банк", "счет")):
+        candidates.append("на ответ по 115-ФЗ всего сутки")
+    if _source_has_any(lower, ("патент", "усн", "упрощен")):
+        candidates.append("УСН разрешат оформить задним числом")
+    if _source_has_any(lower, ("ндс", "акциз", "импорт", "импортер")):
+        candidates.append("импортер платит до продажи товара")
+    if _source_has_any(lower, ("маркетплейс", "покупател", "потребител", "чек")):
+        candidates.append("маркетплейсы переложат издержки в чек")
+    if _source_has_any(lower, ("контроль", "гайки", "провер", "схем")):
+        candidates.append("контроль стал частью обычной работы")
     if _source_has_any(lower, ("заявлен", "заявк", "подат", "подач")):
         candidates.append("важны основание, срок и точность подачи")
     if _source_has_any(lower, ("налог", "деньг", "возврат", "сумм", "выплат")):
@@ -2162,6 +2444,12 @@ def normalize_scene_plan(
     utterances_for_norm = raw.get("_utterances")
     if not isinstance(utterances_for_norm, list):
         utterances_for_norm = []
+    transcript_words_for_norm = raw.get("_transcript_words")
+    if not isinstance(transcript_words_for_norm, list):
+        transcript_words_for_norm = []
+    semantic_blocks_for_norm = raw.get("_semantic_blocks")
+    if not isinstance(semantic_blocks_for_norm, list):
+        semantic_blocks_for_norm = []
     try:
         target_scene_count = int(raw.get("_target_scene_count") or 0)
     except (TypeError, ValueError):
@@ -2203,7 +2491,18 @@ def normalize_scene_plan(
                     return utt_start
             return target_time
 
-        start = find_best_start(start, utterances_for_norm)
+        anchored_start, anchored_end = _snap_scene_timing_to_anchor(
+            item=item,
+            words=transcript_words_for_norm,
+            semantic_blocks=semantic_blocks_for_norm,
+            start=start,
+            end=end,
+            total_duration=duration,
+        )
+        if anchored_start != start or anchored_end != end:
+            start, end = anchored_start, anchored_end
+        else:
+            start = find_best_start(start, utterances_for_norm)
         window_text = _scene_window_text(utterances_for_norm, start, end)
         semantic_fallback = _build_semantic_fallback(window_text, block_name)
         
@@ -2608,6 +2907,7 @@ def main() -> int:
         eprint(f"Saved transcript JSON: {out_transcript}")
 
     utterances = extract_utterances(transcript_payload)
+    transcript_words = extract_transcript_words(transcript_payload)
     if len(utterances) <= 1:
         synthesized = synthesize_utterances_from_words(transcript_payload, split_sec=args.utt_split)
         if len(synthesized) > len(utterances):
@@ -2690,6 +2990,8 @@ def main() -> int:
                 )
                 if isinstance(raw_plan, dict):
                     raw_plan["_utterances"] = utterances
+                    raw_plan["_transcript_words"] = transcript_words
+                    raw_plan["_semantic_blocks"] = semantic_blocks
                     raw_plan["_target_scene_count"] = target_scene_count
                 scenes = normalize_scene_plan(
                     raw_plan,
