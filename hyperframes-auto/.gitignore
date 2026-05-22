@@ -1,4 +1,5 @@
 assets/input/
 renders/
 .thumbnails/
+.preview/
 node_modules/
