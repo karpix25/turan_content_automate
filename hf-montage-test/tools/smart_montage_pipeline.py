@@ -392,6 +392,60 @@ FILLER_PATTERNS = [
     r"\bв принципе\b",
 ]
 
+EDITORIAL_NOISE_PATTERNS = [
+    r"\bс\s+одной\s+стороны\b",
+    r"\bс\s+1\s+стороны\b",
+    r"\bс\s+другой\s+стороны\b",
+    r"\bвроде\s+как\b",
+    r"\bполучается\b",
+    r"\bто\s+есть\b",
+    r"\bкак\s+бы\b",
+    r"\bну\s+вот\b",
+    r"\bну\s+и\b",
+    r"\bважный\s+момент\b",
+    r"\bважная\s+мысль\b",
+    r"\bключевая\s+мысль\b",
+]
+
+RAW_TITLE_WORDS = {
+    "вам",
+    "вас",
+    "тебе",
+    "тебя",
+    "мне",
+    "меня",
+    "нам",
+    "нас",
+    "этого",
+    "этой",
+    "этот",
+    "эта",
+    "эти",
+    "вроде",
+    "готовы",
+    "получается",
+}
+
+TRAILING_WEAK_TITLE_WORDS = {
+    "и",
+    "а",
+    "но",
+    "или",
+    "если",
+    "когда",
+    "что",
+    "как",
+    "через",
+    "для",
+    "без",
+    "по",
+    "на",
+    "в",
+    "с",
+    "от",
+    "до",
+}
+
 TEXT_LIMITS = {
     "title_line": 45,
     "opener": 56,
@@ -429,6 +483,17 @@ def strip_filler_phrases(text: str) -> str:
     out = re.sub(r"\s+([,.;!?])", r"\1", out)
     out = re.sub(r"\s{2,}", " ", out).strip(" ,;")
     return out
+
+
+def strip_editorial_noise(text: str) -> str:
+    out = strip_filler_phrases(text)
+    if not out:
+        return ""
+    for pattern in EDITORIAL_NOISE_PATTERNS:
+        out = re.sub(pattern, "", out, flags=re.IGNORECASE)
+    out = re.sub(r"^\s*(?:и|а|но|вот|ну|значит|так)\s+", "", out, flags=re.IGNORECASE)
+    out = re.sub(r"\s+([,.;!?])", r"\1", out)
+    return re.sub(r"\s{2,}", " ", out).strip(" ,;")
 
 
 def split_sentences(text: str) -> list[str]:
@@ -568,7 +633,7 @@ def extract_keywords(text: str, limit: int) -> list[str]:
 
 
 def normalize_scene_text(text: str, max_chars: int, max_words: int | None = None) -> str:
-    cleaned = strip_filler_phrases(text)
+    cleaned = strip_editorial_noise(text)
     if max_words and max_words > 0:
         tokens = [t for t in cleaned.split(" ") if t]
         cleaned = " ".join(tokens[:max_words])
@@ -896,6 +961,9 @@ def build_llm_prompt_payload(
                 "expert_tone": "Используй терминологию только из исходного транскрипта и semantic_blocks. Не добавляй чужую предметную область.",
                 "no_verbatim_transcript": True,
                 "focus_on_essence": True,
+                "news_editorial_copy": "Пиши как редактор новостного YouTube: title = суть/конфликт/поворот; subtitle = почему важно/условие/последствие/что делать. Они не должны повторять одну и ту же фразу.",
+                "title_role": "title: 2-5 слов, новостной заголовок, конкретный поворот мысли. Нельзя брать сырую фразу из речи со словами 'вроде как', 'с одной стороны', 'получается', 'то есть', 'вам'.",
+                "subtitle_role": "subtitle: 5-10 слов, добавляет новый слой смысла: условие, риск, срок, документ, действие или последствие. Не пересказывает title другими словами.",
                 "no_generic_titles": "Запрещены общие заголовки вроде 'ГЛАВНЫЙ РИСК', 'ЧТО МЕНЯЕТСЯ', 'ФОКУС НА ГЛАВНОМ', если в них нет конкретного смысла из речи.",
                 "anchor_required": "Каждый beat обязан иметь 2-5 anchorWords — точные слова или короткие фразы из транскрипта, по которым понятно, почему этот beat существует.",
                 "visual_required": "Каждый beat обязан иметь visualIdea и visualElements. visualIdea — это конкретный кадр с субъектом, местом, объектами и конфликтом/действием, а не тема или список существительных.",
@@ -970,7 +1038,9 @@ def generate_scene_plan_llm(
         prompt_payload["previous_quality_gate_error"] = normalize_scene_text(repair_feedback, 1800, 260)
         prompt_payload["repair_instruction"] = (
             "Исправь только причину ошибки quality gate. Особенно важно: все title должны быть "
-            "уникальными, предметными, 2-5 слов, без общих формулировок и повторов."
+            "уникальными, предметными, 2-5 слов, без общих формулировок и повторов. "
+            "Title и subtitle должны выполнять разные редакторские роли: title дает конфликт/суть, "
+            "subtitle добавляет условие, риск, срок, документ, действие или последствие."
         )
 
     system_prompt = """
@@ -980,8 +1050,8 @@ def generate_scene_plan_llm(
 1. Каждый scene — один отдельный смысл: проблема, причина, поворот, действие, риск или вывод.
 2. Верни количество scenes, заданное в constraints.target_scene_count. Это число рассчитано из пользовательской настройки процента перебивок. Не склеивай весь ролик в слишком малое количество сцен.
 3. start/end должны попадать в реальный момент речи, где звучат anchorWords. Длительность сцены 2.0-5.5 секунд.
-4. title: 2-5 слов, конкретный, без воды. Запрещены общие фразы: "ГЛАВНЫЙ РИСК", "ЧТО МЕНЯЕТСЯ", "ФОКУС НА ГЛАВНОМ", "НОВАЯ РЕАЛЬНОСТЬ", если они не содержат предметный смысл.
-5. subtitle: 5-10 слов, объясняет мысль title человечески.
+4. title: 2-5 слов, как в новостях: суть, конфликт, поворот или сильное условие. Не копируй сырую речь и не начинай с вводных: "с одной стороны", "вроде как", "получается", "то есть", "вам". Запрещены общие фразы: "ГЛАВНЫЙ РИСК", "ЧТО МЕНЯЕТСЯ", "ФОКУС НА ГЛАВНОМ", "НОВАЯ РЕАЛЬНОСТЬ", если они не содержат предметный смысл.
+5. subtitle: 5-10 слов, добавляет новый смысл к title: почему важно, какой риск, какое условие, срок, документ, действие или последствие. Не повторяй title и не пересказывай его теми же словами.
 6. anchorWords: 2-5 точных слов/коротких фраз из транскрипта. Это якоря, которые доказывают, что сцена привязана к речи.
 7. Первая scene обязана иметь hookText и hookPromise. Это первые 1-3 секунды: боль, конфликт или сильное обещание, чтобы зритель не свайпнул.
 8. referenceEssence: коротко объясни, какую суть исходной речи/референса ты повторяешь своими словами. Не копируй формулировку, сохраняй смысл.
@@ -993,7 +1063,13 @@ def generate_scene_plan_llm(
 14. Если в payload есть script_context, считай его авторитетным сценарием видео. Используй его для тематики, текста карточек и visualIdea; Deepgram нужен для таймингов.
 15. Все title должны быть уникальными. Если тема повторяется, назови новый аспект: срок, документ, риск, действие, исключение или результат.
 16. Если payload содержит previous_quality_gate_error, исправь эту ошибку в новой версии плана.
-17. Ответ — только валидный JSON. Никакого Markdown.
+17. Хорошая пара title/subtitle:
+    title: "ВОЗВРАТ НЕ ДЛЯ ВСЕХ"
+    subtitle: "решают статус, документы и срок подачи"
+    Плохая пара:
+    title: "СТОРОНЫ ВАМ ГОТОВЫ"
+    subtitle: "с одной стороны, вам готовы вернуть часть налогов"
+18. Ответ — только валидный JSON. Никакого Markdown.
 
 ПРИМЕРЫ visualIdea:
 Плохо: "документы, подтверждающие гражданство"
@@ -1180,6 +1256,42 @@ def _is_weak_visual_idea(value: str) -> bool:
 
 def _scene_title_token_count(value: str) -> int:
     return len(re.findall(r"[A-Za-zА-Яа-яЁё0-9]{3,}", normalize_plain_text(value)))
+
+
+def _meaningful_editorial_words(value: str) -> list[str]:
+    words = re.findall(r"[A-Za-zА-Яа-яЁё0-9-]{4,}", normalize_plain_text(value).lower())
+    return [word for word in words if word not in STOPWORDS_RU]
+
+
+def _text_overlap_ratio(left: str, right: str) -> float:
+    left_words = _meaningful_editorial_words(left)
+    right_words = set(_meaningful_editorial_words(right))
+    if not left_words or not right_words:
+        return 0.0
+    return len([word for word in left_words if word in right_words]) / len(left_words)
+
+
+def _title_subtitle_overlap_ratio(title: str, subtitle: str) -> float:
+    return max(_text_overlap_ratio(title, subtitle), _text_overlap_ratio(subtitle, title))
+
+
+def _has_editorial_noise(value: str) -> bool:
+    text = normalize_plain_text(value).lower()
+    return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in EDITORIAL_NOISE_PATTERNS)
+
+
+def _is_title_subtitle_duplicate(title: str, subtitle: str) -> bool:
+    clean_title = normalize_plain_text(title).lower()
+    clean_subtitle = normalize_plain_text(subtitle).lower()
+    if not clean_title or not clean_subtitle:
+        return False
+    if clean_title == clean_subtitle:
+        return True
+    if len(clean_title) >= 10 and clean_title in clean_subtitle:
+        return True
+    if len(clean_subtitle) >= 10 and clean_subtitle in clean_title:
+        return True
+    return _title_subtitle_overlap_ratio(clean_title, clean_subtitle) >= 0.58
 
 
 def _scene_window_text(utterances: list[dict[str, Any]], start: float, end: float) -> str:
@@ -1449,6 +1561,234 @@ def _build_concrete_visual_idea(scene: dict[str, Any], window_text: str, source_
     return normalize_scene_text(idea, 220, 28)
 
 
+def _scene_editorial_source(scene: dict[str, Any], window_text: str) -> str:
+    anchors = scene.get("anchorWords") if isinstance(scene.get("anchorWords"), list) else []
+    return normalize_plain_text(
+        " ".join(
+            [
+                str(scene.get("sourceText") or ""),
+                window_text,
+                str(scene.get("referenceEssence") or ""),
+                str(scene.get("insight") or ""),
+                str(scene.get("subtitle") or ""),
+                " ".join(str(x) for x in anchors if str(x).strip()),
+            ]
+        )
+    )
+
+
+def _scene_editorial_concepts(scene: dict[str, Any], source: str, limit: int = 8) -> list[str]:
+    anchors = scene.get("anchorWords") if isinstance(scene.get("anchorWords"), list) else []
+    raw_items: list[str] = [str(x) for x in anchors if normalize_plain_text(str(x))]
+    raw_items.extend(extract_keywords(source, limit * 3))
+
+    concepts: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_items:
+        cleaned = strip_editorial_noise(raw)
+        if not cleaned:
+            continue
+        words = [
+            word
+            for word in re.findall(r"[A-Za-zА-Яа-яЁё0-9-]{3,}", cleaned.lower())
+            if word not in STOPWORDS_RU and word not in RAW_TITLE_WORDS
+        ]
+        if not words:
+            continue
+        candidate = normalize_scene_text(" ".join(words[:3]), 36, 3)
+        key = normalize_plain_text(candidate).lower()
+        if not key or key in seen or _is_generic_scene_text(candidate):
+            continue
+        seen.add(key)
+        concepts.append(candidate)
+        if len(concepts) >= limit:
+            break
+    return concepts
+
+
+def _title_looks_like_raw_transcript(title: str) -> bool:
+    clean = normalize_plain_text(title).lower()
+    if not clean:
+        return True
+    words = re.findall(r"[A-Za-zА-Яа-яЁё0-9-]+", clean)
+    if not words:
+        return True
+    if words[-1] in TRAILING_WEAK_TITLE_WORDS:
+        return True
+    if any(word in RAW_TITLE_WORDS for word in words):
+        return True
+    if _has_editorial_noise(title):
+        return True
+    return False
+
+
+def _copy_has_raw_transcript_words(value: str) -> bool:
+    words = re.findall(r"[A-Za-zА-Яа-яЁё0-9-]+", normalize_plain_text(value).lower())
+    return any(word in RAW_TITLE_WORDS for word in words)
+
+
+def _source_has_any(source: str, needles: tuple[str, ...]) -> bool:
+    lower = source.lower()
+    return any(needle in lower for needle in needles)
+
+
+def _editorial_title_candidates(scene: dict[str, Any], source: str, index: int) -> list[str]:
+    concepts = _scene_editorial_concepts(scene, source, limit=8)
+    primary = concepts[0].upper() if concepts else ""
+    secondary = concepts[1].upper() if len(concepts) > 1 else ""
+    block = normalize_plain_text(str(scene.get("blockName") or "")).upper()
+    lower = source.lower()
+
+    candidates: list[str] = []
+
+    if _source_has_any(lower, ("код", "кода")) and _source_has_any(lower, ("фур", "границ", "тамож")):
+        candidates.extend(["БЕЗ КОДА НЕ ПРОПУСТЯТ", "КОД РЕШАЕТ ПРОХОД"])
+    if _source_has_any(lower, ("заявлен", "заявк", "подат", "подач")):
+        candidates.extend(["ЗАЯВЛЕНИЕ НЕ ГАРАНТИЯ", "ПОДАЧА РЕШАЕТ СРОК"])
+    if _source_has_any(lower, ("налог", "деньг", "возврат", "сумм", "выплат")):
+        candidates.extend(["ВОЗВРАТ НЕ ДЛЯ ВСЕХ", "ДЕНЬГИ ВЕРНУТ ПО УСЛОВИЯМ"])
+    if _source_has_any(lower, ("документ", "паспорт", "справк", "подтвержд", "бумаг")):
+        candidates.extend(["ДОКУМЕНТ РЕШАЕТ ИСХОД", "БЕЗ БУМАГ НЕ ПРИМУТ"])
+    if _source_has_any(lower, ("срок", "дедлайн", "дат", "месяц", "июн", "июл")):
+        candidates.extend(["СРОК РЕШАЕТ ИСХОД", "ДЕДЛАЙН ЛОМАЕТ ПЛАН"])
+    if _source_has_any(lower, ("провер", "отказ", "риск", "ошиб", "запрет", "нельзя")):
+        candidates.extend(["РИСК ВСКРОЕТ ПРОВЕРКА", "ОШИБКА СТОИТ ДОРОГО"])
+
+    if "РИСК" in block:
+        candidates.extend(["РИСК НЕ ВИДЕН СРАЗУ", "ОШИБКА СТОИТ ДОРОГО"])
+    elif "ПРОБЛ" in block:
+        candidates.extend(["ГДЕ ЛОМАЕТСЯ СХЕМА", "ПРОБЛЕМА В УСЛОВИЯХ"])
+    elif "ПРИЧ" in block:
+        candidates.extend(["ПРИЧИНА В ДЕТАЛЯХ", "СИСТЕМА ЛОМАЕТСЯ ЗДЕСЬ"])
+    elif "ДЕЙСТ" in block or "РЕШЕН" in block:
+        candidates.extend(["ЧТО ДЕЛАТЬ СЕЙЧАС", "ШАГ НЕЛЬЗЯ ПРОПУСТИТЬ"])
+    elif "ВЫВ" in block or "ИТОГ" in block:
+        candidates.extend(["ИТОГ РЕШАЕТ ПОРЯДОК", "ГЛАВНОЕ В СЛЕДУЮЩЕМ ШАГЕ"])
+
+    if primary and secondary:
+        candidates.append(f"{primary}: В ЧЕМ РИСК")
+        candidates.append(f"{primary} РЕШАЕТ {secondary}")
+    if primary:
+        candidates.append(f"{primary}: ГЛАВНОЕ УСЛОВИЕ")
+        candidates.append(f"{primary} МЕНЯЕТ ИСХОД")
+
+    for sentence in split_sentences(source):
+        phrase = normalize_scene_text(phrase_from_sentence(sentence, 5), 40, 6)
+        if phrase:
+            candidates.append(phrase.upper())
+
+    candidates.append(f"НОВЫЙ АСПЕКТ {index + 1}")
+    return candidates
+
+
+def _editorial_subtitle_candidates(scene: dict[str, Any], source: str, title: str) -> list[str]:
+    lower = source.lower()
+    candidates: list[str] = []
+
+    for sentence in split_sentences(source):
+        cleaned = normalize_scene_text(sentence, 90, 12)
+        if len(cleaned.split()) < 5:
+            continue
+        if _is_generic_scene_text(cleaned) or _copy_has_raw_transcript_words(cleaned) or _is_title_subtitle_duplicate(title, cleaned):
+            continue
+        candidates.append(cleaned)
+
+    if _source_has_any(lower, ("код", "кода")) and _source_has_any(lower, ("фур", "границ", "тамож")):
+        candidates.append("без нужного кода фуру остановят на границе")
+    if _source_has_any(lower, ("заявлен", "заявк", "подат", "подач")):
+        candidates.append("важны основание, срок и точность подачи")
+    if _source_has_any(lower, ("налог", "деньг", "возврат", "сумм", "выплат")):
+        candidates.append("сумма зависит от основания и проверки")
+    if _source_has_any(lower, ("документ", "паспорт", "справк", "подтвержд", "бумаг")):
+        candidates.append("решают подтверждения, сроки и точность данных")
+    if _source_has_any(lower, ("срок", "дедлайн", "дат", "месяц", "июн", "июл")):
+        candidates.append("после дедлайна сценарий становится дороже")
+    if _source_has_any(lower, ("провер", "отказ", "риск", "ошиб", "запрет", "нельзя")):
+        candidates.append("ошибка проявится уже на проверке")
+
+    candidates.extend(
+        [
+            "важны условия, сроки и следующий шаг",
+            "здесь решает не обещание, а подтверждение",
+            "сначала проверьте основание и порядок действий",
+        ]
+    )
+    return candidates
+
+
+def _repair_scene_plan_editorial_copy(scenes: list[dict[str, Any]], utterances: list[dict[str, Any]]) -> None:
+    seen_titles: set[str] = set()
+    repaired: list[str] = []
+
+    for index, scene in enumerate(scenes):
+        try:
+            start = float(scene.get("start", 0.0))
+            end = float(scene.get("end", start))
+        except (TypeError, ValueError):
+            start = 0.0
+            end = 0.0
+
+        window_text = _scene_window_text(utterances, start, end)
+        source = _scene_editorial_source(scene, window_text)
+        title = normalize_scene_text(str(scene.get("title") or ""), 40, 6).upper()
+        subtitle = normalize_scene_text(str(scene.get("subtitle") or ""), 90, 12)
+        scene["title"] = title
+        scene["subtitle"] = subtitle
+        title_key = normalize_plain_text(title).lower()
+
+        needs_title = (
+            _is_generic_scene_text(title)
+            or _scene_title_token_count(title) < 2
+            or title_key in seen_titles
+            or _title_looks_like_raw_transcript(title)
+        )
+        if needs_title:
+            for candidate in _editorial_title_candidates(scene, source, index):
+                candidate = normalize_scene_text(candidate, 40, 6).upper()
+                candidate_key = normalize_plain_text(candidate).lower()
+                if not candidate_key or candidate_key in seen_titles:
+                    continue
+                if _is_generic_scene_text(candidate) or _scene_title_token_count(candidate) < 2:
+                    continue
+                if _title_looks_like_raw_transcript(candidate):
+                    continue
+                title = candidate
+                title_key = candidate_key
+                scene["title"] = title
+                scene["titleLines"] = [title]
+                scene["opener"] = title
+                scene["keyword"] = normalize_scene_text(title, TEXT_LIMITS["keyword"], WORD_LIMITS["keyword"])
+                repaired.append(f"{index}:title")
+                break
+
+        seen_titles.add(title_key)
+
+        needs_subtitle = (
+            _is_generic_scene_text(subtitle)
+            or len(subtitle.split()) < 4
+            or _has_editorial_noise(subtitle)
+            or _copy_has_raw_transcript_words(subtitle)
+            or _is_title_subtitle_duplicate(title, subtitle)
+        )
+        if needs_subtitle:
+            for candidate in _editorial_subtitle_candidates(scene, source, title):
+                candidate = normalize_scene_text(candidate, 90, 12)
+                if len(candidate.split()) < 4:
+                    continue
+                if _is_generic_scene_text(candidate) or _has_editorial_noise(candidate):
+                    continue
+                if _is_title_subtitle_duplicate(title, candidate):
+                    continue
+                scene["subtitle"] = candidate
+                if not scene.get("insight") or _is_generic_scene_text(str(scene.get("insight"))):
+                    scene["insight"] = candidate
+                repaired.append(f"{index}:subtitle")
+                break
+
+    if repaired:
+        eprint("Repaired editorial title/subtitle copy before quality gate: " + "; ".join(repaired[:16]))
+
+
 def _repair_scene_plan_metadata(scenes: list[dict[str, Any]], utterances: list[dict[str, Any]]) -> None:
     for index, scene in enumerate(scenes):
         try:
@@ -1472,6 +1812,7 @@ def _repair_scene_plan_metadata(scenes: list[dict[str, Any]], utterances: list[d
         scene["anchorWords"] = clean_anchors[:5]
 
         subtitle = normalize_scene_text(str(scene.get("subtitle") or ""), 90, 12)
+        scene["subtitle"] = subtitle
         if _is_generic_scene_text(subtitle) or len(subtitle.split()) < 4:
             sentences = split_sentences(source_text or window_text)
             replacement = ""
@@ -1638,11 +1979,17 @@ def validate_scene_plan_quality(
 
         if _is_generic_scene_text(title) or _scene_title_token_count(title) < 2:
             errors.append(f"{label} has weak title: {title!r}")
+        if _has_editorial_noise(title) or _title_looks_like_raw_transcript(title):
+            errors.append(f"{label} has raw-transcript title: {title!r}")
         if title.lower() in seen_titles:
             errors.append(f"{label} repeats title: {title!r}")
         seen_titles.add(title.lower())
         if _is_generic_scene_text(subtitle) or len(subtitle.split()) < 4:
             errors.append(f"{label} has weak subtitle: {subtitle!r}")
+        if _has_editorial_noise(subtitle) or _copy_has_raw_transcript_words(subtitle):
+            errors.append(f"{label} has raw-transcript subtitle: {subtitle!r}")
+        if _is_title_subtitle_duplicate(title, subtitle):
+            errors.append(f"{label} title/subtitle duplicate each other: {title!r} / {subtitle!r}")
         if len([x for x in anchor_words if normalize_plain_text(str(x))]) < 2:
             errors.append(f"{label} needs at least 2 anchorWords")
         if require_visuals:
@@ -2029,6 +2376,7 @@ def normalize_scene_plan(
     _ensure_min_scene_count(fixed, utterances_for_norm, duration, target_scene_count)
     _repair_scene_plan_metadata(fixed, utterances_for_norm)
     _repair_scene_plan_titles(fixed, utterances_for_norm)
+    _repair_scene_plan_editorial_copy(fixed, utterances_for_norm)
     validate_scene_plan_quality(fixed, duration, require_visuals=require_visuals)
 
     # Build chapter metadata so viewer always sees topic context.
