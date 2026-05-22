@@ -1150,7 +1150,7 @@ def generate_scene_plan_llm(
             {"role": "user", "content": user_prompt},
         ],
     }
-    gemini_provider = os.environ.get("OPENROUTER_GEMINI_PROVIDER", "google-vertex/global").strip()
+    gemini_provider = os.environ.get("OPENROUTER_GEMINI_PROVIDER", "google-vertex").strip()
     if openrouter_key and "gemini" in llm_model.lower() and gemini_provider:
         req_payload["provider"] = {
             "order": [gemini_provider],

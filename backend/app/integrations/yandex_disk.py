@@ -11,10 +11,10 @@ class YandexDiskClient:
 
     def __init__(self, token: str):
         self.token = (token or "").strip()
-        self.timeout_seconds = float(os.getenv("YANDEX_DISK_TIMEOUT_SECONDS", "120"))
-        self.upload_timeout_seconds = float(os.getenv("YANDEX_DISK_UPLOAD_TIMEOUT_SECONDS", "600"))
+        self.timeout_seconds = float(os.getenv("YANDEX_DISK_TIMEOUT_SECONDS", "30"))
+        self.upload_timeout_seconds = float(os.getenv("YANDEX_DISK_UPLOAD_TIMEOUT_SECONDS", "3600"))
         self.upload_total_deadline_seconds = float(
-            os.getenv("YANDEX_DISK_UPLOAD_TOTAL_DEADLINE_SECONDS", "1500")
+            os.getenv("YANDEX_DISK_UPLOAD_TOTAL_DEADLINE_SECONDS", "0")
         )
         self.upload_min_bytes_per_second = max(
             1.0,
@@ -24,7 +24,7 @@ class YandexDiskClient:
             64 * 1024,
             int(os.getenv("YANDEX_DISK_UPLOAD_CHUNK_SIZE_BYTES", str(1024 * 1024))),
         )
-        self.upload_retries = max(0, int(os.getenv("YANDEX_DISK_UPLOAD_RETRIES", "2")))
+        self.upload_retries = max(0, int(os.getenv("YANDEX_DISK_UPLOAD_RETRIES", "0")))
         self.upload_retry_backoff_seconds = max(
             0.0,
             float(os.getenv("YANDEX_DISK_UPLOAD_RETRY_BACKOFF_SECONDS", "2")),

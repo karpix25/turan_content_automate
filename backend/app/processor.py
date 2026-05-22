@@ -20,8 +20,8 @@ class VideoProcessor:
     def _encode_kwargs(self, *, include_audio: bool = True) -> Dict[str, object]:
         kwargs: Dict[str, object] = {
             "vcodec": "libx264",
-            "preset": os.getenv("FFMPEG_X264_PRESET", "slow"),
-            "crf": os.getenv("FFMPEG_X264_CRF", "18"),
+            "preset": os.getenv("FFMPEG_X264_PRESET", "veryfast"),
+            "crf": os.getenv("FFMPEG_X264_CRF", "21"),
             "pix_fmt": "yuv420p",
             "movflags": "+faststart",
             "map_metadata": "-1",
