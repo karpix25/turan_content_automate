@@ -25,12 +25,32 @@ AVATAR_TASK_TYPES = {
 }
 pmp_client = PostMyPostClient(api_key=os.getenv("POSTMYPOST_API_KEY", ""))
 
+PMP_PENDING_PUBLICATION_STATUS = 5
+DEFAULT_PMP_PUBLISHED_STATUS_CODES = "6"
+DEFAULT_PMP_FAILED_STATUS_CODES = ""
+PMP_STATUS_SYNC_DEFAULT_LIMIT = 50
+PMP_STATUS_SYNC_DEFAULT_LOOKAHEAD_MINUTES = 30
+
 
 def _env_int(name: str, default: int, minimum: int = 1) -> int:
     try:
         return max(minimum, int(os.getenv(name, str(default))))
     except (TypeError, ValueError):
         return default
+
+
+def _env_int_set(name: str, default: str = "") -> set[int]:
+    raw = os.getenv(name, default)
+    result: set[int] = set()
+    for part in raw.split(","):
+        value = part.strip()
+        if not value:
+            continue
+        try:
+            result.add(int(value))
+        except ValueError:
+            logger.warning("Skipping invalid integer in %s: %s", name, value)
+    return result
 
 
 def _parse_env_account_ids(raw: str) -> List[int]:
@@ -161,6 +181,155 @@ def _cleanup_local_output(task: models.VideoTask) -> None:
         logger.warning("Failed to remove local output file %s: %s", path, e)
         return
     task.output_path = None
+
+
+def _extract_status_summary(payload) -> dict:
+    summary = {
+        "publication_status": None,
+        "status": None,
+        "state": None,
+        "detail_statuses": [],
+    }
+    detail_statuses = []
+
+    def remember_detail(value) -> None:
+        if value is None:
+            return
+        if value not in detail_statuses:
+            detail_statuses.append(value)
+
+    if not isinstance(payload, dict):
+        return summary
+
+    summary["publication_status"] = payload.get("publication_status") or payload.get("publicationStatus")
+    summary["status"] = payload.get("status")
+    summary["state"] = payload.get("state")
+
+    def collect_nested_statuses(node) -> None:
+        if isinstance(node, list):
+            for item in node:
+                collect_nested_statuses(item)
+            return
+        if not isinstance(node, dict):
+            return
+        for key, value in node.items():
+            key_text = str(key).lower()
+            if key_text in {"publication_status", "publicationstatus", "status", "state"}:
+                remember_detail(value)
+            elif isinstance(value, (dict, list)):
+                collect_nested_statuses(value)
+
+    details = payload.get("details")
+    if isinstance(details, list):
+        for item in details:
+            if not isinstance(item, dict):
+                continue
+            remember_detail(item.get("publication_status") or item.get("publicationStatus"))
+            remember_detail(item.get("status"))
+            remember_detail(item.get("state"))
+
+    collect_nested_statuses(details)
+
+    publications = payload.get("publications")
+    if isinstance(publications, list):
+        for item in publications:
+            if not isinstance(item, dict):
+                continue
+            remember_detail(item.get("publication_status") or item.get("publicationStatus"))
+            remember_detail(item.get("status"))
+            remember_detail(item.get("state"))
+
+    collect_nested_statuses(publications)
+
+    summary["detail_statuses"] = detail_statuses
+    return summary
+
+
+def _status_values_for_classification(status_summary: dict) -> list:
+    values = [
+        status_summary.get("publication_status"),
+        status_summary.get("status"),
+        status_summary.get("state"),
+    ]
+    values.extend(status_summary.get("detail_statuses") or [])
+    return [value for value in values if value is not None]
+
+
+def _classify_postmypost_status(status_summary: dict) -> str | None:
+    values = _status_values_for_classification(status_summary)
+    published_codes = _env_int_set("POSTMYPOST_PUBLISHED_STATUS_CODES", DEFAULT_PMP_PUBLISHED_STATUS_CODES)
+    failed_codes = _env_int_set("POSTMYPOST_FAILED_STATUS_CODES", DEFAULT_PMP_FAILED_STATUS_CODES)
+    published_words = {
+        "published",
+        "publish",
+        "posted",
+        "post_done",
+        "done",
+        "completed",
+        "complete",
+        "success",
+        "successful",
+    }
+    failed_words = {
+        "failed",
+        "fail",
+        "error",
+        "errored",
+        "rejected",
+        "canceled",
+        "cancelled",
+        "declined",
+    }
+
+    has_pending = False
+    has_published = False
+    for value in values:
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int) or (isinstance(value, str) and value.strip().isdigit()):
+            numeric_value = int(value)
+            if numeric_value in failed_codes:
+                return "failed"
+            if numeric_value in published_codes:
+                has_published = True
+            elif numeric_value == PMP_PENDING_PUBLICATION_STATUS:
+                has_pending = True
+            continue
+
+        normalized = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+        if normalized in failed_words:
+            return "failed"
+        if normalized in published_words:
+            has_published = True
+            continue
+        if "fail" in normalized or "error" in normalized or "reject" in normalized:
+            return "failed"
+        if "publish" in normalized and not any(token in normalized for token in ("pending", "wait", "progress", "schedule")):
+            has_published = True
+            continue
+        if any(token in normalized for token in ("pending", "wait", "progress", "schedule")):
+            has_pending = True
+
+    if has_published and not has_pending:
+        return "published"
+    if has_pending:
+        return None
+    return None
+
+
+def _update_postmypost_sync_meta(task: models.VideoTask, status_summary: dict, sync_status: str | None, error: str | None = None) -> None:
+    meta = dict(task.script_meta or {})
+    sync_meta = {
+        "checked_at": datetime.datetime.utcnow().isoformat(),
+        "publication_id": task.postmypost_id,
+        "status_summary": status_summary,
+    }
+    if sync_status:
+        sync_meta["mapped_status"] = sync_status
+    if error:
+        sync_meta["error"] = error[:500]
+    meta["postmypost_status_sync"] = sync_meta
+    task.script_meta = meta
 
 
 @celery_app.task(name="rescue_stale_content_tasks")
@@ -421,6 +590,87 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
 @celery_app.task(name="publish_video_task")
 def publish_video_task(task_id: int):
     sync_publication_task(task_id=task_id, force_now=True)
+
+
+@celery_app.task(name="sync_postmypost_publication_statuses")
+def sync_postmypost_publication_statuses(limit: int | None = None):
+    batch_limit = limit or _env_int("POSTMYPOST_STATUS_SYNC_LIMIT", PMP_STATUS_SYNC_DEFAULT_LIMIT)
+    lookahead_minutes = _env_int(
+        "POSTMYPOST_STATUS_SYNC_LOOKAHEAD_MINUTES",
+        PMP_STATUS_SYNC_DEFAULT_LOOKAHEAD_MINUTES,
+        minimum=0,
+    )
+    now = datetime.datetime.utcnow()
+    publish_cutoff = now + datetime.timedelta(minutes=lookahead_minutes)
+
+    db = SessionLocal()
+    updated = 0
+    checked = 0
+    try:
+        tasks = (
+            db.query(models.VideoTask)
+            .filter(
+                models.VideoTask.postmypost_id.isnot(None),
+                models.VideoTask.publishing_status.in_(["scheduled", "in_progress"]),
+                models.VideoTask.publish_at.isnot(None),
+                models.VideoTask.publish_at <= publish_cutoff,
+            )
+            .order_by(models.VideoTask.publish_at.asc(), models.VideoTask.updated_at.asc())
+            .limit(batch_limit)
+            .all()
+        )
+
+        for task in tasks:
+            checked += 1
+            try:
+                publication_payload = pmp_client.get_publication(int(task.postmypost_id))
+                status_summary = _extract_status_summary(publication_payload)
+                mapped_status = _classify_postmypost_status(status_summary)
+                preview_url = pmp_client.extract_preview_url(publication_payload)
+                if preview_url:
+                    task.preview_url = preview_url
+
+                _update_postmypost_sync_meta(task, status_summary, mapped_status)
+
+                if mapped_status == "published" and task.publishing_status != "published":
+                    task.publishing_status = "published"
+                    updated += 1
+                    update_task_status_message(
+                        db,
+                        task,
+                        stage="Опубликовано",
+                        detail="PostMyPost подтвердил публикацию ролика.",
+                        ok=True,
+                    )
+                elif mapped_status == "failed" and task.publishing_status != "failed":
+                    task.publishing_status = "failed"
+                    updated += 1
+                    update_task_status_message(
+                        db,
+                        task,
+                        stage="Ошибка публикации",
+                        detail="PostMyPost вернул ошибочный статус публикации.",
+                        failed=True,
+                    )
+                elif task.publishing_status == "scheduled" and task.publish_at and task.publish_at <= now:
+                    task.publishing_status = "in_progress"
+                    updated += 1
+
+                db.commit()
+            except Exception as e:
+                logger.warning("Failed to sync PostMyPost status for task %s: %s", task.id, e)
+                try:
+                    db.rollback()
+                    _update_postmypost_sync_meta(task, {}, None, error=str(e))
+                    db.commit()
+                except Exception:
+                    db.rollback()
+
+        if checked:
+            logger.info("PostMyPost status sync checked=%s updated=%s", checked, updated)
+        return {"checked": checked, "updated": updated}
+    finally:
+        db.close()
 
 
 @celery_app.task(name="unschedule_publication_task")

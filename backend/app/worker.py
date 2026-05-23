@@ -121,6 +121,10 @@ celery_app.conf.update(
             "task": "rescue_stale_content_tasks",
             "schedule": float(os.getenv("TASK_RESCUE_INTERVAL_SECONDS", "300")),
         },
+        "sync-postmypost-publication-statuses": {
+            "task": "sync_postmypost_publication_statuses",
+            "schedule": float(os.getenv("POSTMYPOST_STATUS_SYNC_INTERVAL_SECONDS", "300")),
+        },
     },
 )
 
