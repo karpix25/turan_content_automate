@@ -113,6 +113,18 @@ def update_settings(telegram_id: str, settings: schemas.UserSettingsUpdate, db: 
             raise HTTPException(status_code=400, detail="avatar_script_duration_minutes must be between 1 and 30")
         update_data["avatar_script_duration_minutes"] = duration_value
 
+    if "heygen_avatar_engine" in update_data:
+        engine = (update_data.get("heygen_avatar_engine") or "avatar_iv").strip().lower()
+        if engine not in {"avatar_iv", "avatar_v"}:
+            raise HTTPException(status_code=400, detail="heygen_avatar_engine must be avatar_iv or avatar_v")
+        update_data["heygen_avatar_engine"] = engine
+
+    if "heygen_video_api_version" in update_data:
+        api_version = (update_data.get("heygen_video_api_version") or "v2").strip().lower()
+        if api_version not in {"v2", "v3"}:
+            raise HTTPException(status_code=400, detail="heygen_video_api_version must be v2 or v3")
+        update_data["heygen_video_api_version"] = api_version
+
     for key, value in update_data.items():
         setattr(user, key, value)
     db.commit()
@@ -127,6 +139,8 @@ async def get_style_settings(telegram_id: str, db: Session = Depends(get_db)):
         "training_source": user.training_source,
         "heygen_avatar_id": user.heygen_avatar_id,
         "heygen_vertical_avatar_id": user.heygen_vertical_avatar_id,
+        "heygen_video_api_version": getattr(user, "heygen_video_api_version", None) or "v2",
+        "heygen_avatar_engine": getattr(user, "heygen_avatar_engine", None) or "avatar_iv",
         "elevenlabs_voice_id": user.elevenlabs_voice_id,
         "elevenlabs_voice_speeds": user.elevenlabs_voice_speeds or {},
         "thumbnail_face_path": user.thumbnail_face_path,

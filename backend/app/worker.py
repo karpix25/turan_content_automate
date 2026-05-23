@@ -3457,11 +3457,21 @@ def process_content_task(self, task_id: int):
                 or user.heygen_avatar_id
                 or os.getenv("HEYGEN_AVATAR_ID", "788070966a344933a30c6a8581005a30")
             ).strip()
+            avatar_engine = (getattr(user, "heygen_avatar_engine", None) or "avatar_iv").strip().lower()
+            if avatar_engine not in {"avatar_iv", "avatar_v"}:
+                avatar_engine = "avatar_iv"
+            heygen_api_version = (getattr(user, "heygen_video_api_version", None) or "v2").strip().lower()
+            if heygen_api_version not in {"v2", "v3"}:
+                heygen_api_version = "v2"
             update_task_status_message(
                 db,
                 task,
                 stage="HeyGen",
-                detail=f"Отправляю аудио в HeyGen (Avatar: {avatar_id}).",
+                detail=(
+                    f"Отправляю аудио в HeyGen {heygen_api_version}"
+                    f"{f' ({avatar_engine})' if heygen_api_version == 'v3' else ''}"
+                    f", Avatar: {avatar_id}."
+                ),
             )
             
             # 1. Upload audio to HeyGen assets
@@ -3476,10 +3486,22 @@ def process_content_task(self, task_id: int):
                     avatar_id,
                     audio_asset_id,
                     orientation="vertical" if task.type in SHORT_AVATAR_TASK_TYPES else "horizontal",
+                    api_version=heygen_api_version,
+                    engine=avatar_engine,
+                    title=task.source_title or f"Turan Avatar {task_id}",
                 )
             )
             if not heygen_video_id:
                 raise Exception("Failed to submit video generation to HeyGen")
+            current_meta = dict(task.script_meta or {})
+            current_meta["heygen_generation"] = {
+                "api_version": heygen_api_version,
+                "engine": avatar_engine if heygen_api_version == "v3" else None,
+                "avatar_id": avatar_id,
+                "video_id": heygen_video_id,
+            }
+            task.script_meta = current_meta
+            db.commit()
                 
             # 3. Poll for completion
             update_task_status_message(db, task, stage="HeyGen", detail="Ожидаю рендеринг аватара (это может занять 10-20 мин)...")

@@ -57,6 +57,8 @@ def init_database() -> None:
         add_column_if_missing("users", "training_source", "TEXT")
         add_column_if_missing("users", "heygen_avatar_id", "VARCHAR(128)")
         add_column_if_missing("users", "heygen_vertical_avatar_id", "VARCHAR(128)")
+        add_column_if_missing("users", "heygen_video_api_version", "VARCHAR(16) DEFAULT 'v2'")
+        add_column_if_missing("users", "heygen_avatar_engine", "VARCHAR(32) DEFAULT 'avatar_iv'")
         add_column_if_missing("users", "elevenlabs_voice_id", "VARCHAR(128)")
         add_column_if_missing("users", "elevenlabs_voice_speeds", "JSONB")
         add_column_if_missing("users", "thumbnail_face_path", "TEXT")
@@ -117,6 +119,20 @@ def init_database() -> None:
         )
         conn.execute(
             text("UPDATE users SET elevenlabs_voice_speeds = '{}'::jsonb WHERE elevenlabs_voice_speeds IS NULL")
+        )
+        conn.execute(
+            text(
+                "UPDATE users SET heygen_avatar_engine = 'avatar_iv' "
+                "WHERE heygen_avatar_engine IS NULL "
+                "OR heygen_avatar_engine NOT IN ('avatar_iv', 'avatar_v')"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE users SET heygen_video_api_version = 'v2' "
+                "WHERE heygen_video_api_version IS NULL "
+                "OR heygen_video_api_version NOT IN ('v2', 'v3')"
+            )
         )
         conn.execute(
             text("UPDATE users SET avatar_script_duration_minutes = 5 WHERE avatar_script_duration_minutes IS NULL")

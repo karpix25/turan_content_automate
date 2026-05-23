@@ -15,6 +15,8 @@ export const apiClient = {
       training_source: string | null;
       heygen_avatar_id: string | null;
       heygen_vertical_avatar_id: string | null;
+      heygen_video_api_version: 'v2' | 'v3';
+      heygen_avatar_engine: 'avatar_iv' | 'avatar_v';
       elevenlabs_voice_id: string | null;
       elevenlabs_voice_speeds: Record<string, {
         chars_per_second?: number;

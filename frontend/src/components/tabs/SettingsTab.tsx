@@ -17,6 +17,17 @@ type ElevenLabsVoice = {
   speed?: VoiceSpeed | null;
 };
 
+type HeyGenEngine = 'avatar_iv' | 'avatar_v';
+type HeyGenApiVersion = 'v2' | 'v3';
+type HeyGenGenerationModel = 'avatar_iii' | 'avatar_iv' | 'avatar_v';
+
+type HeyGenAvatar = {
+  id: string;
+  name: string;
+  preview: string;
+  supportedEngines: string[];
+};
+
 export const SettingsTab: React.FC = () => {
   const { telegramId } = useTelegram();
   const [styleProfile, setStyleProfile] = useState('');
@@ -27,10 +38,12 @@ export const SettingsTab: React.FC = () => {
   
   const [clonedVoices, setClonedVoices] = useState<ElevenLabsVoice[]>([]);
   const [loadingVoices, setLoadingVoices] = useState(false);
-  const [heygenAvatars, setHeygenAvatars] = useState<{id: string, name: string, preview: string}[]>([]);
+  const [heygenAvatars, setHeygenAvatars] = useState<HeyGenAvatar[]>([]);
   const [loadingAvatars, setLoadingAvatars] = useState(false);
   const [selectedAvatar, setSelectedAvatar] = useState<string>('');
   const [selectedVerticalAvatar, setSelectedVerticalAvatar] = useState<string>('');
+  const [selectedHeyGenApiVersion, setSelectedHeyGenApiVersion] = useState<HeyGenApiVersion>('v2');
+  const [selectedHeyGenEngine, setSelectedHeyGenEngine] = useState<HeyGenEngine>('avatar_iv');
   const [selectedVoice, setSelectedVoice] = useState<string>('');
   const [savingSettings, setSavingSettings] = useState(false);
   const [savedSettings, setSavedSettings] = useState(false);
@@ -66,6 +79,8 @@ export const SettingsTab: React.FC = () => {
         setTrainingSource(data.training_source || '');
         if (data.heygen_avatar_id) setSelectedAvatar(data.heygen_avatar_id);
         if (data.heygen_vertical_avatar_id) setSelectedVerticalAvatar(data.heygen_vertical_avatar_id);
+        setSelectedHeyGenApiVersion(data.heygen_video_api_version === 'v3' ? 'v3' : 'v2');
+        setSelectedHeyGenEngine(data.heygen_avatar_engine === 'avatar_v' ? 'avatar_v' : 'avatar_iv');
         if (data.elevenlabs_voice_id) setSelectedVoice(data.elevenlabs_voice_id);
         setThumbnailFacePath(data.thumbnail_face_path || data.vertical_thumbnail_face_path || '');
         setVerticalThumbnailFacePath(data.vertical_thumbnail_face_path || data.thumbnail_face_path || '');
@@ -148,7 +163,8 @@ export const SettingsTab: React.FC = () => {
           const fetchedAvatars = avatarsList.map((a: any) => ({
             id: a.avatar_id || a.id,
             name: a.avatar_name || a.name,
-            preview: a.preview_image_url || a.preview_video_url || ''
+            preview: a.preview_image_url || a.preview_video_url || '',
+            supportedEngines: Array.isArray(a.supported_api_engines) ? a.supported_api_engines : []
           }));
           setHeygenAvatars(fetchedAvatars);
         if (fetchedAvatars.length > 0) {
@@ -196,6 +212,8 @@ export const SettingsTab: React.FC = () => {
         author_style_profile: styleProfile,
         heygen_avatar_id: selectedAvatar,
         heygen_vertical_avatar_id: selectedVerticalAvatar || selectedAvatar,
+        heygen_video_api_version: selectedHeyGenApiVersion,
+        heygen_avatar_engine: selectedHeyGenEngine,
         elevenlabs_voice_id: selectedVoice,
         avatar_insert_start_percent: avatarInsertStartPercent,
         avatar_insert_end_percent: avatarInsertEndPercent,
@@ -371,6 +389,23 @@ export const SettingsTab: React.FC = () => {
       return `${fallback}: ${err.message}`;
     }
     return fallback;
+  };
+
+  const selectedHeyGenGenerationModel: HeyGenGenerationModel =
+    selectedHeyGenApiVersion === 'v2'
+      ? 'avatar_iii'
+      : selectedHeyGenEngine === 'avatar_v'
+        ? 'avatar_v'
+        : 'avatar_iv';
+
+  const setHeyGenGenerationModel = (model: HeyGenGenerationModel) => {
+    if (model === 'avatar_iii') {
+      setSelectedHeyGenApiVersion('v2');
+      setSelectedHeyGenEngine('avatar_iv');
+      return;
+    }
+    setSelectedHeyGenApiVersion('v3');
+    setSelectedHeyGenEngine(model === 'avatar_v' ? 'avatar_v' : 'avatar_iv');
   };
 
   const handleUploadAvatarInsertClip = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -732,6 +767,27 @@ export const SettingsTab: React.FC = () => {
         </summary>
         
         <div className="mt-3">
+        <div className="mb-3 grid grid-cols-3 gap-2 rounded-xl bg-slate-100 p-1">
+          {[
+            { id: 'avatar_iii' as HeyGenGenerationModel, label: 'Avatar III', hint: '$1/min 1080p' },
+            { id: 'avatar_iv' as HeyGenGenerationModel, label: 'Avatar IV', hint: 'TURAN ~$4/min' },
+            { id: 'avatar_v' as HeyGenGenerationModel, label: 'Avatar V', hint: 'TURAN ~$4/min' },
+          ].map(model => (
+            <button
+              key={model.id}
+              type="button"
+              onClick={() => setHeyGenGenerationModel(model.id)}
+              className={`h-12 rounded-lg text-left px-3 transition-all ${
+                selectedHeyGenGenerationModel === model.id
+                  ? 'bg-white shadow-sm text-slate-900'
+                  : 'text-slate-500'
+              }`}
+            >
+              <span className="block text-xs font-bold">{model.label}</span>
+              <span className="block text-[10px] leading-tight">{model.hint}</span>
+            </button>
+          ))}
+        </div>
         {loadingAvatars ? (
           <div className="flex items-center justify-center py-6 text-slate-400">
             <Loader2 className="animate-spin w-5 h-5 mr-2" />
@@ -757,7 +813,9 @@ export const SettingsTab: React.FC = () => {
                 )}
                 <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2">
                   <p className="text-white text-[11px] font-bold leading-tight truncate">{avatar.name}</p>
-                  <p className="text-white/60 text-[8px] leading-tight truncate mt-0.5">{avatar.id}</p>
+                  <p className="text-white/60 text-[8px] leading-tight truncate mt-0.5">
+                    {avatar.supportedEngines.length ? avatar.supportedEngines.join(', ') : avatar.id}
+                  </p>
                 </div>
                 <div className="absolute top-2 right-2 flex flex-col gap-1">
                   <button

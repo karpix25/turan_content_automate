@@ -28,6 +28,8 @@ class User(Base):
     training_source = Column(String, nullable=True)       # YouTube channel link/handle
     heygen_avatar_id = Column(String, nullable=True)
     heygen_vertical_avatar_id = Column(String, nullable=True)
+    heygen_video_api_version = Column(String, default="v2", nullable=False)
+    heygen_avatar_engine = Column(String, default="avatar_iv", nullable=False)
     elevenlabs_voice_id = Column(String, nullable=True)
     elevenlabs_voice_speeds = Column(JSON, nullable=True)
     thumbnail_face_path = Column(String, nullable=True)

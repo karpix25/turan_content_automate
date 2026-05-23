@@ -50,33 +50,53 @@ class HeyGenClient:
         avatar_id: str,
         audio_asset_id: str,
         orientation: str = "horizontal",
+        api_version: str = "v2",
+        engine: str = "avatar_iv",
+        title: str | None = None,
     ) -> Optional[str]:
         """
-        Submits a video generation task to HeyGen v2.
+        Submits a video generation task to HeyGen.
         Returns video_id.
         """
-        url = f"{self.base_url}/v2/video/generate"
-        
         is_vertical = (orientation or "").strip().lower() in {"vertical", "portrait", "9:16"}
-        payload = {
-            "video_inputs": [
-                {
-                    "character": {
-                        "type": "avatar",
-                        "avatar_id": avatar_id,
-                        "avatar_style": "normal"
-                    },
-                    "voice": {
-                        "type": "audio",
-                        "audio_asset_id": audio_asset_id
-                    }
-                }
-            ],
-            "dimension": {
-                "width": 1080 if is_vertical else 1920,
-                "height": 1920 if is_vertical else 1080
+        api_version_value = (api_version or "v2").strip().lower()
+        if api_version_value == "v3":
+            url = f"{self.base_url}/v3/videos"
+            engine_type = (engine or "avatar_iv").strip().lower()
+            if engine_type not in {"avatar_iv", "avatar_v"}:
+                engine_type = "avatar_iv"
+            payload = {
+                "type": "avatar",
+                "avatar_id": avatar_id,
+                "audio_asset_id": audio_asset_id,
+                "aspect_ratio": "9:16" if is_vertical else "16:9",
+                "resolution": "1080p",
+                "output_format": "mp4",
+                "engine": {"type": engine_type},
             }
-        }
+            if title:
+                payload["title"] = title[:120]
+        else:
+            url = f"{self.base_url}/v2/video/generate"
+            payload = {
+                "video_inputs": [
+                    {
+                        "character": {
+                            "type": "avatar",
+                            "avatar_id": avatar_id,
+                            "avatar_style": "normal",
+                        },
+                        "voice": {
+                            "type": "audio",
+                            "audio_asset_id": audio_asset_id,
+                        },
+                    }
+                ],
+                "dimension": {
+                    "width": 1080 if is_vertical else 1920,
+                    "height": 1920 if is_vertical else 1080,
+                },
+            }
         
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -96,27 +116,38 @@ class HeyGenClient:
         """
         Polls for video completion. Returns download URL.
         """
-        url = f"{self.base_url}/v1/video_status.get"
-        params = {"video_id": video_id}
+        v3_url = f"{self.base_url}/v3/videos/{video_id}"
+        legacy_url = f"{self.base_url}/v1/video_status.get"
+        legacy_params = {"video_id": video_id}
         
         start_time = time.time()
         
         while time.time() - start_time < timeout:
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.get(url, headers=self.headers, params=params)
+                    response = await client.get(v3_url, headers=self.headers)
+                    if response.status_code in {404, 405}:
+                        response = await client.get(legacy_url, headers=self.headers, params=legacy_params)
+                    elif response.status_code != 200 and response.status_code < 500:
+                        legacy_response = await client.get(legacy_url, headers=self.headers, params=legacy_params)
+                        if legacy_response.status_code == 200:
+                            response = legacy_response
                     
                     if response.status_code != 200:
                         logger.error(f"HeyGen status check failed: {response.status_code} {response.text}")
                         return None
-                    
+
                     data = response.json()
-                    status = data.get("data", {}).get("status")
+                    payload = data.get("data", {}) if isinstance(data, dict) else {}
+                    status = payload.get("status")
                     
                     if status == "completed":
-                        return data.get("data", {}).get("video_url")
+                        return payload.get("video_url") or payload.get("url")
                     elif status == "failed":
-                        logger.error(f"HeyGen video generation failed: {data.get('data', {}).get('error')}")
+                        logger.error(
+                            "HeyGen video generation failed: %s",
+                            payload.get("failure_message") or payload.get("error"),
+                        )
                         return None
                     
                     logger.info(f"HeyGen video {video_id} status: {status}")

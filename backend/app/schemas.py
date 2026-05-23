@@ -15,6 +15,8 @@ class UserSettingsUpdate(BaseModel):
     plate_start_percent: Optional[int] = None
     heygen_avatar_id: Optional[str] = None
     heygen_vertical_avatar_id: Optional[str] = None
+    heygen_video_api_version: Optional[str] = None
+    heygen_avatar_engine: Optional[str] = None
     elevenlabs_voice_id: Optional[str] = None
     thumbnail_face_path: Optional[str] = None
     vertical_thumbnail_face_path: Optional[str] = None
@@ -178,6 +180,8 @@ class UserSettings(BaseModel):
     training_source: Optional[str] = None
     heygen_avatar_id: Optional[str] = None
     heygen_vertical_avatar_id: Optional[str] = None
+    heygen_video_api_version: str = "v2"
+    heygen_avatar_engine: str = "avatar_iv"
     elevenlabs_voice_id: Optional[str] = None
     elevenlabs_voice_speeds: Optional[dict] = None
     thumbnail_face_path: Optional[str] = None
