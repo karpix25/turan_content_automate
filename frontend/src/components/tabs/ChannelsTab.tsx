@@ -51,6 +51,13 @@ export const ChannelsTab: React.FC = () => {
       setChannelDescriptions(descMap);
       setSelectedPlateIdsByAccount(platesMap);
       setPlateStartPercentByAccount(percentsMap);
+      setCollapsedAccounts(prev => {
+        const next = { ...prev };
+        data.forEach(acc => {
+          if (next[acc.account_id] === undefined) next[acc.account_id] = true;
+        });
+        return next;
+      });
     } catch (error: any) {
       setChannelsError(error.response?.data?.detail || error.message || 'Ошибка загрузки каналов');
     } finally {
@@ -182,11 +189,11 @@ export const ChannelsTab: React.FC = () => {
 
   return (
     <motion.div key="channels" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4 pb-20">
-      <div className="flex items-center justify-between">
+      <div className="sticky top-[61px] z-30 -mx-4 px-4 py-2 bg-[#f1f2f6]/95 backdrop-blur flex items-center justify-between gap-2">
         <button
           onClick={loadChannels}
           disabled={channelsLoading}
-          className="h-10 px-4 bg-white border border-slate-200 text-slate-700 text-sm font-bold rounded-xl flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
+          className="h-10 px-3 bg-white border border-slate-200 text-slate-700 text-xs sm:text-sm font-bold rounded-xl flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
         >
           {channelsLoading ? <Loader2 className="animate-spin" size={16} /> : <Globe2 size={16} />}
           Обновить список
@@ -194,7 +201,7 @@ export const ChannelsTab: React.FC = () => {
         <button
           onClick={saveChannelSettings}
           disabled={savingChannelSettings}
-          className={`h-10 px-5 text-sm font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg transition-all ${
+          className={`h-10 px-3 sm:px-5 text-xs sm:text-sm font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg transition-all ${
             saved ? 'bg-[#34c759] text-white shadow-green-500/20' : 'bg-[#24a1de] text-white shadow-blue-500/20'
           } disabled:opacity-50`}
         >
@@ -255,7 +262,7 @@ export const ChannelsTab: React.FC = () => {
               <div key={account.account_id} className={`tg-card overflow-hidden transition-opacity ${!account.enabled ? 'opacity-60' : ''}`}>
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-4 mb-3">
-                    <div>
+                    <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => toggleAccountCollapse(account.account_id)}
@@ -267,7 +274,7 @@ export const ChannelsTab: React.FC = () => {
                             className={`transition-transform ${isCollapsed ? '-rotate-90' : 'rotate-0'}`}
                           />
                         </button>
-                        <h4 className="text-[17px] font-bold text-slate-900 leading-tight">
+                        <h4 className="text-[17px] font-bold text-slate-900 leading-tight truncate">
                           {account.account_name}
                         </h4>
                       </div>
@@ -281,6 +288,17 @@ export const ChannelsTab: React.FC = () => {
                     >
                       <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${account.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
                     </button>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    <span className={`px-2 py-1 rounded-lg text-[10px] font-bold ${account.description ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                      Описание {account.description ? 'есть' : 'нет'}
+                    </span>
+                    <span className={`px-2 py-1 rounded-lg text-[10px] font-bold ${(account.plate_assets || []).length > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                      Плашки {(account.plate_assets || []).length}
+                    </span>
+                    <span className={`px-2 py-1 rounded-lg text-[10px] font-bold ${accountEndings.length > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                      Концовки {accountEndings.length}
+                    </span>
                   </div>
 
                   {account.enabled && !isCollapsed && (

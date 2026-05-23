@@ -450,12 +450,12 @@ export const QueueTab: React.FC = () => {
                       <span className="text-xs font-semibold text-slate-700">Дата и время публикации</span>
                     </div>
                     
-                    <div className="flex items-center gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto_auto_auto] gap-2">
                       <input
                         type="datetime-local"
                         value={scheduleInputs[task.id] || ''}
                         onChange={(e) => setScheduleInputs(prev => ({ ...prev, [task.id]: e.target.value }))}
-                        className="input-field text-xs h-10 py-1"
+                        className="input-field text-xs h-10 py-1 w-full"
                       />
                       <button
                         onClick={() => saveTaskSchedule(task.id)}
@@ -470,7 +470,7 @@ export const QueueTab: React.FC = () => {
                           void saveTaskSchedule(task.id, null);
                         }}
                         disabled={activeTaskId === task.id || !scheduleInputs[task.id]}
-                        className="h-10 w-10 bg-slate-100 text-slate-500 text-xs font-bold rounded-xl inline-flex items-center justify-center disabled:opacity-50"
+                        className="h-10 px-4 sm:px-0 sm:w-10 bg-slate-100 text-slate-500 text-xs font-bold rounded-xl inline-flex items-center justify-center disabled:opacity-50"
                         title="Очистить дату"
                       >
                         <X size={14} />

@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutGrid, CalendarClock, Settings, RefreshCcw, Globe2 } from 'lucide-react';
+import { CalendarClock, Settings, RefreshCcw, Globe2 } from 'lucide-react';
 
 type BottomNavProps = {
   activeTab: string;
@@ -10,10 +10,10 @@ const ACTIVE_TAB_STORAGE_KEY = 'content_studio_active_tab';
 
 export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab }) => {
   const tabs = [
+    { id: 'queue', icon: RefreshCcw, label: 'Очередь' },
     { id: 'channels', icon: Globe2, label: 'Каналы' },
     { id: 'planning', icon: CalendarClock, label: 'План' },
-    { id: 'style', icon: Settings, label: 'Настройки' },
-    { id: 'queue', icon: RefreshCcw, label: 'Очередь' }
+    { id: 'style', icon: Settings, label: 'Настройки' }
   ];
 
   const handleTabClick = (id: string) => {

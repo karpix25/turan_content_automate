@@ -10,6 +10,12 @@ import { PlanningTab } from './components/tabs/PlanningTab';
 import { SettingsTab } from './components/tabs/SettingsTab';
 
 const ACTIVE_TAB_STORAGE_KEY = 'content_studio_active_tab';
+const TAB_TITLES: Record<string, string> = {
+  queue: 'Очередь',
+  channels: 'Каналы',
+  planning: 'План',
+  style: 'Настройки',
+};
 
 const App: React.FC = () => {
   const { telegramId, telegramIdInput, setTelegramIdInput, applyTelegramId } = useTelegram();
@@ -61,14 +67,14 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#f1f2f6] text-slate-900 font-sans app-container max-w-2xl mx-auto relative shadow-2xl">
-      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-slate-100 px-4 py-3 flex items-center justify-between shadow-sm">
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-slate-100 px-4 py-2.5 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-gradient-to-br from-[#24a1de] to-sky-400 rounded-xl flex items-center justify-center shadow-md shadow-blue-500/20">
+          <div className="w-8 h-8 bg-gradient-to-br from-[#24a1de] to-sky-400 rounded-xl flex items-center justify-center shadow-md shadow-blue-500/20">
             <Rocket size={18} className="text-white" />
           </div>
           <div>
-            <h1 className="text-[17px] font-bold tracking-tight text-slate-900 leading-none">Content Studio</h1>
-            <p className="text-[11px] font-medium text-slate-500 mt-0.5">Automated Video Pipeline</p>
+            <h1 className="text-[16px] font-bold tracking-tight text-slate-900 leading-none">{TAB_TITLES[activeTab] || 'Content Studio'}</h1>
+            <p className="text-[10px] font-medium text-slate-500 mt-0.5">Content Studio</p>
           </div>
         </div>
         <div className="flex items-center gap-2">

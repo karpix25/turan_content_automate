@@ -53,7 +53,6 @@ export const SettingsTab: React.FC = () => {
   const [avatarInsertStartPercent, setAvatarInsertStartPercent] = useState<number>(50);
   const [avatarInsertEndPercent, setAvatarInsertEndPercent] = useState<number>(95);
   const [avatarInsertClipsCount, setAvatarInsertClipsCount] = useState<number>(2);
-  const [reelsBrollCoveragePercent, setReelsBrollCoveragePercent] = useState<number>(50);
   const [youtubeDescriptionTemplate, setYoutubeDescriptionTemplate] = useState<string>('');
   const [avatarScriptDurationMinutes, setAvatarScriptDurationMinutes] = useState<number>(5);
 
@@ -74,7 +73,6 @@ export const SettingsTab: React.FC = () => {
         setAvatarInsertStartPercent(data.avatar_insert_start_percent ?? 50);
         setAvatarInsertEndPercent(data.avatar_insert_end_percent ?? 95);
         setAvatarInsertClipsCount(data.avatar_insert_clips_count ?? 2);
-        setReelsBrollCoveragePercent(data.reels_broll_coverage_percent ?? 50);
         setYoutubeDescriptionTemplate(data.youtube_description_template || '');
       } catch (error) {
       } finally {
@@ -202,7 +200,6 @@ export const SettingsTab: React.FC = () => {
         avatar_insert_start_percent: avatarInsertStartPercent,
         avatar_insert_end_percent: avatarInsertEndPercent,
         avatar_insert_clips_count: avatarInsertClipsCount,
-        reels_broll_coverage_percent: reelsBrollCoveragePercent,
         avatar_script_duration_minutes: avatarScriptDurationMinutes,
         youtube_description_template: youtubeDescriptionTemplate,
       });
@@ -440,7 +437,8 @@ export const SettingsTab: React.FC = () => {
 
   return (
     <motion.div key="style" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4 pb-20">
-      <div className="flex justify-between items-center bg-white p-3 rounded-2xl shadow-sm border border-slate-100 mb-2">
+      <div className="sticky top-[61px] z-30 -mx-4 px-4 py-2 bg-[#f1f2f6]/95 backdrop-blur flex justify-between items-center mb-2">
+        <div className="flex justify-between items-center bg-white p-3 rounded-2xl shadow-sm border border-slate-100 w-full">
         <div className="flex items-center gap-2 text-slate-700">
           <Settings size={20} className="text-[#24a1de]" />
           <h2 className="font-bold text-[15px]">Основные настройки</h2>
@@ -455,6 +453,7 @@ export const SettingsTab: React.FC = () => {
           {savingSettings ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
           {savedSettings ? 'Сохранено' : 'Сохранить'}
         </button>
+        </div>
       </div>
 
       <input
@@ -482,11 +481,14 @@ export const SettingsTab: React.FC = () => {
         onChange={handleUploadAvatarInsertClip}
       />
 
-      <div className="tg-card p-4">
-        <div className="flex items-center gap-2 mb-3">
+      <details className="tg-card p-4" open>
+        <summary className="list-none cursor-pointer">
+        <div className="flex items-center gap-2">
           <BookOpen size={18} className="text-[#24a1de]" />
           <h3 className="text-[15px] font-bold text-slate-900">YouTube описание (avatar)</h3>
         </div>
+        </summary>
+        <div className="mt-3">
         <label className="text-xs font-bold text-[#707579] uppercase tracking-wider mb-2 block">
           Шаблон описания
         </label>
@@ -499,15 +501,18 @@ export const SettingsTab: React.FC = () => {
         <p className="text-[11px] text-slate-500 mt-2">
           Шаблон сохраняется как есть. Перед шаблоном система добавляет призыв к действию, сформированный из хука ролика.
         </p>
-      </div>
+        </div>
+      </details>
 
-      <div className="tg-card p-4">
-        <div className="flex items-center gap-2 mb-3">
+      <details className="tg-card p-4" open>
+        <summary className="list-none cursor-pointer">
+        <div className="flex items-center gap-2">
           <ImageIcon size={18} className="text-[#24a1de]" />
           <h3 className="text-[15px] font-bold text-slate-900">Обложки: лицо и референсы</h3>
         </div>
+        </summary>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-3">
+        <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-3 mt-3">
           <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
             <div className="flex items-center justify-between gap-2 mb-2">
               <p className="text-xs font-bold text-slate-700 uppercase tracking-wider">Референс лица</p>
@@ -619,15 +624,17 @@ export const SettingsTab: React.FC = () => {
             </p>
           </div>
         </div>
-      </div>
+      </details>
 
-      <div className="tg-card p-4">
-        <div className="flex items-center gap-2 mb-3">
+      <details className="tg-card p-4">
+        <summary className="list-none cursor-pointer">
+        <div className="flex items-center gap-2">
           <Film size={18} className="text-[#24a1de]" />
           <h3 className="text-[15px] font-bold text-slate-900">Видео-вставки для avatar_youtube</h3>
         </div>
+        </summary>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3 mt-3">
           <div>
             <label className="text-[11px] text-slate-600 font-semibold">Старт вставок (%)</label>
             <input
@@ -714,14 +721,17 @@ export const SettingsTab: React.FC = () => {
             Вставки размещаются автоматически после основного рендера: максимально равномерно и с максимальной дистанцией между ними в выбранном диапазоне.
           </p>
         </div>
-      </div>
+      </details>
 
-      <div className="tg-card p-4">
-        <div className="flex items-center gap-2 mb-3">
+      <details className="tg-card p-4" open>
+        <summary className="list-none cursor-pointer">
+        <div className="flex items-center gap-2">
           <User size={18} className="text-[#24a1de]" />
           <h3 className="text-[15px] font-bold text-slate-900">Выбор ИИ Аватара (HeyGen)</h3>
         </div>
+        </summary>
         
+        <div className="mt-3">
         {loadingAvatars ? (
           <div className="flex items-center justify-center py-6 text-slate-400">
             <Loader2 className="animate-spin w-5 h-5 mr-2" />
@@ -783,13 +793,17 @@ export const SettingsTab: React.FC = () => {
             ))}
           </div>
         )}
-      </div>
+        </div>
+      </details>
 
-      <div className="tg-card p-4">
-        <div className="flex items-center gap-2 mb-3">
+      <details className="tg-card p-4" open>
+        <summary className="list-none cursor-pointer">
+        <div className="flex items-center gap-2">
           <Mic size={18} className="text-[#24a1de]" />
           <h3 className="text-[15px] font-bold text-slate-900">Голос диктора (ElevenLabs)</h3>
         </div>
+        </summary>
+        <div className="mt-3">
         {loadingVoices ? (
           <div className="h-20 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400">
             <Loader2 size={16} className="animate-spin mr-2" />
@@ -822,16 +836,20 @@ export const SettingsTab: React.FC = () => {
         <p className="text-[11px] text-slate-500 mt-2">
           Скорость считается один раз на голос по демо-озвучке и дальше используется для расчёта длины сценария.
         </p>
-      </div>
+        </div>
+      </details>
 
-      <div className="tg-card p-4">
-        <div className="flex items-center justify-between gap-3 mb-3">
+      <details className="tg-card p-4" open>
+        <summary className="list-none cursor-pointer">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Film size={18} className="text-[#24a1de]" />
             <h3 className="text-[15px] font-bold text-slate-900">Длина long YouTube сценария</h3>
           </div>
           <span className="text-sm font-black text-slate-900 whitespace-nowrap">{avatarScriptDurationMinutes} мин</span>
         </div>
+        </summary>
+        <div className="mt-3">
         <input
           type="range"
           min="1"
@@ -848,17 +866,20 @@ export const SettingsTab: React.FC = () => {
         <p className="text-[11px] text-slate-500 mt-2">
           Минуты переводятся в символы по скорости выбранного голоса ElevenLabs.
         </p>
-      </div>
+        </div>
+      </details>
 
-      <div className="tg-card p-4 mt-6 border-t-4 border-slate-100">
-        <div className="flex items-center justify-between mb-4">
+      <details className="tg-card p-4 mt-6 border-t-4 border-slate-100">
+        <summary className="list-none cursor-pointer">
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-slate-700">
             <BookOpen size={18} />
             <h3 className="text-[15px] font-bold uppercase tracking-tight">Обучение стилю (Gemini)</h3>
           </div>
         </div>
+        </summary>
 
-        <div className="space-y-4">
+        <div className="space-y-4 mt-4">
           <div>
             <label className="text-xs font-bold text-[#707579] uppercase tracking-wider mb-2 block">
               Ссылка на YouTube канал
@@ -930,7 +951,7 @@ export const SettingsTab: React.FC = () => {
             />
           </div>
         </div>
-      </div>
+      </details>
     </motion.div>
   );
 };
