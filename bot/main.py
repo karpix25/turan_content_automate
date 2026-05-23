@@ -170,7 +170,7 @@ def extract_instagram_reel_shortcode(url: str) -> str | None:
     path_parts = [part for part in parsed.path.split("/") if part]
     if "instagram.com" not in host or len(path_parts) < 2:
         return None
-    if path_parts[0].lower() not in {"reel", "reels"}:
+    if path_parts[0].lower() not in {"reel", "reels", "p"}:
         return None
     shortcode = path_parts[1].strip()
     return shortcode if re.fullmatch(r"[A-Za-z0-9_-]+", shortcode) else None
