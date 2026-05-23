@@ -54,6 +54,48 @@ details > summary::-webkit-details-marker {
   display: none;
 }
 
+.settings-section {
+  overflow: visible;
+}
+
+.settings-section > summary {
+  position: sticky;
+  top: 132px;
+  z-index: 20;
+  margin: -16px -16px 0;
+  min-height: 56px;
+  padding: 16px 44px 16px 16px;
+  list-style: none;
+  cursor: pointer;
+  background: var(--bg-card);
+  border-radius: 12px;
+}
+
+.settings-section[open] > summary {
+  margin-bottom: 12px;
+  border-bottom: 1px solid #eef2f7;
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+}
+
+.settings-section > summary::after {
+  content: "";
+  position: absolute;
+  right: 18px;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid #94a3b8;
+  border-bottom: 2px solid #94a3b8;
+  transform: translateY(-65%) rotate(45deg);
+  transition: transform 0.2s ease;
+}
+
+.settings-section[open] > summary::after {
+  transform: translateY(-35%) rotate(225deg);
+}
+
 .btn-primary {
   background: var(--accent);
   color: white;

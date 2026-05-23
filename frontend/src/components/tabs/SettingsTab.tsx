@@ -516,8 +516,8 @@ export const SettingsTab: React.FC = () => {
         onChange={handleUploadAvatarInsertClip}
       />
 
-      <details className="tg-card p-4" open>
-        <summary className="list-none cursor-pointer">
+      <details className="tg-card p-4 settings-section">
+        <summary className="list-none">
         <div className="flex items-center gap-2">
           <BookOpen size={18} className="text-[#24a1de]" />
           <h3 className="text-[15px] font-bold text-slate-900">YouTube описание (avatar)</h3>
@@ -539,8 +539,8 @@ export const SettingsTab: React.FC = () => {
         </div>
       </details>
 
-      <details className="tg-card p-4" open>
-        <summary className="list-none cursor-pointer">
+      <details className="tg-card p-4 settings-section">
+        <summary className="list-none">
         <div className="flex items-center gap-2">
           <ImageIcon size={18} className="text-[#24a1de]" />
           <h3 className="text-[15px] font-bold text-slate-900">Обложки: лицо и референсы</h3>
@@ -661,8 +661,8 @@ export const SettingsTab: React.FC = () => {
         </div>
       </details>
 
-      <details className="tg-card p-4">
-        <summary className="list-none cursor-pointer">
+      <details className="tg-card p-4 settings-section">
+        <summary className="list-none">
         <div className="flex items-center gap-2">
           <Film size={18} className="text-[#24a1de]" />
           <h3 className="text-[15px] font-bold text-slate-900">Видео-вставки для avatar_youtube</h3>
@@ -758,8 +758,8 @@ export const SettingsTab: React.FC = () => {
         </div>
       </details>
 
-      <details className="tg-card p-4" open>
-        <summary className="list-none cursor-pointer">
+      <details className="tg-card p-4 settings-section">
+        <summary className="list-none">
         <div className="flex items-center gap-2">
           <User size={18} className="text-[#24a1de]" />
           <h3 className="text-[15px] font-bold text-slate-900">Выбор ИИ Аватара (HeyGen)</h3>
@@ -854,8 +854,8 @@ export const SettingsTab: React.FC = () => {
         </div>
       </details>
 
-      <details className="tg-card p-4" open>
-        <summary className="list-none cursor-pointer">
+      <details className="tg-card p-4 settings-section">
+        <summary className="list-none">
         <div className="flex items-center gap-2">
           <Mic size={18} className="text-[#24a1de]" />
           <h3 className="text-[15px] font-bold text-slate-900">Голос диктора (ElevenLabs)</h3>
@@ -897,8 +897,8 @@ export const SettingsTab: React.FC = () => {
         </div>
       </details>
 
-      <details className="tg-card p-4" open>
-        <summary className="list-none cursor-pointer">
+      <details className="tg-card p-4 settings-section">
+        <summary className="list-none">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Film size={18} className="text-[#24a1de]" />
@@ -927,8 +927,8 @@ export const SettingsTab: React.FC = () => {
         </div>
       </details>
 
-      <details className="tg-card p-4 mt-6 border-t-4 border-slate-100">
-        <summary className="list-none cursor-pointer">
+      <details className="tg-card p-4 mt-6 border-t-4 border-slate-100 settings-section">
+        <summary className="list-none">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-slate-700">
             <BookOpen size={18} />
