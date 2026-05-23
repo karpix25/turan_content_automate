@@ -84,8 +84,8 @@ init_database()
 
 celery_app = Celery('tasks', broker=(os.getenv("REDIS_URL") or "redis://localhost:6379/0").strip())
 redis_client = redis.Redis.from_url((os.getenv("REDIS_URL") or "redis://localhost:6379/0").strip())
-CELERY_TASK_SOFT_TIME_LIMIT_SECONDS = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT_SECONDS", "21600"))
-CELERY_TASK_TIME_LIMIT_SECONDS = int(os.getenv("CELERY_TASK_TIME_LIMIT_SECONDS", "25200"))
+PROCESS_TASK_SOFT_LIMIT_SECONDS = 21600
+PROCESS_TASK_HARD_LIMIT_SECONDS = 25200
 YANDEX_UPLOAD_SOFT_TIME_LIMIT_SECONDS = int(os.getenv("YANDEX_UPLOAD_SOFT_TIME_LIMIT_SECONDS", "21600"))
 YANDEX_UPLOAD_TIME_LIMIT_SECONDS = int(os.getenv("YANDEX_UPLOAD_TIME_LIMIT_SECONDS", "25200"))
 YANDEX_UPLOAD_LOCK_TTL_SECONDS = max(
@@ -112,8 +112,8 @@ celery_app.conf.update(
         "process_content_task": {
             "acks_late": True,
             "reject_on_worker_lost": True,
-            "soft_time_limit": CELERY_TASK_SOFT_TIME_LIMIT_SECONDS,
-            "time_limit": CELERY_TASK_TIME_LIMIT_SECONDS,
+            "soft_time_limit": PROCESS_TASK_SOFT_LIMIT_SECONDS,
+            "time_limit": PROCESS_TASK_HARD_LIMIT_SECONDS,
         },
     },
     beat_schedule={
@@ -372,7 +372,7 @@ HYPERFRAMES_RENDER_TIMEOUT_SECONDS = max(
     int(
         os.getenv(
             "HYPERFRAMES_RENDER_TIMEOUT_SECONDS",
-            str(max(300, CELERY_TASK_SOFT_TIME_LIMIT_SECONDS - 300)),
+            str(max(300, PROCESS_TASK_SOFT_LIMIT_SECONDS - 300)),
         )
     ),
 )
@@ -654,7 +654,7 @@ def _run_remotion_pipeline(
 
     render_max_runtime_seconds = min(
         REMOTION_RENDER_MAX_RUNTIME_SECONDS,
-        max(300, CELERY_TASK_SOFT_TIME_LIMIT_SECONDS - 600),
+        max(300, PROCESS_TASK_SOFT_LIMIT_SECONDS - 600),
     )
     render_idle_timeout_seconds = min(
         REMOTION_RENDER_IDLE_TIMEOUT_SECONDS,
@@ -662,7 +662,7 @@ def _run_remotion_pipeline(
     )
     step_timeout_seconds = min(
         HYPERFRAMES_STEP_TIMEOUT_SECONDS,
-        max(120, CELERY_TASK_SOFT_TIME_LIMIT_SECONDS - 600),
+        max(120, PROCESS_TASK_SOFT_LIMIT_SECONDS - 600),
     )
     overlay_coverage_percent = max(0, min(100, int(overlay_coverage_percent or 0)))
 
@@ -1142,11 +1142,11 @@ def _run_hyperframes_pipeline(
     overlay_coverage_percent = max(0, min(100, int(overlay_coverage_percent or 0)))
     render_timeout_seconds = min(
         HYPERFRAMES_RENDER_TIMEOUT_SECONDS,
-        max(300, CELERY_TASK_SOFT_TIME_LIMIT_SECONDS - 300),
+        max(300, PROCESS_TASK_SOFT_LIMIT_SECONDS - 300),
     )
     step_timeout_seconds = min(
         HYPERFRAMES_STEP_TIMEOUT_SECONDS,
-        max(120, CELERY_TASK_SOFT_TIME_LIMIT_SECONDS - 600),
+        max(120, PROCESS_TASK_SOFT_LIMIT_SECONDS - 600),
     )
     render_input_video = normalize_video_for_hyperframes(input_video)
     if not render_input_video:
@@ -1767,7 +1767,7 @@ def process_content_task(self, task_id: int):
     input_video_titles: List[str | None] = []
 
     def _remaining_task_budget_seconds() -> float:
-        return max(0.0, CELERY_TASK_SOFT_TIME_LIMIT_SECONDS - (time.monotonic() - task_started_monotonic))
+        return max(0.0, PROCESS_TASK_SOFT_LIMIT_SECONDS - (time.monotonic() - task_started_monotonic))
 
     def _probe_video_file_meta(path: str) -> dict:
         meta = {
