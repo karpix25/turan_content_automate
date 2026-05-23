@@ -629,14 +629,35 @@ class VideoProcessor:
             audio = audio.filter("atempo", profile["speed"])
 
         if plate_path:
-            plate = ffmpeg.input(plate_path)
+            plate = (
+                ffmpeg
+                .input(plate_path)
+                .filter(
+                    "scale",
+                    target_width,
+                    target_height,
+                    force_original_aspect_ratio="decrease",
+                )
+                .filter("setsar", "1")
+            )
             normalized_plate_start_percent = self._normalize_percent(plate_start_percent)
             processed_main_duration = main_duration / profile["speed"] if profile["speed"] else main_duration
             plate_start_seconds = processed_main_duration * normalized_plate_start_percent / 100.0
             if plate_start_seconds > 0:
-                video = ffmpeg.overlay(video, plate, enable=f"gte(t,{plate_start_seconds:.3f})")
+                video = ffmpeg.overlay(
+                    video,
+                    plate,
+                    x="(main_w-overlay_w)/2",
+                    y="(main_h-overlay_h)/2",
+                    enable=f"gte(t,{plate_start_seconds:.3f})",
+                )
             else:
-                video = ffmpeg.overlay(video, plate)
+                video = ffmpeg.overlay(
+                    video,
+                    plate,
+                    x="(main_w-overlay_w)/2",
+                    y="(main_h-overlay_h)/2",
+                )
 
         if cta_path:
             cta_probe = self._probe_media(cta_path)

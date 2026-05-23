@@ -1,6 +1,7 @@
 import datetime
 import logging
 import os
+import subprocess
 from typing import List
 
 from dotenv import load_dotenv
@@ -8,6 +9,7 @@ from dotenv import load_dotenv
 from .database import SessionLocal
 from . import models
 from .integrations.postmypost import PostMyPostClient
+from .publish_planner import get_min_publish_lead_delta
 from .telegram_progress import update_task_status_message
 from .utils.platform_utils import _get_account_platform_map
 from .worker import celery_app
@@ -143,8 +145,19 @@ def _normalize_post_at(value: datetime.datetime | None, force_now: bool) -> date
     if force_now or value is None:
         return datetime.datetime.now(datetime.timezone.utc)
     if value.tzinfo is None:
-        return value.replace(tzinfo=datetime.timezone.utc)
-    return value.astimezone(datetime.timezone.utc)
+        post_at = value.replace(tzinfo=datetime.timezone.utc)
+    else:
+        post_at = value.astimezone(datetime.timezone.utc)
+
+    min_post_at = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0) + get_min_publish_lead_delta()
+    if post_at <= min_post_at:
+        logger.warning(
+            "PostMyPost schedule time %s is too close or in the past; moving to %s",
+            post_at,
+            min_post_at,
+        )
+        return min_post_at
+    return post_at
 
 
 def _resolve_task_output_path(output_path: str | None) -> str | None:
@@ -162,6 +175,42 @@ def _resolve_task_output_path(output_path: str | None) -> str | None:
         if os.path.isfile(candidate):
             return candidate
     return None
+
+
+def _generate_local_preview_url(task_id: int, video_path: str | None) -> str | None:
+    resolved_video_path = _resolve_task_output_path(video_path)
+    if not resolved_video_path:
+        return None
+
+    previews_dir = os.path.join("/app/database/media", "previews")
+    os.makedirs(previews_dir, exist_ok=True)
+    preview_filename = f"task_{task_id}.jpg"
+    preview_path = os.path.join(previews_dir, preview_filename)
+
+    command = [
+        "ffmpeg",
+        "-y",
+        "-ss",
+        "1",
+        "-i",
+        resolved_video_path,
+        "-frames:v",
+        "1",
+        "-vf",
+        "scale=480:-2",
+        "-q:v",
+        "3",
+        preview_path,
+    ]
+    try:
+        subprocess.run(command, check=True, capture_output=True, text=True, timeout=45)
+    except Exception as exc:
+        logger.warning("Failed to generate local preview for task %s: %s", task_id, exc)
+        return None
+
+    if not os.path.isfile(preview_path):
+        return None
+    return f"/media/previews/{preview_filename}"
 
 
 def _cleanup_local_output(task: models.VideoTask) -> None:
@@ -484,6 +533,8 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
                     title_by_account[account_id] = vizard_title
 
         file_id = task.postmypost_file_id
+        if not task.preview_url:
+            task.preview_url = _generate_local_preview_url(task.id, task.output_path)
         if not file_id:
             update_task_status_message(
                 db,

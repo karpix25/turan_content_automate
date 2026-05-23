@@ -49,6 +49,18 @@ const formatDateTimeLabel = (value?: string | null) => {
   }).format(date);
 };
 
+const resolvePreviewUrl = (value: string | null | undefined, apiBase: string) => {
+  const raw = String(value || '').trim();
+  if (!raw) return undefined;
+  if (raw.startsWith('/media/')) return `${apiBase}${raw}`;
+  const mediaParts = raw.split('/media/');
+  if (mediaParts.length > 1) return `${apiBase}/media/${mediaParts[1]}`;
+  return raw;
+};
+
+const isImagePreview = (value: string | undefined) =>
+  Boolean(value && /\.(png|jpe?g|webp)(?:$|\?)/i.test(value));
+
 export const QueueTab: React.FC = () => {
   const { telegramId } = useTelegram();
   const [tasks, setTasks] = useState<VideoTaskItem[]>([]);
@@ -328,7 +340,8 @@ export const QueueTab: React.FC = () => {
             const API_BASE = import.meta.env.VITE_API_BASE || '/api';
             const filePreviewUrl = task.output_path ? `${API_BASE}/tasks/${telegramId}/${task.id}/file` : undefined;
             const fileDownloadUrl = task.output_path ? `${API_BASE}/tasks/${telegramId}/${task.id}/file?download=1` : undefined;
-            const postPreviewUrl = task.preview_url || undefined;
+            const postPreviewUrl = resolvePreviewUrl(task.preview_url, API_BASE);
+            const postPreviewIsImage = isImagePreview(postPreviewUrl);
 
             return (
               <div key={task.id} className={`tg-card overflow-hidden transition-all ${isPublished ? 'opacity-75' : ''}`}>
@@ -352,6 +365,20 @@ export const QueueTab: React.FC = () => {
                       </a>
                     )}
                   </div>
+                ) : postPreviewUrl && postPreviewIsImage ? (
+                  <a
+                    href={postPreviewUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block relative bg-black aspect-video overflow-hidden"
+                  >
+                    <img
+                      src={postPreviewUrl}
+                      alt=""
+                      className="w-full h-full object-contain bg-black"
+                      loading="lazy"
+                    />
+                  </a>
                 ) : postPreviewUrl ? (
                   <a
                     href={postPreviewUrl}

@@ -3566,6 +3566,22 @@ def process_content_task(self, task_id: int):
         elif task.type == "instagram":
             update_task_status_message(db, task, stage="Скачивание", detail="Скачиваю видео из Instagram.")
             details = scraper.get_instagram_details(source_url)
+            caption = ((details or {}).get("caption") or "").strip()
+            creator = ((details or {}).get("creator") or "").strip()
+            source_title = (task.source_title or "").strip()
+            if not source_title:
+                first_caption_line = re.sub(r"\s+", " ", caption).strip()
+                source_title = first_caption_line[:140].strip() or (
+                    f"Instagram Reel @{creator}" if creator else "Instagram Reel"
+                )
+                task.source_title = source_title
+                current_meta = dict(task.script_meta or {})
+                current_meta["instagram_source"] = {
+                    "creator": creator or None,
+                    "caption": caption or None,
+                }
+                task.script_meta = current_meta
+                db.commit()
             download_url = _normalize_external_url((details or {}).get("download_url") or "")
             if not download_url:
                 error_text = (details or {}).get("error") or "Failed to get Instagram download link"
@@ -3575,7 +3591,7 @@ def process_content_task(self, task_id: int):
             if not local_file:
                 raise Exception("Failed to download Instagram video from ScrapeCreators URL")
             input_videos.append(local_file)
-            input_video_titles.append(None)
+            input_video_titles.append(source_title)
 
         elif task.type == "youtube":
             _validate_youtube_url_or_raise(source_url)
@@ -3600,6 +3616,14 @@ def process_content_task(self, task_id: int):
                     (details or {}).get("status"),
                     (details or {}).get("progress_id"),
                 )
+                source_title = (
+                    (task.source_title or "").strip()
+                    or str((details or {}).get("title") or "").strip()
+                    or "YouTube Shorts"
+                )
+                if source_title and source_title != (task.source_title or "").strip():
+                    task.source_title = source_title
+                    db.commit()
 
                 local_file = downloader.download_media(
                     download_url,
@@ -3610,7 +3634,7 @@ def process_content_task(self, task_id: int):
                 if not local_file:
                     raise Exception("Failed to download YouTube Shorts from provider URL")
                 input_videos.append(local_file)
-                input_video_titles.append(None)
+                input_video_titles.append(source_title)
             else:
                 logging.info("Task %s: routed full YouTube video to Vizard", task_id)
                 update_task_status_message(db, task, stage="Vizard", detail="Полное YouTube-видео отправлено в Vizard.")
@@ -3759,7 +3783,8 @@ def process_content_task(self, task_id: int):
         for clip_index, video_path, clip_title in source_items:
             if not video_path:
                 raise Exception("Downloaded video path is empty")
-            if task.vizard_project_id:
+            should_apply_vertical_cover = bool(task.vizard_project_id) or task.type in {"instagram", "youtube"}
+            if should_apply_vertical_cover:
                 vertical_context = (
                     task.script_text
                     or task.factual_outline

@@ -1,4 +1,5 @@
 import datetime
+import os
 from zoneinfo import ZoneInfo
 
 from . import models
@@ -10,6 +11,20 @@ DEFAULT_LIMIT_PER_DAY = 3
 DEFAULT_START_MSK = "10:00:00"
 DEFAULT_END_MSK = "22:00:00"
 MINUTE_OFFSETS = (11, 17, 23, 29, 37, 41, 47, 53)
+DEFAULT_MIN_LEAD_MINUTES = 60
+
+
+def get_min_publish_lead_delta() -> datetime.timedelta:
+    raw = (
+        os.getenv("POSTMYPOST_MIN_SCHEDULE_LEAD_MINUTES")
+        or os.getenv("PUBLISH_MIN_LEAD_MINUTES")
+        or str(DEFAULT_MIN_LEAD_MINUTES)
+    )
+    try:
+        minutes = max(0, int(raw))
+    except (TypeError, ValueError):
+        minutes = DEFAULT_MIN_LEAD_MINUTES
+    return datetime.timedelta(minutes=minutes)
 
 
 def parse_hhmmss(value: str, fallback: str) -> datetime.time:
@@ -84,7 +99,8 @@ def plan_next_publish_times(
     end_time = parse_hhmmss(end_raw, DEFAULT_END_MSK)
 
     now_utc = datetime.datetime.now(UTC).replace(microsecond=0)
-    now_msk = now_utc.astimezone(MSK_TZ)
+    earliest_utc = now_utc + get_min_publish_lead_delta()
+    earliest_msk = earliest_utc.astimezone(MSK_TZ)
 
     occupied_rows = db.query(models.VideoTask).filter(
         models.VideoTask.user_id == user.id,
@@ -115,7 +131,7 @@ def plan_next_publish_times(
             end_msk=end_time,
         )
         for slot_msk in slots_msk:
-            if slot_msk <= now_msk:
+            if slot_msk <= earliest_msk:
                 continue
             slot_utc_naive = _to_utc_naive(slot_msk)
             if slot_utc_naive in reserved:
