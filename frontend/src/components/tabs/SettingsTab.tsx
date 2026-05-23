@@ -494,7 +494,7 @@ export const SettingsTab: React.FC = () => {
           value={youtubeDescriptionTemplate}
           onChange={(e) => setYoutubeDescriptionTemplate(e.target.value)}
           placeholder="Ваш базовый шаблон описания. Перед ним автоматически добавится CTA из хука видео."
-          className="input-field text-xs min-h-[120px] leading-relaxed resize-y bg-slate-50"
+          className="input-field w-full text-xs min-h-[120px] leading-relaxed resize-y bg-slate-50"
         />
         <p className="text-[11px] text-slate-500 mt-2">
           Шаблон сохраняется как есть. Перед шаблоном система добавляет призыв к действию, сформированный из хука ролика.
@@ -711,32 +711,7 @@ export const SettingsTab: React.FC = () => {
             </div>
           )}
           <p className="text-[11px] text-slate-500 mt-2">
-            Вставки размещаются автоматически после Remotion: максимально равномерно и с максимальной дистанцией между ними в выбранном диапазоне.
-          </p>
-        </div>
-      </div>
-
-      <div className="tg-card p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Film size={18} className="text-[#24a1de]" />
-          <h3 className="text-[15px] font-bold text-slate-900">Reels B-roll из Яндекс.Диска</h3>
-        </div>
-
-        <div>
-          <label className="text-[11px] text-slate-600 font-semibold">Доля b-roll от видео (%)</label>
-          <input
-            type="number"
-            min={0}
-            max={100}
-            value={reelsBrollCoveragePercent}
-            onChange={(e) => {
-              const next = clampPercentValue(Number(e.target.value));
-              setReelsBrollCoveragePercent(next);
-            }}
-            className="input-field w-full h-10 mt-1"
-          />
-          <p className="text-[11px] text-slate-500 mt-2">
-            Если видео 10 секунд и стоит 50%, система вставит примерно 5 секунд b-roll. Одна вставка использует один случайный ролик с Яндекс.Диска, длина вставки 2.5-4 сек.
+            Вставки размещаются автоматически после основного рендера: максимально равномерно и с максимальной дистанцией между ними в выбранном диапазоне.
           </p>
         </div>
       </div>
@@ -825,29 +800,23 @@ export const SettingsTab: React.FC = () => {
             Нет склонированных голосов
           </div>
         ) : (
-          <div className="space-y-2">
-            {clonedVoices.map(voice => (
-              <button
-                key={voice.id}
-                type="button"
-                onClick={() => setSelectedVoice(voice.id)}
-                className={`w-full min-h-[64px] rounded-xl border px-3 py-2 text-left transition-all flex items-center justify-between gap-3 ${
-                  selectedVoice === voice.id
-                    ? 'border-[#24a1de] bg-sky-50 shadow-sm'
-                    : 'border-slate-200 bg-slate-50 hover:bg-white'
-                }`}
-              >
-                <span className="min-w-0">
-                  <span className="block text-sm font-bold text-slate-900 truncate">{voice.name}</span>
-                  <span className="block text-[11px] text-slate-500 mt-0.5">{formatVoiceSpeed(voice.speed)}</span>
-                </span>
-                <span className={`h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                  selectedVoice === voice.id ? 'border-[#24a1de]' : 'border-slate-300'
-                }`}>
-                  {selectedVoice === voice.id && <span className="h-2.5 w-2.5 rounded-full bg-[#24a1de]" />}
-                </span>
-              </button>
-            ))}
+          <div>
+            <select
+              value={selectedVoice}
+              onChange={(e) => setSelectedVoice(e.target.value)}
+              className="input-field h-12 text-sm font-bold text-slate-900 bg-slate-50"
+            >
+              {clonedVoices.map(voice => (
+                <option key={voice.id} value={voice.id}>
+                  {voice.name} · {formatVoiceSpeed(voice.speed)}
+                </option>
+              ))}
+            </select>
+            {selectedVoice && (
+              <p className="text-[11px] text-slate-500 mt-2">
+                {formatVoiceSpeed(clonedVoices.find(voice => voice.id === selectedVoice)?.speed)}
+              </p>
+            )}
           </div>
         )}
         <p className="text-[11px] text-slate-500 mt-2">
@@ -957,7 +926,7 @@ export const SettingsTab: React.FC = () => {
               value={styleProfile}
               onChange={(e) => setStyleProfile(e.target.value)}
               placeholder="Здесь появится промпт со стилем, который будет передаваться в Gemini..."
-              className="input-field text-xs font-mono min-h-[150px] leading-relaxed resize-y bg-slate-50"
+              className="input-field w-full text-xs font-mono min-h-[150px] leading-relaxed resize-y bg-slate-50"
             />
           </div>
         </div>

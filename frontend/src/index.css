@@ -32,6 +32,10 @@ body {
 }
 
 .input-field {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   background: var(--bg-inset);
   border: 1px solid transparent;
   border-radius: 10px;

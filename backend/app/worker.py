@@ -2203,6 +2203,8 @@ def process_content_task(self, task_id: int):
         detail_text: str = "Генерирую обложку YouTube по сценарию и референсам.",
     ) -> tuple[str | None, dict]:
         is_short_avatar = task.type in SHORT_AVATAR_TASK_TYPES
+        target_aspect_ratio = "9:16" if is_short_avatar else "16:9"
+        active_face_path = user.vertical_thumbnail_face_path if is_short_avatar else user.thumbnail_face_path
         output_dir = os.getenv("OUTPUT_DIR", "./output").strip()
         thumbnail_output_path = os.path.join(output_dir, f"thumbnail_{task_id}.png")
         existing_meta = dict(task.script_meta or {})
@@ -2220,7 +2222,7 @@ def process_content_task(self, task_id: int):
                 "status": existing_thumbnail_meta.get("status") or "generated",
                 "reason": "telegram_already_sent",
                 "telegram_sent": True,
-                "aspect_ratio": "9:16" if is_short_avatar else "16:9",
+                "aspect_ratio": target_aspect_ratio,
             }
 
         existing_output_path = str(existing_thumbnail_meta.get("output_path") or "").strip()
@@ -2228,17 +2230,32 @@ def process_content_task(self, task_id: int):
         if not reusable_thumbnail_path and os.path.isfile(thumbnail_output_path):
             reusable_thumbnail_path = thumbnail_output_path
         if reusable_thumbnail_path:
-            logging.info("Task %s: reusing existing thumbnail output: %s", task_id, reusable_thumbnail_path)
-            thumbnail_meta = {
-                **existing_thumbnail_meta,
-                "status": existing_thumbnail_meta.get("status") or "generated",
-                "reason": "reused_existing_thumbnail",
-                "output_path": reusable_thumbnail_path,
-                "aspect_ratio": "9:16" if is_short_avatar else "16:9",
-                "telegram_sent": bool(existing_thumbnail_meta.get("telegram_sent") or existing_thumbnail_meta.get("telegram_sent_at")),
-            }
-            return (str(existing_prompt or "").strip() or None), thumbnail_meta
-
+            existing_face_path = str(existing_thumbnail_meta.get("face_path") or "").strip()
+            existing_aspect_ratio = str(existing_thumbnail_meta.get("aspect_ratio") or "").strip()
+            face_matches = (existing_face_path or None) == (active_face_path or None)
+            aspect_matches = not existing_aspect_ratio or existing_aspect_ratio == target_aspect_ratio
+            if not face_matches or not aspect_matches:
+                logging.info(
+                    "Task %s: ignoring reusable thumbnail because target changed "
+                    "(existing_face=%s active_face=%s existing_aspect=%s target_aspect=%s)",
+                    task_id,
+                    bool(existing_face_path),
+                    bool(active_face_path),
+                    existing_aspect_ratio or "-",
+                    target_aspect_ratio,
+                )
+            else:
+                logging.info("Task %s: reusing existing thumbnail output: %s", task_id, reusable_thumbnail_path)
+                thumbnail_meta = {
+                    **existing_thumbnail_meta,
+                    "status": existing_thumbnail_meta.get("status") or "generated",
+                    "reason": "reused_existing_thumbnail",
+                    "output_path": reusable_thumbnail_path,
+                    "face_path": active_face_path,
+                    "aspect_ratio": target_aspect_ratio,
+                    "telegram_sent": bool(existing_thumbnail_meta.get("telegram_sent") or existing_thumbnail_meta.get("telegram_sent_at")),
+                }
+                return (str(existing_prompt or "").strip() or None), thumbnail_meta
         generation_status = str(thumbnail_generation_meta.get("status") or "").strip().lower()
         generation_started_ts = _parse_iso_timestamp(str(thumbnail_generation_meta.get("started_at") or ""))
         generation_age = (time.time() - generation_started_ts) if generation_started_ts else None
@@ -2255,22 +2272,10 @@ def process_content_task(self, task_id: int):
                 "lock_age_seconds": round(generation_age, 3),
                 "lock_ttl_seconds": THUMBNAIL_GENERATION_LOCK_TTL_SECONDS,
                 "output_path": existing_output_path or None,
-                "aspect_ratio": "9:16" if is_short_avatar else "16:9",
+                "aspect_ratio": target_aspect_ratio,
             }
 
-        face_paths = [
-            item.file_path
-            for item in (
-                db.query(models.ThumbnailFaceReference)
-                .filter(models.ThumbnailFaceReference.user_id == user.id)
-                .order_by(models.ThumbnailFaceReference.created_at.desc(), models.ThumbnailFaceReference.id.desc())
-                .all()
-            )
-            if item.file_path
-        ]
-        active_face_path = user.vertical_thumbnail_face_path if is_short_avatar else user.thumbnail_face_path
-        if active_face_path:
-            face_paths = [active_face_path] + [path for path in face_paths if path != active_face_path]
+        face_paths = [active_face_path] if active_face_path else []
         thumbnail_prompt = None
         thumbnail_meta: dict = {
             "status": "skipped",
@@ -2279,7 +2284,7 @@ def process_content_task(self, task_id: int):
             "used_reference_count": 0,
             "face_path": active_face_path,
             "face_reference_count": len(face_paths),
-            "aspect_ratio": "9:16" if is_short_avatar else "16:9",
+            "aspect_ratio": target_aspect_ratio,
         }
         try:
             if is_short_avatar:
@@ -2516,18 +2521,7 @@ def process_content_task(self, task_id: int):
             .order_by(models.ThumbnailReference.created_at.desc(), models.ThumbnailReference.id.desc())
             .all()
         )
-        face_paths = [
-            item.file_path
-            for item in (
-                db.query(models.ThumbnailFaceReference)
-                .filter(models.ThumbnailFaceReference.user_id == user.id)
-                .order_by(models.ThumbnailFaceReference.created_at.desc(), models.ThumbnailFaceReference.id.desc())
-                .all()
-            )
-            if item.file_path
-        ]
-        if user.vertical_thumbnail_face_path:
-            face_paths = [user.vertical_thumbnail_face_path] + [path for path in face_paths if path != user.vertical_thumbnail_face_path]
+        face_paths = [user.vertical_thumbnail_face_path] if user.vertical_thumbnail_face_path else []
         meta["face_reference_count"] = len(face_paths)
         reference_paths = []
         for item in references:
@@ -2623,18 +2617,7 @@ def process_content_task(self, task_id: int):
             .order_by(models.ThumbnailReference.created_at.desc(), models.ThumbnailReference.id.desc())
             .all()
         )
-        face_paths = [
-            item.file_path
-            for item in (
-                db.query(models.ThumbnailFaceReference)
-                .filter(models.ThumbnailFaceReference.user_id == user.id)
-                .order_by(models.ThumbnailFaceReference.created_at.desc(), models.ThumbnailFaceReference.id.desc())
-                .all()
-            )
-            if item.file_path
-        ]
-        if user.vertical_thumbnail_face_path:
-            face_paths = [user.vertical_thumbnail_face_path] + [path for path in face_paths if path != user.vertical_thumbnail_face_path]
+        face_paths = [user.vertical_thumbnail_face_path] if user.vertical_thumbnail_face_path else []
         meta["face_reference_count"] = len(face_paths)
         reference_paths = []
         for item in references:
