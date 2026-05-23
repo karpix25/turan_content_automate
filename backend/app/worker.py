@@ -1005,6 +1005,41 @@ def _run_hyperframes_pipeline(
     script_context_path = os.path.join(out_dir, f"scenario_context_{task_id}.txt")
     os.makedirs(out_dir, exist_ok=True)
 
+    def save_hyperframes_heartbeat(
+        stage: str,
+        *,
+        progress_percent: int | None = None,
+        status: str = "rendering",
+    ) -> None:
+        heartbeat_db = SessionLocal()
+        try:
+            row = heartbeat_db.query(models.VideoTask).get(task_id)
+            if not row:
+                return
+            current_meta = dict(row.script_meta or {})
+            render_meta = dict(current_meta.get("hyperframes_render") or {})
+            render_meta.update(
+                {
+                    "status": status,
+                    "layout": layout,
+                    "stage": str(stage or "")[:180],
+                    "progress_percent": progress_percent,
+                    "updated_at": datetime.datetime.utcnow().isoformat() + "Z",
+                }
+            )
+            current_meta["hyperframes_render"] = render_meta
+            row.script_meta = current_meta
+            row.updated_at = datetime.datetime.utcnow()
+            heartbeat_db.commit()
+        except Exception as exc:
+            logging.warning("Task %s: failed to save Hyperframes heartbeat: %s", task_id, exc)
+            try:
+                heartbeat_db.rollback()
+            except Exception:
+                pass
+        finally:
+            heartbeat_db.close()
+
     def probe_duration_seconds(path: str) -> float | None:
         if not os.path.exists(path):
             return None
@@ -1365,6 +1400,10 @@ def _run_hyperframes_pipeline(
             out_dir,
             f"hyperframes_youtube_{task_id}.mp4" if layout == "horizontal_youtube" else f"hyperframes_horizontal_{task_id}.mp4",
         )
+        if is_usable_hyperframes_output(final_output):
+            logging.info("Task %s: reusing existing Hyperframes %s output: %s", task_id, layout, final_output)
+            save_hyperframes_heartbeat("reused_existing_output", progress_percent=100, status="ready")
+            return final_output
         cmd = [
             "npm", "run", "render:auto", "--",
             "--layout", layout,
@@ -1389,6 +1428,7 @@ def _run_hyperframes_pipeline(
                 " ".join(cmd),
                 render_timeout_seconds,
             )
+            save_hyperframes_heartbeat("starting", progress_percent=0)
             process = subprocess.Popen(
                 cmd,
                 cwd=hyperframes_dir,
@@ -1443,6 +1483,7 @@ def _run_hyperframes_pipeline(
                             stage,
                             int(runtime),
                         )
+                        save_hyperframes_heartbeat(stage, progress_percent=best_percent)
                         last_log_at = now
 
                     if runtime > render_timeout_seconds:
@@ -1490,6 +1531,7 @@ def _run_hyperframes_pipeline(
                     layout,
                     final_output,
                 )
+                save_hyperframes_heartbeat("completed_after_watchdog_stop", progress_percent=100, status="ready")
                 return final_output
             return None
         if render_returncode != 0:
@@ -1502,6 +1544,7 @@ def _run_hyperframes_pipeline(
             )
             return None
         if is_usable_hyperframes_output(final_output):
+            save_hyperframes_heartbeat("completed", progress_percent=100, status="ready")
             return final_output
         logging.error("Task %s: Hyperframes %s render produced no usable output.", task_id, layout)
         return None

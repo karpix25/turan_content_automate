@@ -166,7 +166,7 @@ def _cleanup_local_output(task: models.VideoTask) -> None:
 @celery_app.task(name="rescue_stale_content_tasks")
 def rescue_stale_content_tasks():
     pending_after_minutes = _env_int("TASK_REQUEUE_PENDING_AFTER_MINUTES", 5)
-    processing_after_minutes = _env_int("TASK_REQUEUE_PROCESSING_AFTER_MINUTES", 240)
+    processing_after_minutes = _env_int("TASK_REQUEUE_PROCESSING_AFTER_MINUTES", 720)
     cooldown_minutes = _env_int("TASK_REQUEUE_COOLDOWN_MINUTES", 15)
     max_age_hours = _env_int("TASK_REQUEUE_MAX_AGE_HOURS", 24)
     require_telegram = os.getenv("TASK_REQUEUE_REQUIRE_TELEGRAM", "1").strip().lower() not in {"0", "false", "no"}
