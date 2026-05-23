@@ -16,6 +16,8 @@ const jobTimeoutMs = Math.max(
   Number(process.env.KIE_JOB_TIMEOUT_MS || 15 * 60 * 1000),
 );
 const concurrency = Math.max(1, Number(process.env.KIE_CONCURRENCY || 3));
+const maxAttempts = Math.max(1, Number(process.env.KIE_IMAGE_MAX_ATTEMPTS || 3));
+const minImageBytes = Math.max(1024, Number(process.env.KIE_IMAGE_MIN_BYTES || 16 * 1024));
 
 if (!apiKey) {
   console.error("Missing KIE_API_KEY. Run: KIE_API_KEY=... npm run generate:images");
@@ -126,6 +128,9 @@ async function download(url, fileName) {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Download failed: ${response.status} ${url}`);
   const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.length < minImageBytes) {
+    throw new Error(`Downloaded image is too small: ${buffer.length} bytes from ${url}`);
+  }
   const filePath = path.join(outputDir.pathname, fileName);
   await writeFile(filePath, buffer);
   return filePath;
@@ -173,38 +178,46 @@ async function createImageTask(job) {
 const successfulIds = new Set();
 const failedJobs = [];
 
-console.log(`Generating ${jobs.length} KIE image(s) with concurrency=${concurrency}`);
+console.log(`Generating ${jobs.length} KIE image(s) with concurrency=${concurrency}, attempts=${maxAttempts}`);
 
-const createdTasks = await runPool(jobs, concurrency, async (job) => {
-  try {
-    return await createImageTask(job);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    failedJobs.push({ id: job.id, error: message });
-    console.error(`  ${job.id} failed=${message}`);
-    return null;
+async function generateJob(job) {
+  const errors = [];
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      console.log(`${job.id} attempt ${attempt}/${maxAttempts}`);
+      const { taskId } = await createImageTask(job);
+      console.log(`Waiting ${job.id}...`);
+      const imageUrl = await waitForImage(taskId, job.id);
+      console.log(`  ${job.id} imageUrl=${imageUrl}`);
+      const saved = await download(imageUrl, job.file);
+      successfulIds.add(job.id);
+      console.log(`Saved ${path.relative(projectRoot.pathname, saved)}`);
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(message);
+      console.error(`  ${job.id} attempt ${attempt}/${maxAttempts} failed=${message}`);
+      if (attempt < maxAttempts) {
+        const retryDelayMs = Math.min(30_000, 4000 * attempt);
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      }
+    }
   }
+  failedJobs.push({ id: job.id, error: errors.join(" | ") });
+}
+
+await runPool(jobs, concurrency, async (job) => {
+  await generateJob(job);
 });
 
-const readyTasks = createdTasks.filter(Boolean);
-
-await runPool(readyTasks, concurrency, async ({ job, taskId }) => {
-  console.log(`Waiting ${job.id}...`);
-  try {
-    const imageUrl = await waitForImage(taskId, job.id);
-    console.log(`  ${job.id} imageUrl=${imageUrl}`);
-    const saved = await download(imageUrl, job.file);
-    successfulIds.add(job.id);
-    console.log(`Saved ${path.relative(projectRoot.pathname, saved)}`);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    failedJobs.push({ id: job.id, error: message });
-    console.error(`  ${job.id} failed=${message}`);
-  }
-});
-
-if (!successfulIds.size) {
-  throw new Error(`No KIE images were generated. Failures: ${failedJobs.map((item) => `${item.id}: ${item.error}`).join(" | ")}`);
+const missingJobs = jobs.filter((job) => !successfulIds.has(job.id));
+if (missingJobs.length) {
+  const failureDetails = failedJobs.map((item) => `${item.id}: ${item.error}`).join(" | ");
+  throw new Error(
+    `KIE image generation incomplete: generated ${successfulIds.size}/${jobs.length}. ` +
+    `Missing: ${missingJobs.map((job) => job.id).join(", ")}. ` +
+    `Failures: ${failureDetails || "unknown"}`
+  );
 }
 
 const indexHtml = await readFile(indexPath, "utf8");
@@ -216,5 +229,5 @@ const nextHtml = currentMatch
 await writeFile(indexPath, nextHtml);
 console.log(`Enabled generated image layers: ${nextIds}`);
 if (failedJobs.length) {
-  console.warn(`Skipped ${failedJobs.length} failed image(s): ${failedJobs.map((item) => item.id).join(", ")}`);
+  console.warn(`Retried ${failedJobs.length} image job(s): ${failedJobs.map((item) => item.id).join(", ")}`);
 }

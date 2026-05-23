@@ -54,6 +54,8 @@ const youtubeCaptionsEnabled =
   isYoutubeLayout && envFlag('HYPERFRAMES_YOUTUBE_CAPTIONS', false);
 const youtubeChapterRibbonEnabled =
   isYoutubeLayout && envFlag('HYPERFRAMES_YOUTUBE_CHAPTER_RIBBON', false);
+const youtubeRequireAllImages =
+  isYoutubeLayout && envFlag('HYPERFRAMES_YOUTUBE_REQUIRE_ALL_IMAGES', true);
 const renderQuality = getArgValue(
   'quality',
   process.env.HYPERFRAMES_RENDER_QUALITY || (isYoutubeLayout ? 'high' : 'standard')
@@ -162,6 +164,13 @@ const pickSceneSubtitle = (scene) => {
   return candidates[0] || '';
 };
 
+const hasYoutubeDirectorCard = (scene) => {
+  const title = pickSceneTitle(scene);
+  const rawSubtitle = pickSceneSubtitle(scene);
+  const subtitle = shouldHideSubtitle(title, rawSubtitle) ? '' : rawSubtitle;
+  return Boolean(title || subtitle);
+};
+
 const sceneDuration = (scene, index, maxDuration) => {
   const nextStart = Number(scenes[index + 1]?.start);
   const sceneEnd = Number.isFinite(nextStart) ? Math.min(scene.end, nextStart - 0.08) : scene.end;
@@ -259,6 +268,19 @@ const rootDuration = assertFinitePositive(durationSec, 1);
 const renderFps = Math.round(assertFinitePositive(fps, 30));
 
 const wordCues = readJsonArray(copiedWordCuesPath, 'Word cues');
+if (youtubeRequireAllImages) {
+  const missingImages = scenes
+    .map((scene, index) => ({ scene, index }))
+    .filter(({ scene }) => hasYoutubeDirectorCard(scene))
+    .filter(({ index }) => !fs.existsSync(generatedImagePath(index)))
+    .map(({ index }) => generatedImageFile(index));
+  if (missingImages.length) {
+    throw new Error(
+      `Missing required YouTube generated image(s): ${missingImages.join(', ')}. ` +
+      'Run npm run generate:youtube-prompts && npm run generate:images before rendering.'
+    );
+  }
+}
 const simpleOverlayClips = scenes
   .map((scene, index) => {
     const text = pickSceneOpener(scene);

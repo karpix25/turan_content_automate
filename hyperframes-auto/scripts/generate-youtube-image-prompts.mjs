@@ -3,6 +3,9 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 const scenePlanPath = new URL("../assets/input/scene-plan.generated.json", import.meta.url);
 const outputPath = new URL("../assets/generated/prompts.json", import.meta.url);
 
+const requireAllImages = !["0", "false", "no", "off"].includes(
+  String(process.env.HYPERFRAMES_YOUTUBE_REQUIRE_ALL_IMAGES ?? "true").trim().toLowerCase(),
+);
 const maxImages = Math.max(0, Number(process.env.HYPERFRAMES_YOUTUBE_KIE_MAX_IMAGES || 12));
 
 const STYLE = [
@@ -38,11 +41,25 @@ function sceneScore(scene, index) {
 }
 
 function selectScenes(scenes) {
-  if (maxImages <= 0) return [];
+  if (!requireAllImages && maxImages <= 0) return [];
   const ranked = scenes
     .map((scene, index) => ({ scene, index, score: sceneScore(scene, index) }))
-    .filter(({ scene }) => normalizeText(scene.visualIdea) || normalizeText(scene.title))
+    .filter(({ scene }) =>
+      normalizeText(scene.visualIdea) ||
+      normalizeText(scene.title) ||
+      normalizeText(scene.chapterTitle) ||
+      normalizeText(scene.opener) ||
+      normalizeText(scene.keyword) ||
+      normalizeText(scene.subtitle) ||
+      normalizeText(scene.chapterSubtitle) ||
+      normalizeText(scene.insight) ||
+      (Array.isArray(scene.titleLines) && scene.titleLines.some(normalizeText))
+    )
     .sort((a, b) => b.score - a.score || a.index - b.index);
+
+  if (requireAllImages) {
+    return ranked.sort((a, b) => a.index - b.index);
+  }
 
   const selected = [];
   for (const item of ranked) {
@@ -87,7 +104,7 @@ const prompts = selected.map(({ scene, index }) => {
   return {
     id,
     file: `${id}.png`,
-    aspectRatio: "16:9",
+    aspectRatio: "1:1",
     resolution: "1K",
     prompt: [
       STYLE,

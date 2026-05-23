@@ -1307,6 +1307,9 @@ def _run_hyperframes_pipeline(
         env["FFMPEG_ENCODE_TIMEOUT_MS"] = env.get("FFMPEG_ENCODE_TIMEOUT_MS", "7200000")
         env["FFMPEG_PROCESS_TIMEOUT_MS"] = env.get("FFMPEG_PROCESS_TIMEOUT_MS", "7200000")
         env["HYPERFRAMES_YOUTUBE_KIE_MAX_IMAGES"] = env.get("HYPERFRAMES_YOUTUBE_KIE_MAX_IMAGES", "12")
+        env["HYPERFRAMES_YOUTUBE_REQUIRE_ALL_IMAGES"] = env.get("HYPERFRAMES_YOUTUBE_REQUIRE_ALL_IMAGES", "true")
+        env["KIE_IMAGE_MAX_ATTEMPTS"] = env.get("KIE_IMAGE_MAX_ATTEMPTS", "3")
+        env["KIE_JOB_TIMEOUT_MS"] = env.get("KIE_JOB_TIMEOUT_MS", str(20 * 60 * 1000))
         env["HYPERFRAMES_YOUTUBE_CAPTIONS"] = env.get("HYPERFRAMES_YOUTUBE_CAPTIONS", "false")
         env["HYPERFRAMES_YOUTUBE_CHAPTER_RIBBON"] = env.get("HYPERFRAMES_YOUTUBE_CHAPTER_RIBBON", "false")
         env["HYPERFRAMES_YOUTUBE_COMPOSITE_SOURCE_VIDEO"] = env.get(
@@ -1382,19 +1385,26 @@ def _run_hyperframes_pipeline(
                         ["npm", "run", "generate:images"],
                     )
                     if not images_ready:
-                        logging.warning(
-                            "Task %s: KIE image generation failed; continuing horizontal Hyperframes "
-                            "with fallback visual cards.",
+                        logging.error(
+                            "Task %s: KIE image generation failed; refusing to render horizontal "
+                            "YouTube video with missing visual inserts.",
                             task_id,
                         )
+                        return None
                 else:
-                    logging.warning(
-                        "Task %s: YouTube KIE prompt generation failed; continuing horizontal Hyperframes "
-                        "with fallback visual cards.",
+                    logging.error(
+                        "Task %s: YouTube KIE prompt generation failed; refusing to render horizontal "
+                        "YouTube video with missing visual inserts.",
                         task_id,
                     )
+                    return None
             else:
-                logging.warning("Task %s: KIE_API_KEY is not configured; horizontal YouTube render will use fallback visual cards.", task_id)
+                logging.error(
+                    "Task %s: KIE_API_KEY is not configured; refusing to render horizontal "
+                    "YouTube video with missing visual inserts.",
+                    task_id,
+                )
+                return None
 
         final_output = os.path.join(
             out_dir,
