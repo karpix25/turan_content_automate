@@ -23,6 +23,7 @@ AVATAR_TASK_TYPES = {
     "avatar_vertical",
     "avatar_youtube",
     "avatar_instagram",
+    "avatar_instagram_post_5s",
     "avatar_shorts",
 }
 pmp_client = PostMyPostClient(api_key=os.getenv("POSTMYPOST_API_KEY", ""))

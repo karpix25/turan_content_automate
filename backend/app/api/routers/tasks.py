@@ -16,6 +16,7 @@ AVATAR_TASK_TYPES = {
     "avatar_vertical",
     "avatar_youtube",
     "avatar_instagram",
+    "avatar_instagram_post_5s",
     "avatar_shorts",
 }
 

@@ -158,7 +158,7 @@ def is_youtube_shorts_url(url: str) -> bool:
     return "youtube.com" in host and len(path_parts) >= 2 and path_parts[0] == "shorts"
 
 
-def extract_instagram_reel_shortcode(url: str) -> str | None:
+def extract_instagram_shortcode(url: str) -> tuple[str, str] | None:
     raw = (url or "").strip()
     if not raw:
         return None
@@ -170,10 +170,13 @@ def extract_instagram_reel_shortcode(url: str) -> str | None:
     path_parts = [part for part in parsed.path.split("/") if part]
     if "instagram.com" not in host or len(path_parts) < 2:
         return None
-    if path_parts[0].lower() not in {"reel", "reels", "p"}:
+    kind = path_parts[0].lower()
+    if kind not in {"reel", "reels", "p"}:
         return None
     shortcode = path_parts[1].strip()
-    return shortcode if re.fullmatch(r"[A-Za-z0-9_-]+", shortcode) else None
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", shortcode):
+        return None
+    return ("post" if kind == "p" else "reel", shortcode)
 
 
 async def create_task_in_backend(
@@ -373,7 +376,7 @@ async def handle_link(message: types.Message):
     user_id = str(message.from_user.id)
     is_youtube = "youtube.com" in url or "youtu.be" in url
     is_shorts = is_youtube and is_youtube_shorts_url(url)
-    instagram_reel_shortcode = extract_instagram_reel_shortcode(url)
+    instagram_shortcode = extract_instagram_shortcode(url)
 
     # For long YouTube videos, ask the user for choice.
     if is_youtube and not is_shorts:
@@ -431,20 +434,40 @@ async def handle_link(message: types.Message):
             )
             return
 
-    if task_type == "instagram" and instagram_reel_shortcode:
+    if task_type == "instagram" and instagram_shortcode:
+        instagram_kind, instagram_shortcode_value = instagram_shortcode
+        if instagram_kind == "post":
+            kb = {
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "5 секунд",
+                            "callback_data": f"five:igp:{instagram_shortcode_value}",
+                            "style": "success",
+                        }
+                    ]
+                ]
+            }
+            await message.reply(
+                "🖼️ Это Instagram Post. Что вы хотите сделать?",
+                reply_markup=json.dumps(kb),
+                disable_web_page_preview=True,
+            )
+            return
+
         kb = {
             "inline_keyboard": [
                 [
                     {
                         "text": "👤 ИИ аватар",
-                        "callback_data": f"avatar:ig:{instagram_reel_shortcode}",
+                        "callback_data": f"avatar:ig:{instagram_shortcode_value}",
                         "style": "success",
                     }
                 ],
                 [
                     {
                         "text": "📌 Публикация с плашками",
-                        "callback_data": f"publish:ig:{instagram_reel_shortcode}",
+                        "callback_data": f"publish:ig:{instagram_shortcode_value}",
                         "style": "primary",
                     }
                 ]
@@ -463,7 +486,7 @@ async def handle_link(message: types.Message):
 
 
 
-@dp.callback_query_handler(lambda c: c.data and c.data.startswith(('vizard:', 'avatar:', 'publish:')))
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith(('vizard:', 'avatar:', 'publish:', 'five:')))
 async def process_choice(callback_query: types.CallbackQuery):
     data = callback_query.data
     parts = data.split(":")
@@ -471,6 +494,27 @@ async def process_choice(callback_query: types.CallbackQuery):
         return
     
     service, platform, identifier = parts[0], parts[1], parts[2]
+
+    if service == "five":
+        if platform != "igp":
+            return
+        url = f"https://www.instagram.com/p/{identifier}/"
+        await callback_query.answer("Запускаю 5 секунд...")
+        status_message = await bot.send_message(
+            callback_query.message.chat.id,
+            "⏳ Выбран вариант 5 секунд\nЭтап: создаю задачу."
+        )
+        await create_task_in_backend(
+            str(callback_query.from_user.id),
+            url,
+            "avatar_instagram_post_5s",
+            status_message,
+        )
+        try:
+            await callback_query.message.delete()
+        except Exception:
+            pass
+        return
     
     if service == "avatar":
         if platform == "ig":

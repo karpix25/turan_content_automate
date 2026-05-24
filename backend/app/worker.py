@@ -353,7 +353,8 @@ rapidapi_yt = RapidAPIYoutubeClient(
 )
 downloader = Downloader(output_dir=(os.getenv("OUTPUT_DIR") or "./output").strip())
 processor = VideoProcessor()
-AVATAR_VERTICAL_TASK_TYPES = {"avatar_vertical", "avatar_instagram", "avatar_shorts"}
+INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES = {"avatar_instagram_post_5s"}
+AVATAR_VERTICAL_TASK_TYPES = {"avatar_vertical", "avatar_instagram", "avatar_shorts", *INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES}
 AVATAR_HORIZONTAL_TASK_TYPES = {"avatar_horizontal", "avatar_youtube"}
 AVATAR_READY_HEYGEN_TASK_TYPES = {"avatar_heygen", *AVATAR_VERTICAL_TASK_TYPES, *AVATAR_HORIZONTAL_TASK_TYPES}
 SHORT_AVATAR_TASK_TYPES = AVATAR_VERTICAL_TASK_TYPES
@@ -3006,16 +3007,21 @@ def process_content_task(self, task_id: int):
         elif task.type in AVATAR_TASK_TYPES:
             cleaned_reels_transcript = ""
             local_reel_source = None
-            if task.type == "avatar_instagram":
-                update_task_status_message(db, task, stage="Сценарий", detail="Получаю данные Instagram Reels.")
+            if task.type in {"avatar_instagram", *INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES}:
+                is_instagram_post_5s = task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES
+                instagram_content_label = "Instagram Post" if is_instagram_post_5s else "Instagram Reels"
+                update_task_status_message(db, task, stage="Сценарий", detail=f"Получаю данные {instagram_content_label}.")
                 t_data = scraper.get_instagram_details(source_url)
                 caption = ((t_data or {}).get("caption") or "").strip()
                 creator = ((t_data or {}).get("creator") or "").strip()
                 view_count = (t_data or {}).get("view_count")
-                download_url = _normalize_external_url(((t_data or {}).get("download_url") or "").strip())
+                download_url = "" if is_instagram_post_5s else _normalize_external_url(((t_data or {}).get("download_url") or "").strip())
                 source_title = (task.source_title or "").strip()
                 if not source_title:
-                    source_title = f"Instagram Reel @{creator}" if creator else "Instagram Reel"
+                    if is_instagram_post_5s:
+                        source_title = f"Instagram Post 5 секунд @{creator}" if creator else "Instagram Post 5 секунд"
+                    else:
+                        source_title = f"Instagram Reel @{creator}" if creator else "Instagram Reel"
                     task.source_title = source_title
                     db.commit()
 
@@ -3039,7 +3045,7 @@ def process_content_task(self, task_id: int):
                             )
 
                 if not reel_transcript and not caption:
-                    raise Exception("Failed to retrieve usable text for Instagram Reel")
+                    raise Exception(f"Failed to retrieve usable text for {instagram_content_label}")
                 raw_reels_transcript = "\n".join(
                     part for part in [
                         f"Transcript: {reel_transcript}" if reel_transcript else "",
@@ -3049,13 +3055,13 @@ def process_content_task(self, task_id: int):
                     ]
                     if part
                 )
-                update_task_status_message(db, task, stage="Сценарий", detail="Удаляю CTA и промо из Reels.")
+                update_task_status_message(db, task, stage="Сценарий", detail=f"Удаляю CTA и промо из {instagram_content_label}.")
                 cleaned_reels_transcript = (
                     llm.remove_cta_from_transcript(raw_reels_transcript)
                     or _strip_cta_fallback(raw_reels_transcript)
                 ).strip()
                 if not cleaned_reels_transcript:
-                    raise Exception("Failed to clean Instagram Reel transcript")
+                    raise Exception(f"Failed to clean {instagram_content_label} text")
                 transcript = cleaned_reels_transcript
             elif task.type == "avatar_shorts":
                 update_task_status_message(db, task, stage="Сценарий", detail="Получаю транскрипт YouTube Shorts.")
@@ -3135,20 +3141,31 @@ def process_content_task(self, task_id: int):
             target_duration_minutes = max(1, min(30, target_duration_minutes))
 
             if task.type in SHORT_AVATAR_TASK_TYPES:
-                original_char_count = count_script_chars(cleaned_reels_transcript)
-                target_chars = max(80, original_char_count)
-                min_chars = max(40, int(round(target_chars * 0.97)))
-                max_chars = max(min_chars + 10, int(round(target_chars * 1.03)))
-                target_duration_seconds = (
-                    round(target_chars / chars_per_second, 2)
-                    if chars_per_second > 0
-                    else None
-                )
+                if task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
+                    target_duration_seconds = 5.0
+                    target_chars = int(round(chars_per_second * target_duration_seconds)) if chars_per_second > 0 else 70
+                    target_chars = max(45, min(120, target_chars))
+                    min_chars = max(35, int(round(target_chars * 0.9)))
+                    max_chars = max(min_chars + 10, int(round(target_chars * 1.1)))
+                else:
+                    original_char_count = count_script_chars(cleaned_reels_transcript)
+                    target_chars = max(80, original_char_count)
+                    min_chars = max(40, int(round(target_chars * 0.97)))
+                    max_chars = max(min_chars + 10, int(round(target_chars * 1.03)))
+                    target_duration_seconds = (
+                        round(target_chars / chars_per_second, 2)
+                        if chars_per_second > 0
+                        else None
+                    )
                 update_task_status_message(
                     db,
                     task,
                     stage="Сценарий",
-                    detail="Подгоняю сценарий под длительность озвучки и усиливаю хук.",
+                    detail=(
+                        "Сжимаю пост в сценарий на 5 секунд и усиливаю хук."
+                        if task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES
+                        else "Подгоняю сценарий под длительность озвучки и усиливаю хук."
+                    ),
                 )
                 script = llm.rewrite_reels_avatar_script(
                     cleaned_transcript=cleaned_reels_transcript,
@@ -3939,7 +3956,7 @@ def process_content_task(self, task_id: int):
                             "output_path": base_output,
                             "publish_at": None,
                             "target_account_id": None,
-                            "target_platform": "instagram" if task.type == "avatar_instagram" else "youtube",
+                            "target_platform": "instagram" if task.type in {"avatar_instagram", *INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES} else "youtube",
                             "source_title": clip_title,
                             "source_label": _build_source_label(
                                 base_source,
@@ -4039,6 +4056,8 @@ def process_content_task(self, task_id: int):
         if task.type in SHORT_AVATAR_TASK_TYPES and task.output_path:
             if task.type == "avatar_instagram":
                 label = "Reels Avatar"
+            elif task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
+                label = "Instagram Post 5 секунд"
             elif task.type == "avatar_shorts":
                 label = "Shorts Avatar"
             else:
