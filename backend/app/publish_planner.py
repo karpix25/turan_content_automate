@@ -121,7 +121,7 @@ def plan_next_publish_times(
 
     planned: list[datetime.datetime] = []
     reserved = set(occupied)
-    day_cursor = now_msk.date()
+    day_cursor = earliest_msk.date()
 
     for _ in range(0, 370):
         slots_msk = _build_daily_slots(
