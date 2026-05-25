@@ -13,7 +13,7 @@ const DIRECTOR = {
   slideHoldExtension: 0.75,
   maxSingleOverlayDuration: 4.5,
   minSingleOverlayDuration: 1.8,
-  minCleanVideoGap: 1.2,
+  minCleanVideoGap: Math.max(0, Number(process.env.HYPERFRAMES_MIN_CLEAN_VIDEO_GAP_SECONDS || 3)),
   hookReservedSeconds: 2.55,
   introOffset: 0,
   outroSafeTail: 0.35,
@@ -103,9 +103,65 @@ function pickTranscriptAnchors(words, beatCount, totalDuration) {
 }
 
 function fallbackAnchors(beatCount, totalDuration) {
+  if (beatCount <= 0) return [];
   const usableDuration = Math.max(1, totalDuration - DIRECTOR.outroSafeTail);
   const step = usableDuration / beatCount;
   return Array.from({ length: beatCount }, (_, index) => Math.max(0, index * step + (index === 0 ? 0 : step * 0.18)));
+}
+
+function getUsableDuration(totalDuration) {
+  const usableStart = Math.max(0, DIRECTOR.introOffset);
+  const usableEnd = Math.max(usableStart + 0.5, totalDuration - DIRECTOR.outroSafeTail);
+  return Math.max(0.5, usableEnd - usableStart);
+}
+
+function getFeasibleBeatCount(totalDuration, requestedCount) {
+  if (requestedCount <= 1) return requestedCount;
+
+  const usableDuration = getUsableDuration(totalDuration);
+  for (let count = requestedCount; count > 1; count -= 1) {
+    const requiredSeconds =
+      count * DIRECTOR.minSingleOverlayDuration + (count - 1) * DIRECTOR.minCleanVideoGap;
+    if (requiredSeconds <= usableDuration) return count;
+  }
+
+  return 1;
+}
+
+function chooseEvenly(items, count) {
+  if (count >= items.length) return items.map((item, index) => ({ item, index }));
+  if (count <= 1) return [{ item: items[0], index: 0 }];
+
+  const selected = [];
+  const used = new Set();
+  const lastIndex = items.length - 1;
+
+  for (let step = 0; step < count; step += 1) {
+    let index = Math.round((step * lastIndex) / (count - 1));
+    while (used.has(index) && index < items.length - 1) index += 1;
+    while (used.has(index) && index > 0) index -= 1;
+    if (!used.has(index)) {
+      used.add(index);
+      selected.push({ item: items[index], index });
+    }
+  }
+
+  for (let index = 0; selected.length < count && index < items.length; index += 1) {
+    if (!used.has(index)) {
+      used.add(index);
+      selected.push({ item: items[index], index });
+    }
+  }
+
+  return selected.sort((a, b) => a.index - b.index);
+}
+
+function setSectionDisabled(section, disabled) {
+  if (/data-disabled-card="[^"]*"/.test(section.block)) {
+    return section.block.replace(/data-disabled-card="[^"]*"/, `data-disabled-card="${disabled ? "true" : "false"}"`);
+  }
+
+  return section.block.replace(/<section\b/, `<section data-disabled-card="${disabled ? "true" : "false"}"`);
 }
 
 function normalizeStarts(rawAnchors, beatCount, clipDuration, totalDuration) {
@@ -140,43 +196,58 @@ if (!sections.length) {
   throw new Error("No beat sections found in index.html");
 }
 
-const targetOverlaySeconds = totalDuration * DIRECTOR.overlayCoverageTarget;
-const rawClipDuration = targetOverlaySeconds / sections.length;
+const requestedBeatCount = sections.length;
+const activeBeatCount = getFeasibleBeatCount(totalDuration, requestedBeatCount);
+const selectedSections = chooseEvenly(sections, activeBeatCount);
+const selectedSectionIndexes = new Set(selectedSections.map(({ index }) => index));
+const activeSections = selectedSections.map(({ item }) => item);
+const usableDuration = getUsableDuration(totalDuration);
+const maxOverlaySeconds = Math.max(
+  0.5,
+  usableDuration - Math.max(0, activeBeatCount - 1) * DIRECTOR.minCleanVideoGap,
+);
+const targetOverlaySeconds = Math.min(totalDuration * DIRECTOR.overlayCoverageTarget, maxOverlaySeconds);
+const rawClipDuration = targetOverlaySeconds / activeBeatCount;
+const maxClipDuration = Math.max(0.5, Math.min(DIRECTOR.maxSingleOverlayDuration, maxOverlaySeconds / activeBeatCount));
+const minClipDuration = Math.min(DIRECTOR.minSingleOverlayDuration, maxClipDuration);
 const clipDuration = clamp(
   rawClipDuration + DIRECTOR.slideHoldExtension,
-  DIRECTOR.minSingleOverlayDuration,
-  DIRECTOR.maxSingleOverlayDuration,
+  minClipDuration,
+  maxClipDuration,
 );
 const words = await readWords();
 const sceneTimings = await readScenePlanTimings();
-const useSceneTimings = sceneTimings.length >= sections.length;
-const anchors = useSceneTimings ? [] : pickTranscriptAnchors(words, sections.length, totalDuration);
-const starts = useSceneTimings
-  ? sceneTimings.slice(0, sections.length).map((scene, index) =>
-      clamp(
-        Math.max(scene.start, index === 0 ? DIRECTOR.hookReservedSeconds : 0),
-        0,
-        Math.max(0, totalDuration - 0.5),
-      ),
-    )
-  : normalizeStarts(anchors, sections.length, clipDuration, totalDuration);
+const useSceneTimings = sceneTimings.length >= requestedBeatCount;
+const anchors = useSceneTimings
+  ? selectedSections.map(({ index }, selectedIndex) => {
+      const sceneStart = sceneTimings[index]?.start;
+      if (!Number.isFinite(sceneStart)) return undefined;
+      return Math.max(sceneStart, selectedIndex === 0 ? DIRECTOR.hookReservedSeconds : 0);
+    })
+  : pickTranscriptAnchors(words, activeBeatCount, totalDuration);
+const starts = normalizeStarts(anchors, activeBeatCount, clipDuration, totalDuration);
 
 let nextHtml = html;
 let overlaySeconds = 0;
 sections.forEach((section, index) => {
-  const sectionDuration = useSceneTimings
-    ? clamp(sceneTimings[index].end - sceneTimings[index].start, DIRECTOR.minSingleOverlayDuration, DIRECTOR.maxSingleOverlayDuration)
-    : clipDuration;
-  overlaySeconds += sectionDuration;
-  nextHtml = nextHtml.replace(section.block, updateSectionTiming(section, starts[index], sectionDuration));
+  if (!selectedSectionIndexes.has(index)) {
+    nextHtml = nextHtml.replace(section.block, setSectionDisabled(section, true));
+  }
+});
+activeSections.forEach((section, index) => {
+  overlaySeconds += clipDuration;
+  nextHtml = nextHtml.replace(section.block, updateSectionTiming(section, starts[index], clipDuration));
 });
 
 await writeFile(indexPath, nextHtml);
 
 console.log("[director-timeline] Updated beat timing:");
 console.log(`  duration: ${totalDuration.toFixed(3)}s`);
-console.log(`  beats: ${sections.length}`);
+console.log(`  beats requested: ${requestedBeatCount}`);
+console.log(`  beats active: ${activeBeatCount}`);
+console.log(`  beats disabled: ${requestedBeatCount - activeBeatCount}`);
 console.log(`  clip duration: ${clipDuration.toFixed(3)}s`);
+console.log(`  min clean gap: ${DIRECTOR.minCleanVideoGap.toFixed(3)}s`);
 console.log(`  hold extension: ${DIRECTOR.slideHoldExtension.toFixed(3)}s`);
 console.log(`  overlay coverage: ${(overlaySeconds / totalDuration).toFixed(3)}`);
 console.log(`  scene-plan timings: ${useSceneTimings ? "yes" : "no"}`);
