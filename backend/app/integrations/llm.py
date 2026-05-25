@@ -135,6 +135,32 @@ class LLMClient:
         
         return self._complete(messages, temperature=0.2)
 
+    def generate_youtube_publication_title(self, transcript: str) -> Optional[str]:
+        source = re.sub(r"\s+", " ", (transcript or "")).strip()
+        if not source:
+            return None
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "Ты YouTube-копирайтер. Придумай новый заголовок для Shorts/короткого ролика "
+                    "строго по транскрибации. Не используй оригинальный заголовок, ссылки, CTA, названия каналов "
+                    "или рекламные фразы. Русский язык. До 90 символов. Без эмодзи. Верни только заголовок."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Транскрибация ролика:\n{source[:4000]}",
+            },
+        ]
+        title = self._complete(messages, temperature=0.55)
+        if not title:
+            return None
+        title = re.sub(r"^[\"'«“]+|[\"'»”]+$", "", title.strip())
+        title = re.sub(r"\s+", " ", title).strip()
+        return title[:100] or None
+
     @staticmethod
     def estimate_word_count(text: str | None) -> int:
         content = (text or "").strip()

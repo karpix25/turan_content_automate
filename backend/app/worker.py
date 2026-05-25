@@ -148,6 +148,36 @@ yandex_disk = YandexDiskClient(
 )
 
 
+def _fallback_youtube_title_from_context(context_text: str | None) -> str:
+    source = re.sub(r"\s+", " ", (context_text or "")).strip()
+    if not source:
+        return "Видео"
+    first_sentence = re.split(r"(?<=[.!?])\s+", source, maxsplit=1)[0].strip()
+    title = first_sentence or source
+    title = re.sub(r"^(ну|и|а|так|в общем|смотрите)[,\s]+", "", title, flags=re.IGNORECASE).strip()
+    return title[:90].strip(" .,;:!?") or "Видео"
+
+
+def _generate_youtube_title_from_context(task_id: int, context_text: str | None, clip_title: str | None = None) -> str:
+    context = re.sub(r"\s+", " ", (context_text or "")).strip()
+    generated_title = None
+    if context:
+        try:
+            generated_title = llm.generate_youtube_publication_title(context)
+        except Exception as exc:
+            logging.warning("Task %s: failed to generate YouTube title from existing context: %s", task_id, exc)
+
+    title = (generated_title or _fallback_youtube_title_from_context(context)).strip()
+    logging.info(
+        "Task %s: generated YouTube publication title from existing context title=%s context_chars=%s source_clip_title_present=%s",
+        task_id,
+        title,
+        len(context),
+        bool((clip_title or "").strip()),
+    )
+    return title or "Видео"
+
+
 def _collect_yandex_disk_upload_paths(task: models.VideoTask, rendered_items: List[dict] | None = None) -> List[str]:
     file_paths: List[str] = []
     for item in rendered_items or []:
@@ -1850,6 +1880,7 @@ def process_content_task(self, task_id: int):
     update_task_status_message(db, task, stage="Обработка началась", detail="Подготавливаю видео к обработке.")
     input_videos: List[str] = []
     input_video_titles: List[str | None] = []
+    input_video_contexts: List[str | None] = []
     avatar_clean_audio_path: str | None = None
 
     def _remaining_task_budget_seconds() -> float:
@@ -2928,6 +2959,7 @@ def process_content_task(self, task_id: int):
             )
             input_videos.append(local_input)
             input_video_titles.append(task.source_title or os.path.basename(local_input))
+            input_video_contexts.append(task.source_title or os.path.basename(local_input))
             source_url = source_url_raw
         else:
             source_url = _normalize_external_url(source_url_raw)
@@ -2939,6 +2971,7 @@ def process_content_task(self, task_id: int):
             clips = _download_vizard_project_clips(db, task, source_url)
             input_videos.extend(path for path, _title in clips)
             input_video_titles.extend(title for _path, title in clips)
+            input_video_contexts.extend(title for _path, title in clips)
 
         elif task.type in AVATAR_READY_HEYGEN_TASK_TYPES and _extract_heygen_video_id(source_url_raw):
             heygen_video_id = _extract_heygen_video_id(source_url_raw)
@@ -3178,6 +3211,7 @@ def process_content_task(self, task_id: int):
 
             input_videos.append(local_avatar_video)
             input_video_titles.append(task.source_title or f"Avatar Video {task_id}")
+            input_video_contexts.append(thumbnail_script or task.source_title or f"Avatar Video {task_id}")
 
         elif task.type in AVATAR_TASK_TYPES:
             cleaned_reels_transcript = ""
@@ -3825,6 +3859,7 @@ def process_content_task(self, task_id: int):
             # We treat this video as the 'source' for the final step
             input_videos.append(local_avatar_video)
             input_video_titles.append(task.source_title or f"Avatar Video {task_id}")
+            input_video_contexts.append(task.script_text or task.factual_outline or task.source_title or f"Avatar Video {task_id}")
             # Continue to standard processing loop below
 
 
@@ -3857,6 +3892,7 @@ def process_content_task(self, task_id: int):
                 raise Exception("Failed to download Instagram video from ScrapeCreators URL")
             input_videos.append(local_file)
             input_video_titles.append(source_title)
+            input_video_contexts.append(caption or source_title)
 
         elif task.type == "youtube":
             _validate_youtube_url_or_raise(source_url)
@@ -3898,8 +3934,11 @@ def process_content_task(self, task_id: int):
 
                 if not local_file:
                     raise Exception("Failed to download YouTube Shorts from provider URL")
+                transcript_data = scraper.get_youtube_transcript(provider_source_url) or {}
+                transcript_context = (transcript_data.get("transcript_only_text") or "").strip()
                 input_videos.append(local_file)
                 input_video_titles.append(source_title)
+                input_video_contexts.append(transcript_context or source_title)
             else:
                 logging.info("Task %s: routed full YouTube video to Vizard", task_id)
                 update_task_status_message(db, task, stage="Vizard", detail="Полное YouTube-видео отправлено в Vizard.")
@@ -3920,9 +3959,13 @@ def process_content_task(self, task_id: int):
                 )
                 input_videos.extend(path for path, _title in clips)
                 input_video_titles.extend(title for _path, title in clips)
+                input_video_contexts.extend(title for _path, title in clips)
 
         if not input_videos:
             raise Exception("No input videos were downloaded")
+        while len(input_video_contexts) < len(input_videos):
+            index = len(input_video_contexts)
+            input_video_contexts.append(input_video_titles[index] if len(input_video_titles) > index else None)
         update_task_status_message(db, task, stage="Монтаж", detail="Собираю финальные ролики.")
         process_all_clips = bool(task.vizard_project_id)
         if task.type in AVATAR_TASK_TYPES:
@@ -3930,11 +3973,21 @@ def process_content_task(self, task_id: int):
             process_all_clips = False
         if process_all_clips:
             source_items = [
-                (index, input_videos[index - 1], input_video_titles[index - 1] if len(input_video_titles) >= index else None)
+                (
+                    index,
+                    input_videos[index - 1],
+                    input_video_titles[index - 1] if len(input_video_titles) >= index else None,
+                    input_video_contexts[index - 1] if len(input_video_contexts) >= index else None,
+                )
                 for index in range(1, len(input_videos) + 1)
             ]
         else:
-            source_items = [(1, input_videos[0], input_video_titles[0] if input_video_titles else None)]
+            source_items = [(
+                1,
+                input_videos[0],
+                input_video_titles[0] if input_video_titles else None,
+                input_video_contexts[0] if input_video_contexts else None,
+            )]
         if not process_all_clips and len(input_videos) > 1:
             logging.info(f"Task {task_id}: got {len(input_videos)} source clips, processing first clip only")
 
@@ -3980,12 +4033,12 @@ def process_content_task(self, task_id: int):
         output_platforms: list[str] = []
         output_group_keys: list[str | int | None] = []
         if target_account_ids:
-            for _clip_index, _video_path, _clip_title in source_items:
+            for _clip_index, _video_path, _clip_title, _clip_context in source_items:
                 for account_id in target_account_ids:
                     output_platforms.append(_normalize_platform_code(account_platform_map.get(account_id, "universal")))
                     output_group_keys.append(_clip_index if process_all_clips else None)
         else:
-            for _clip_index, _video_path, _clip_title in source_items:
+            for _clip_index, _video_path, _clip_title, _clip_context in source_items:
                 output_platforms.append(_normalize_platform_code(task.type))
                 output_group_keys.append(_clip_index if process_all_clips else None)
         publish_times = _plan_publish_times_for_outputs(
@@ -4049,14 +4102,27 @@ def process_content_task(self, task_id: int):
             )
             celery_app.send_task("sync_publication_task", args=[output_task.id])
 
-        for clip_index, video_path, clip_title in source_items:
+        for clip_index, video_path, clip_title, clip_context in source_items:
             if not video_path:
                 raise Exception("Downloaded video path is empty")
+            needs_youtube_title = (
+                task.type == "youtube"
+                or any(
+                    _normalize_platform_code(account_platform_map.get(account_id, "universal")) == "youtube"
+                    for account_id in target_account_ids
+                )
+            )
+            youtube_publication_title = (
+                _generate_youtube_title_from_context(task_id, clip_context, clip_title)
+                if needs_youtube_title
+                else None
+            )
             should_apply_vertical_cover = bool(task.vizard_project_id) or task.type in {"instagram", "youtube"}
             if should_apply_vertical_cover:
                 vertical_context = (
                     task.script_text
                     or task.factual_outline
+                    or clip_context
                     or task.source_title
                     or clip_title
                     or ""
@@ -4076,6 +4142,11 @@ def process_content_task(self, task_id: int):
                 for account_id in target_account_ids:
                     slot_idx = account_variant_index.get(account_id, 1)
                     platform_code = account_platform_map.get(account_id, "universal")
+                    output_source_title = (
+                        youtube_publication_title
+                        if _normalize_platform_code(platform_code) == "youtube" or task.type == "youtube"
+                        else clip_title
+                    )
                     account_output = f"{video_root}_final_s{slot_idx}_a{account_id}.mp4"
 
                     if task.type in AVATAR_TASK_TYPES:
@@ -4095,7 +4166,7 @@ def process_content_task(self, task_id: int):
                             "publish_at": publish_at,
                             "target_account_id": account_id,
                             "target_platform": platform_code,
-                            "source_title": clip_title,
+                            "source_title": output_source_title,
                             "source_label": _build_source_label(
                                 base_source,
                                 clip_index=clip_index if process_all_clips else None,
@@ -4166,7 +4237,7 @@ def process_content_task(self, task_id: int):
                         "publish_at": publish_at,
                         "target_account_id": account_id,
                         "target_platform": platform_code,
-                        "source_title": clip_title,
+                        "source_title": output_source_title,
                         "source_label": _build_source_label(
                             base_source,
                             clip_index=clip_index if process_all_clips else None,
@@ -4229,7 +4300,7 @@ def process_content_task(self, task_id: int):
                         "publish_at": publish_at,
                         "target_account_id": None,
                         "target_platform": _normalize_platform_code(task.type),
-                        "source_title": clip_title,
+                        "source_title": youtube_publication_title if task.type == "youtube" else clip_title,
                         "source_label": _build_source_label(
                             base_source,
                             clip_index=clip_index if process_all_clips else None,

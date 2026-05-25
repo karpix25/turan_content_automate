@@ -138,17 +138,6 @@ def _build_publication_content(account_description: str | None) -> str:
     return (account_description or "").strip()
 
 
-def _build_publication_title(account_description: str | None) -> str:
-    description = (account_description or "").strip()
-    if not description:
-        return "Видео"
-    for line in description.splitlines():
-        title = line.strip()
-        if title:
-            return title[:100]
-    return "Видео"
-
-
 def _normalize_post_at(value: datetime.datetime | None, force_now: bool) -> datetime.datetime:
     if force_now or value is None:
         return datetime.datetime.now(datetime.timezone.utc)
@@ -597,7 +586,7 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
         for account_id in account_ids:
             acc_platform = account_platform_map.get(account_id, "universal")
             if acc_platform == "youtube" or target_platform == "youtube":
-                title_by_account[account_id] = _build_publication_title(account_descriptions.get(account_id))
+                title_by_account[account_id] = (getattr(task, "source_title", None) or "").strip() or "Видео"
 
         file_id = task.postmypost_file_id
         if not task.preview_url:
