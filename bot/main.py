@@ -445,15 +445,29 @@ async def handle_link(message: types.Message):
                 "inline_keyboard": [
                     [
                         {
-                            "text": "5 секунд",
+                            "text": "5 секунд (только посты)",
                             "callback_data": f"five:igp:{instagram_shortcode_value}",
                             "style": "success",
+                        }
+                    ],
+                    [
+                        {
+                            "text": "👤 ИИ аватар",
+                            "callback_data": f"avatar:igp:{instagram_shortcode_value}",
+                            "style": "success",
+                        }
+                    ],
+                    [
+                        {
+                            "text": "📌 Публикация с плашками",
+                            "callback_data": f"publish:igp:{instagram_shortcode_value}",
+                            "style": "primary",
                         }
                     ]
                 ]
             }
             await message.reply(
-                "🖼️ Это Instagram Post. Что вы хотите сделать?",
+                "🖼️ Это Instagram Post/Reels. Что вы хотите сделать?",
                 reply_markup=json.dumps(kb),
                 disable_web_page_preview=True,
             )
@@ -521,10 +535,14 @@ async def process_choice(callback_query: types.CallbackQuery):
         return
     
     if service == "avatar":
-        if platform == "ig":
-            url = f"https://www.instagram.com/reel/{identifier}/"
+        if platform in {"ig", "igp"}:
+            url = (
+                f"https://www.instagram.com/p/{identifier}/"
+                if platform == "igp"
+                else f"https://www.instagram.com/reel/{identifier}/"
+            )
             task_type = "avatar_instagram"
-            answer_text = "👤 Запускаю Reels Аватар..."
+            answer_text = "👤 Запускаю Instagram Аватар..."
         elif platform == "shorts":
             url = f"https://www.youtube.com/shorts/{identifier}"
             task_type = "avatar_shorts"
@@ -549,10 +567,14 @@ async def process_choice(callback_query: types.CallbackQuery):
         return
 
     if service == "publish":
-        if platform == "ig":
-            url = f"https://www.instagram.com/reel/{identifier}/"
+        if platform in {"ig", "igp"}:
+            url = (
+                f"https://www.instagram.com/p/{identifier}/"
+                if platform == "igp"
+                else f"https://www.instagram.com/reel/{identifier}/"
+            )
             task_type = "instagram"
-            answer_text = "📌 Запускаю публикацию Reels с плашками..."
+            answer_text = "📌 Запускаю публикацию Instagram с плашками..."
             selected_text = "⏳ Выбрана публикация с плашками\nЭтап: создаю задачу."
         elif platform == "shorts":
             url = f"https://www.youtube.com/shorts/{identifier}"
