@@ -134,12 +134,8 @@ def _get_account_descriptions(db, user_id: int) -> dict[int, str]:
     return result
 
 
-def _build_publication_content(clip_title: str | None, account_description: str | None) -> str:
-    title = (clip_title or "").strip()
-    description = (account_description or "").strip()
-    if title and description:
-        return f"{title}\n\n{description}"
-    return title or description
+def _build_publication_content(account_description: str | None) -> str:
+    return (account_description or "").strip()
 
 
 def _normalize_post_at(value: datetime.datetime | None, force_now: bool) -> datetime.datetime:
@@ -553,9 +549,8 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
         account_descriptions = _get_account_descriptions(db, user.id)
         vizard_title = (getattr(task, "source_title", None) or "").strip()
         content_by_account = {
-            account_id: _build_publication_content(vizard_title, account_descriptions.get(account_id))
+            account_id: _build_publication_content(account_descriptions.get(account_id))
             for account_id in account_ids
-            if vizard_title or account_id in account_descriptions
         }
         logger.info(
             "Task %s publication payload: user_id=%s telegram_id=%s account_ids=%s account_descriptions=%s vizard_title=%s",
@@ -575,7 +570,7 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
         ]
         if missing_description_account_ids:
             logger.warning(
-                "Task %s has no publication description for account_ids=%s; using Vizard title only when available",
+                "Task %s has no publication description for account_ids=%s; publication content will be empty",
                 task_id,
                 missing_description_account_ids,
             )

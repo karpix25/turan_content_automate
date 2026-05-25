@@ -374,9 +374,10 @@ class PostMyPostClient:
                 "publication_type": publication_type,
                 "file_ids": [file_id],
             }
-            account_content = content_by_account.get(account_id, content)
-            if account_content:
-                item["content"] = account_content
+            if account_id in content_by_account:
+                item["content"] = content_by_account.get(account_id) or ""
+            elif content:
+                item["content"] = content
             account_title = (title_by_account.get(account_id) or "").strip()
             if account_title:
                 item["title"] = account_title
@@ -414,9 +415,10 @@ class PostMyPostClient:
                 "publication_type": publication_type,
                 "file_ids": [file_id],
             }
-            account_content = content_by_account.get(account_id, content)
-            if account_content:
-                item["content"] = account_content
+            if account_id in content_by_account:
+                item["content"] = content_by_account.get(account_id) or ""
+            elif content:
+                item["content"] = content
             account_title = (title_by_account.get(account_id) or "").strip()
             if account_title:
                 item["title"] = account_title
