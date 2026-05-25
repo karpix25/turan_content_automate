@@ -2897,7 +2897,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--index", default="index.html", help="Path to HyperFrames composition html")
     parser.add_argument("--language", default="ru", help="BCP-47 language (default: ru)")
     parser.add_argument("--deepgram-model", default="nova-3", help="Deepgram model (default: nova-3)")
-    parser.add_argument("--llm-model", default=os.environ.get("LLM_MODEL", "gpt-4o-mini"), help="LLM model")
+    parser.add_argument("--llm-model", default=os.environ.get("LLM_MODEL", "google/gemini-3.5-flash"), help="LLM model")
     parser.add_argument(
         "--llm-plan-attempts",
         type=int,

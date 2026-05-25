@@ -65,7 +65,7 @@ def main():
     run_command([
         "python3", str(PIPELINE_SCRIPT),
         "--video", str(dest_video),
-        "--llm-model", "openai/gpt-4o-mini"
+        "--llm-model", "google/gemini-3.5-flash"
     ], cwd=PROJECT_ROOT, env=env)
 
     # 3. Рендер видео (Hyperframes)

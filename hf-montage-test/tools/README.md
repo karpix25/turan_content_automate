@@ -20,7 +20,7 @@ It also writes semantic blocks to:
 Optional:
 
 - `LLM_BASE_URL` (default: `https://api.openai.com/v1`)
-- `LLM_MODEL` (default fallback in script: `gpt-4o-mini`)
+- `LLM_MODEL` (default fallback in script: `google/gemini-3.5-flash`)
 - `OPENROUTER_SITE_URL` and `OPENROUTER_APP_NAME` (optional OpenRouter headers)
 
 If no LLM key is set, the script auto-falls back to deterministic planning.
@@ -36,13 +36,13 @@ python3 tools/smart_montage_pipeline.py \
   --language ru \
   --deepgram-model nova-3 \
   --utt-split 0.65 \
-  --llm-model gpt-4o-mini \
+  --llm-model google/gemini-3.5-flash \
   --max-scenes 8 \
   --block-min-sentences 5 \
   --block-max-sentences 10
 ```
 
-## Run (with OpenRouter + Gemini 2.5 Pro)
+## Run (with OpenRouter + Gemini)
 
 ```bash
 cd hf-montage-test
@@ -52,7 +52,7 @@ python3 tools/smart_montage_pipeline.py \
   --language ru \
   --deepgram-model nova-3 \
   --utt-split 0.65 \
-  --llm-model google/gemini-2.5-pro \
+  --llm-model google/gemini-3.5-flash \
   --max-scenes 8 \
   --block-min-sentences 5 \
   --block-max-sentences 10 \
