@@ -2383,6 +2383,54 @@ def _scene_has_required_gap(start: float, end: float, scenes: list[dict[str, Any
     return True
 
 
+def _prune_scenes_for_required_gap(
+    scenes: list[dict[str, Any]],
+    *,
+    target_scene_count: int | None = None,
+) -> list[dict[str, Any]]:
+    min_gap = min_cutaway_gap_seconds()
+    if min_gap <= 0 or len(scenes) <= 1:
+        return scenes[: int(target_scene_count)] if target_scene_count and target_scene_count > 0 else scenes
+
+    ordered = sorted(scenes, key=lambda item: float(item.get("start", 0.0) or 0.0))
+    kept: list[dict[str, Any]] = []
+    dropped: list[str] = []
+
+    for scene in ordered:
+        try:
+            start = float(scene.get("start", 0.0) or 0.0)
+            end = float(scene.get("end", start) or start)
+        except (TypeError, ValueError):
+            dropped.append(str(scene.get("title") or scene.get("blockName") or "invalid"))
+            continue
+
+        if not kept:
+            kept.append(scene)
+            continue
+
+        try:
+            prev_end = float(kept[-1].get("end", kept[-1].get("start", 0.0)) or 0.0)
+        except (TypeError, ValueError):
+            prev_end = 0.0
+
+        if start - prev_end >= min_gap - 0.05:
+            kept.append(scene)
+            continue
+
+        dropped.append(str(scene.get("title") or scene.get("blockName") or f"{start:.2f}s"))
+
+    if target_scene_count and target_scene_count > 0:
+        kept = kept[: int(target_scene_count)]
+
+    if dropped:
+        eprint(
+            "Pruned dense scene-plan cutaways to preserve clean avatar gaps: "
+            + "; ".join(dropped[:12])
+        )
+
+    return kept
+
+
 def _build_repair_scene_from_utterance(utterance: dict[str, Any], index: int, duration: float) -> dict[str, Any] | None:
     text = normalize_plain_text(str(utterance.get("text") or ""))
     if not text:
@@ -2727,7 +2775,12 @@ def normalize_scene_plan(
     if not fixed:
         raise RuntimeError("LLM returned scenes, but none survived timing normalization")
 
+    fixed = _prune_scenes_for_required_gap(fixed, target_scene_count=target_scene_count)
+    if not fixed:
+        raise RuntimeError("LLM returned scenes, but none survived cutaway gap pruning")
+
     _ensure_min_scene_count(fixed, utterances_for_norm, duration, target_scene_count)
+    fixed = _prune_scenes_for_required_gap(fixed, target_scene_count=target_scene_count)
     _repair_scene_plan_metadata(fixed, utterances_for_norm)
     _repair_scene_plan_titles(fixed, utterances_for_norm)
     _repair_scene_plan_editorial_copy(fixed, utterances_for_norm)
