@@ -206,6 +206,10 @@ export const SettingsTab: React.FC = () => {
       alert('Финиш вставок должен быть больше старта.');
       return;
     }
+    if (selectedAvatarModelMismatch || selectedVerticalAvatarModelMismatch) {
+      alert('Выбранный HeyGen avatar не поддерживает текущую модель генерации. Выберите Avatar IV/V или другой avatar для Avatar III.');
+      return;
+    }
     setSavingSettings(true);
     try {
       await apiClient.updateSettings(telegramId, {
@@ -397,6 +401,26 @@ export const SettingsTab: React.FC = () => {
       : selectedHeyGenEngine === 'avatar_v'
         ? 'avatar_v'
         : 'avatar_iv';
+
+  const avatarSupportsGenerationModel = (avatar: HeyGenAvatar | undefined, model: HeyGenGenerationModel) => {
+    if (!avatar) return true;
+    const engines = avatar.supportedEngines.map(engine => engine.trim().toLowerCase()).filter(Boolean);
+    if (engines.length === 0) return true;
+    if (model === 'avatar_iii') {
+      return engines.some(engine => ['avatar_iii', 'avatar_3', 'avatar3', 'v2'].includes(engine));
+    }
+    return engines.includes(model);
+  };
+
+  const findAvatarById = (id: string) => heygenAvatars.find(avatar => avatar.id === id);
+
+  const selectedAvatarModelMismatch =
+    Boolean(selectedAvatar) &&
+    !avatarSupportsGenerationModel(findAvatarById(selectedAvatar), selectedHeyGenGenerationModel);
+
+  const selectedVerticalAvatarModelMismatch =
+    Boolean(selectedVerticalAvatar) &&
+    !avatarSupportsGenerationModel(findAvatarById(selectedVerticalAvatar), selectedHeyGenGenerationModel);
 
   const setHeyGenGenerationModel = (model: HeyGenGenerationModel) => {
     if (model === 'avatar_iii') {
@@ -767,11 +791,11 @@ export const SettingsTab: React.FC = () => {
         </summary>
         
         <div className="mt-3">
-        <div className="mb-3 grid grid-cols-3 gap-2 rounded-xl bg-slate-100 p-1">
-          {[
-            { id: 'avatar_iii' as HeyGenGenerationModel, label: 'Avatar III', hint: '$1/min 1080p' },
-            { id: 'avatar_iv' as HeyGenGenerationModel, label: 'Avatar IV', hint: 'TURAN ~$4/min' },
-            { id: 'avatar_v' as HeyGenGenerationModel, label: 'Avatar V', hint: 'TURAN ~$4/min' },
+	        <div className="mb-3 grid grid-cols-3 gap-2 rounded-xl bg-slate-100 p-1">
+	          {[
+	            { id: 'avatar_iii' as HeyGenGenerationModel, label: 'Avatar III', hint: '$1/min 1080p' },
+	            { id: 'avatar_iv' as HeyGenGenerationModel, label: 'Avatar IV', hint: 'TURAN ~$4/min' },
+	            { id: 'avatar_v' as HeyGenGenerationModel, label: 'Avatar V', hint: 'TURAN ~$4/min' },
           ].map(model => (
             <button
               key={model.id}
@@ -785,32 +809,40 @@ export const SettingsTab: React.FC = () => {
             >
               <span className="block text-xs font-bold">{model.label}</span>
               <span className="block text-[10px] leading-tight">{model.hint}</span>
-            </button>
-          ))}
-        </div>
-        {loadingAvatars ? (
-          <div className="flex items-center justify-center py-6 text-slate-400">
-            <Loader2 className="animate-spin w-5 h-5 mr-2" />
-            <span className="text-sm">Загрузка аватаров...</span>
-          </div>
+	            </button>
+	          ))}
+	        </div>
+	        {(selectedAvatarModelMismatch || selectedVerticalAvatarModelMismatch) && (
+	          <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-semibold leading-snug text-amber-800">
+	            Выбранный avatar поддерживает Avatar IV/V, а сверху включен Avatar III. В таком режиме HeyGen может дать только слабый lip-sync без движения рук.
+	          </div>
+	        )}
+	        {loadingAvatars ? (
+	          <div className="flex items-center justify-center py-6 text-slate-400">
+	            <Loader2 className="animate-spin w-5 h-5 mr-2" />
+	            <span className="text-sm">Загрузка аватаров...</span>
+	          </div>
         ) : heygenAvatars.length === 0 ? (
           <div className="text-center py-6 text-slate-400 italic text-sm">
             Аватары не найдены
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {heygenAvatars.map(avatar => (
-              <div
-                key={avatar.id}
-                className={`relative cursor-pointer rounded-xl overflow-hidden border-2 transition-all h-32 ${
-                  selectedAvatar === avatar.id || selectedVerticalAvatar === avatar.id ? 'border-[#24a1de] shadow-md' : 'border-transparent opacity-70 hover:opacity-100'
-                }`}
-              >
-                {avatar.preview && avatar.preview.endsWith('.mp4') ? (
-                  <video src={avatar.preview} className="w-full h-full object-cover bg-slate-100" muted onMouseOver={e => e.currentTarget.play()} onMouseOut={e => {e.currentTarget.pause(); e.currentTarget.currentTime = 0;}} />
-                ) : (
-                  <img src={avatar.preview || 'https://via.placeholder.com/150'} alt={avatar.name} className="w-full h-full object-cover bg-slate-100" />
-                )}
+	          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+	            {heygenAvatars.map(avatar => {
+	              const supportsCurrentModel = avatarSupportsGenerationModel(avatar, selectedHeyGenGenerationModel);
+	              const isSelected = selectedAvatar === avatar.id || selectedVerticalAvatar === avatar.id;
+	              return (
+	              <div
+	                key={avatar.id}
+	                className={`relative rounded-xl overflow-hidden border-2 transition-all h-32 ${
+	                  isSelected ? 'border-[#24a1de] shadow-md' : 'border-transparent opacity-70 hover:opacity-100'
+	                } ${supportsCurrentModel ? 'cursor-pointer' : 'opacity-40 grayscale'}`}
+	              >
+	                {avatar.preview && avatar.preview.endsWith('.mp4') ? (
+	                  <video src={avatar.preview} className="w-full h-full object-cover bg-slate-100" muted onMouseOver={e => e.currentTarget.play()} onMouseOut={e => {e.currentTarget.pause(); e.currentTarget.currentTime = 0;}} />
+	                ) : (
+	                  <img src={avatar.preview || 'https://via.placeholder.com/150'} alt={avatar.name} className="w-full h-full object-cover bg-slate-100" />
+	                )}
                 <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2">
                   <p className="text-white text-[11px] font-bold leading-tight truncate">{avatar.name}</p>
                   <p className="text-white/60 text-[8px] leading-tight truncate mt-0.5">
@@ -818,39 +850,49 @@ export const SettingsTab: React.FC = () => {
                   </p>
                 </div>
                 <div className="absolute top-2 right-2 flex flex-col gap-1">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedAvatar(avatar.id);
-                    }}
-                    className={`px-2 h-6 rounded-md border text-[10px] font-bold shadow-sm ${
-                      selectedAvatar === avatar.id
-                        ? 'bg-[#24a1de] border-white text-white'
-                        : 'bg-white/90 border-white text-slate-700'
-                    }`}
+	                  <button
+	                    type="button"
+	                    disabled={!supportsCurrentModel}
+	                    onClick={(e) => {
+	                      e.stopPropagation();
+	                      if (!supportsCurrentModel) return;
+	                      setSelectedAvatar(avatar.id);
+	                    }}
+	                    className={`px-2 h-6 rounded-md border text-[10px] font-bold shadow-sm disabled:cursor-not-allowed ${
+	                      selectedAvatar === avatar.id
+	                        ? 'bg-[#24a1de] border-white text-white'
+	                        : 'bg-white/90 border-white text-slate-700'
+	                    }`}
                   >
                     YouTube
                   </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedVerticalAvatar(avatar.id);
-                    }}
-                    className={`px-2 h-6 rounded-md border text-[10px] font-bold shadow-sm ${
-                      selectedVerticalAvatar === avatar.id
-                        ? 'bg-emerald-500 border-white text-white'
-                        : 'bg-white/90 border-white text-slate-700'
-                    }`}
+	                  <button
+	                    type="button"
+	                    disabled={!supportsCurrentModel}
+	                    onClick={(e) => {
+	                      e.stopPropagation();
+	                      if (!supportsCurrentModel) return;
+	                      setSelectedVerticalAvatar(avatar.id);
+	                    }}
+	                    className={`px-2 h-6 rounded-md border text-[10px] font-bold shadow-sm disabled:cursor-not-allowed ${
+	                      selectedVerticalAvatar === avatar.id
+	                        ? 'bg-emerald-500 border-white text-white'
+	                        : 'bg-white/90 border-white text-slate-700'
+	                    }`}
                   >
                     Shorts
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+	                  </button>
+	                </div>
+	                {!supportsCurrentModel && (
+	                  <div className="absolute inset-x-2 top-2 rounded-md bg-black/70 px-2 py-1 text-center text-[9px] font-bold leading-tight text-white">
+	                    Нужен Avatar IV/V
+	                  </div>
+	                )}
+	              </div>
+	              );
+	            })}
+	          </div>
+	        )}
         </div>
       </details>
 
