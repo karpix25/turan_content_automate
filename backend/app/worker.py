@@ -1652,10 +1652,22 @@ def _run_hyperframes_pipeline(
         *,
         stable: bool = True,
     ):
+        render_quality = (
+            os.getenv("HYPERFRAMES_AVATAR_RENDER_QUALITY")
+            or os.getenv("HYPERFRAMES_RENDER_QUALITY")
+            or "high"
+        ).strip().lower()
+        if render_quality not in {"draft", "standard", "high"}:
+            logging.warning(
+                "Task %s: invalid Hyperframes avatar render quality %r; using high.",
+                task_id,
+                render_quality,
+            )
+            render_quality = "high"
         cmd = [
             "npm", "run", "render", "--",
             "--output", output_path,
-            "--quality", "standard",
+            "--quality", render_quality,
             "--workers", "1",
             *(extra_args or []),
         ]

@@ -21,7 +21,7 @@ class VideoProcessor:
         kwargs: Dict[str, object] = {
             "vcodec": "libx264",
             "preset": os.getenv("FFMPEG_X264_PRESET", "veryfast"),
-            "crf": os.getenv("FFMPEG_X264_CRF", "21"),
+            "crf": os.getenv("FFMPEG_X264_CRF", "18"),
             "pix_fmt": "yuv420p",
             "movflags": "+faststart",
             "map_metadata": "-1",
@@ -30,7 +30,7 @@ class VideoProcessor:
             kwargs.update(
                 {
                     "acodec": "aac",
-                    "b:a": os.getenv("FFMPEG_AUDIO_BITRATE", "192k"),
+                    "b:a": os.getenv("FFMPEG_AUDIO_BITRATE", "256k"),
                 }
             )
         return kwargs

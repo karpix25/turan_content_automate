@@ -97,6 +97,16 @@ class HeyGenClient:
                     "height": 1920 if is_vertical else 1080,
                 },
             }
+
+        logger.info(
+            "HeyGen generation request: api_version=%s endpoint=%s orientation=%s dimension=%s resolution=%s engine=%s",
+            api_version_value,
+            url,
+            "vertical" if is_vertical else "horizontal",
+            payload.get("dimension"),
+            payload.get("resolution"),
+            payload.get("engine"),
+        )
         
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
