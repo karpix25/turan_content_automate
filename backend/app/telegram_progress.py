@@ -30,6 +30,42 @@ def build_status_message(task_id: int, stage: str, detail: str | None = None, ok
     return "\n".join(lines)
 
 
+def _short_text(value: str | None, limit: int = 120) -> str:
+    text = re.sub(r"\s+", " ", (value or "")).strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "…"
+
+
+def build_task_context_lines(task) -> list[str]:
+    task_id = getattr(task, "id", "-")
+    task_type = (getattr(task, "type", None) or "").strip()
+    platform = (getattr(task, "target_platform", None) or "").strip()
+    account_id = getattr(task, "target_account_id", None)
+    source_title = _short_text(getattr(task, "source_title", None), 100)
+    source_url = _short_text(getattr(task, "source_url", None), 100)
+
+    lines = [f"Видео #{task_id}"]
+    if task_type:
+        lines.append(f"Тип: {task_type}")
+    destination_parts = []
+    if platform:
+        destination_parts.append(platform)
+    if account_id:
+        destination_parts.append(f"аккаунт {account_id}")
+    if destination_parts:
+        lines.append("Куда: " + ", ".join(destination_parts))
+    if source_title:
+        lines.append(f"Title: {source_title}")
+    elif source_url:
+        lines.append(f"Источник: {source_url}")
+    return lines
+
+
+def build_task_context_text(task) -> str:
+    return "\n".join(build_task_context_lines(task))
+
+
 def update_task_status_message(db, task, stage: str, detail: str | None = None, *, ok: bool = False, failed: bool = False) -> None:
     token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
     chat_id = (getattr(task, "telegram_chat_id", None) or "").strip()
@@ -105,16 +141,25 @@ def _split_message_chunks(text: str, max_len: int = MAX_TELEGRAM_TEXT_LEN) -> li
     return parts
 
 
-def _send_telegram_message(token: str, chat_id: str, text: str) -> bool:
+def _reply_message_id(task) -> str | None:
+    value = (getattr(task, "telegram_reply_message_id", None) or "").strip()
+    return value or None
+
+
+def _send_telegram_message(token: str, chat_id: str, text: str, reply_to_message_id: str | None = None) -> bool:
     try:
+        payload = {
+            "chat_id": chat_id,
+            "text": text,
+            "disable_web_page_preview": True,
+        }
+        if reply_to_message_id:
+            payload["reply_to_message_id"] = int(reply_to_message_id)
+            payload["allow_sending_without_reply"] = True
         with httpx.Client(timeout=httpx.Timeout(20.0, connect=5.0)) as client:
             response = client.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
-                json={
-                    "chat_id": chat_id,
-                    "text": text,
-                    "disable_web_page_preview": True,
-                },
+                json=payload,
             )
         payload = response.json()
         if response.status_code >= 400 or not payload.get("ok", False):
@@ -153,23 +198,16 @@ def send_postmypost_ready_message(task, *, publication_id: str | None, post_at=N
     is_scheduled = status_value == "scheduled"
     stage = "Запланировано" if is_scheduled else "Готово к публикации"
 
+    context_lines = build_task_context_lines(task)
     lines = [
-        f"✅ Видео #{getattr(task, 'id', '-')}",
+        f"✅ {context_lines[0]}",
         f"PostMyPost: {stage}",
     ]
 
     if publication_id:
         lines.append(f"ID публикации: {publication_id}")
 
-    platform = (getattr(task, "target_platform", None) or "").strip()
-    account_id = getattr(task, "target_account_id", None)
-    if platform or account_id:
-        destination_parts = []
-        if platform:
-            destination_parts.append(platform)
-        if account_id:
-            destination_parts.append(f"аккаунт {account_id}")
-        lines.append("Куда: " + ", ".join(destination_parts))
+    lines.extend(context_lines[1:])
 
     time_label = _format_publish_time(post_at or getattr(task, "publish_at", None))
     if time_label:
@@ -178,7 +216,7 @@ def send_postmypost_ready_message(task, *, publication_id: str | None, post_at=N
         else:
             lines.append(f"Передано: {time_label}")
 
-    return _send_telegram_message(token, chat_id, "\n".join(lines))
+    return _send_telegram_message(token, chat_id, "\n".join(lines), reply_to_message_id=_reply_message_id(task))
 
 
 def send_thumbnail_prompt_review_to_telegram(task, prompt: str) -> bool:
@@ -187,13 +225,14 @@ def send_thumbnail_prompt_review_to_telegram(task, prompt: str) -> bool:
     if not token or not chat_id or not prompt:
         return False
 
+    context = build_task_context_text(task)
     chunks = _split_message_chunks(
-        f"🖼 Prompt обложки для видео #{getattr(task, 'id', '-')}:\n\n{prompt}",
+        f"🖼 Prompt обложки\n{context}\n\n{prompt}",
         max_len=MAX_TELEGRAM_TEXT_LEN,
     )
     ok = True
     for chunk in chunks:
-        ok = _send_telegram_message(token, chat_id, chunk) and ok
+        ok = _send_telegram_message(token, chat_id, chunk, reply_to_message_id=_reply_message_id(task)) and ok
 
     keyboard = {
         "inline_keyboard": [
@@ -208,14 +247,22 @@ def send_thumbnail_prompt_review_to_telegram(task, prompt: str) -> bool:
     }
     try:
         with httpx.Client(timeout=httpx.Timeout(20.0, connect=5.0)) as client:
+            payload = {
+                "chat_id": chat_id,
+                "text": (
+                    "Проверь prompt обложки.\n"
+                    f"{context}\n\n"
+                    "Можно подтвердить, отклонить или нажать Edit и отправить новый prompt следующим сообщением."
+                ),
+                "reply_markup": keyboard,
+                "disable_web_page_preview": True,
+            }
+            if _reply_message_id(task):
+                payload["reply_to_message_id"] = int(_reply_message_id(task))
+                payload["allow_sending_without_reply"] = True
             response = client.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
-                json={
-                    "chat_id": chat_id,
-                    "text": "Проверь prompt обложки. Можно подтвердить, отклонить или нажать Edit и отправить новый prompt следующим сообщением.",
-                    "reply_markup": keyboard,
-                    "disable_web_page_preview": True,
-                },
+                json=payload,
             )
         payload = response.json()
         if response.status_code >= 400 or not payload.get("ok", False):
@@ -232,13 +279,23 @@ def send_thumbnail_prompt_review_to_telegram(task, prompt: str) -> bool:
         return False
 
 
-def _send_telegram_document(token: str, chat_id: str, file_path: str, caption: str) -> tuple[bool, str]:
+def _send_telegram_document(
+    token: str,
+    chat_id: str,
+    file_path: str,
+    caption: str,
+    reply_to_message_id: str | None = None,
+) -> tuple[bool, str]:
     try:
+        data = {"chat_id": chat_id, "caption": caption}
+        if reply_to_message_id:
+            data["reply_to_message_id"] = str(reply_to_message_id)
+            data["allow_sending_without_reply"] = "true"
         with httpx.Client(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
             with open(file_path, "rb") as f:
                 response = client.post(
                     f"https://api.telegram.org/bot{token}/sendDocument",
-                    data={"chat_id": chat_id, "caption": caption},
+                    data=data,
                     files={"document": (os.path.basename(file_path), f, "video/mp4")},
                 )
         payload = response.json()
@@ -376,15 +433,19 @@ def send_avatar_audio_to_telegram(task, audio_path: str, estimated_minutes: floa
     caption = (
         f"✅ Аудио для ИИ-аватара готово."
         f"{duration_line}\n"
-        f"Видео #{getattr(task, 'id', '-')}"
+        f"{build_task_context_text(task)}"
     )
     
     try:
+        data = {"chat_id": chat_id, "caption": caption}
+        if _reply_message_id(task):
+            data["reply_to_message_id"] = _reply_message_id(task)
+            data["allow_sending_without_reply"] = "true"
         with httpx.Client(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
             with open(audio_path, "rb") as f:
                 response = client.post(
                     f"https://api.telegram.org/bot{token}/sendAudio",
-                    data={"chat_id": chat_id, "caption": caption},
+                    data=data,
                     files={"audio": f}
                 )
             payload = response.json()
@@ -409,9 +470,9 @@ def send_avatar_video_to_telegram(task, video_path: str, caption: str | None = N
         return
 
     if not caption:
-        caption = f"✅ Файл с видео готов.\nВидео #{getattr(task, 'id', '-')}"
+        caption = f"✅ Файл с видео готов.\n{build_task_context_text(task)}"
     
-    ok, error_text = _send_telegram_document(token, chat_id, video_path, caption)
+    ok, error_text = _send_telegram_document(token, chat_id, video_path, caption, reply_to_message_id=_reply_message_id(task))
     if ok:
         return
 
@@ -430,16 +491,18 @@ def send_avatar_video_to_telegram(task, video_path: str, caption: str | None = N
             token,
             chat_id,
             f"⚠️ Видео #{getattr(task, 'id', '-')}: файл слишком большой для Telegram Bot API ({file_size_mb:.1f} MB) и не удалось автоматически сжать его для отправки.",
+            reply_to_message_id=_reply_message_id(task),
         )
         return
 
     try:
-        ok_retry, error_retry = _send_telegram_document(token, chat_id, fitted_path, caption)
+        ok_retry, error_retry = _send_telegram_document(token, chat_id, fitted_path, caption, reply_to_message_id=_reply_message_id(task))
         if ok_retry:
             _send_telegram_message(
                 token,
                 chat_id,
                 f"ℹ️ Видео #{getattr(task, 'id', '-')}: исходный файл был слишком большим для Telegram, отправлена сжатая копия.",
+                reply_to_message_id=_reply_message_id(task),
             )
             return
         logger.warning("Failed to send compressed Telegram document: %s", error_retry)
@@ -447,6 +510,7 @@ def send_avatar_video_to_telegram(task, video_path: str, caption: str | None = N
             token,
             chat_id,
             f"⚠️ Видео #{getattr(task, 'id', '-')}: даже сжатая копия не отправилась в Telegram ({error_retry[:200]}).",
+            reply_to_message_id=_reply_message_id(task),
         )
     finally:
         try:
@@ -466,16 +530,18 @@ def send_thumbnail_to_telegram(task, image_path: str, caption: str | None = None
         return
 
     if not caption:
-        title = (getattr(task, "source_title", None) or "").strip()
-        title_line = f"\nTitle: {title}" if title else ""
-        caption = f"🖼 Готова обложка для видео #{getattr(task, 'id', '-')}.{title_line}"
+        caption = f"🖼 Готова обложка.\n{build_task_context_text(task)}"
 
     try:
+        data = {"chat_id": chat_id, "caption": caption}
+        if _reply_message_id(task):
+            data["reply_to_message_id"] = _reply_message_id(task)
+            data["allow_sending_without_reply"] = "true"
         with httpx.Client(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
             with open(image_path, "rb") as f:
                 response = client.post(
                     f"https://api.telegram.org/bot{token}/sendPhoto",
-                    data={"chat_id": chat_id, "caption": caption},
+                    data=data,
                     files={"photo": (os.path.basename(image_path), f, "image/png")},
                 )
         payload = response.json()
@@ -498,7 +564,7 @@ def send_yandex_disk_links_to_telegram(task, uploads: list[dict]) -> None:
     if not uploads:
         return
 
-    lines = [f"✅ Видео #{getattr(task, 'id', '-')}: файл сохранен в Яндекс.Диск."]
+    lines = [f"✅ Файл сохранен в Яндекс.Диск.\n{build_task_context_text(task)}"]
     for idx, item in enumerate(uploads, start=1):
         file_name = os.path.basename((item.get("remote_path") or "").strip()) or f"Файл {idx}"
         public_url = (item.get("public_url") or "").strip()
@@ -510,4 +576,4 @@ def send_yandex_disk_links_to_telegram(task, uploads: list[dict]) -> None:
 
     text = "\n".join(lines)
     for chunk in _split_message_chunks(text):
-        _send_telegram_message(token, chat_id, chunk)
+        _send_telegram_message(token, chat_id, chunk, reply_to_message_id=_reply_message_id(task))

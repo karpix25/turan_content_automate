@@ -207,6 +207,7 @@ def init_database() -> None:
         add_column_if_missing("tasks", "postmypost_file_id", "INTEGER")
         add_column_if_missing("tasks", "telegram_chat_id", "VARCHAR(64)")
         add_column_if_missing("tasks", "telegram_status_message_id", "VARCHAR(64)")
+        add_column_if_missing("tasks", "telegram_reply_message_id", "VARCHAR(64)")
         add_column_if_missing("tasks", "telegram_status_text", "TEXT")
         add_column_if_missing("tasks", "target_platform", "VARCHAR(32)")
         add_column_if_missing("tasks", "source_title", "TEXT")

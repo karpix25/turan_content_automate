@@ -95,6 +95,7 @@ class VideoTask(Base):
     status = Column(String, default="pending")  # 'pending', 'processing', 'completed', 'failed'
     telegram_chat_id = Column(String, nullable=True)
     telegram_status_message_id = Column(String, nullable=True)
+    telegram_reply_message_id = Column(String, nullable=True)
     telegram_status_text = Column(String, nullable=True)
     target_platform = Column(String, nullable=True)
     source_title = Column(String, nullable=True)

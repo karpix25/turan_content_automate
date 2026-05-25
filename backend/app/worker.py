@@ -25,6 +25,7 @@ from .processor import VideoProcessor
 from .database import SessionLocal, init_database
 from .publish_planner import plan_next_publish_times
 from .telegram_progress import (
+    build_task_context_text,
     update_task_status_message,
     send_avatar_audio_to_telegram,
     send_avatar_video_to_telegram,
@@ -4372,7 +4373,7 @@ def process_content_task(self, task_id: int):
             send_avatar_video_to_telegram(
                 task,
                 task.output_path,
-                caption=f"✅ Финальный {label} готов.\nВидео #{getattr(task, 'id', '-')}",
+                caption=f"✅ Финальный {label} готов.\n{build_task_context_text(task)}",
             )
         if task.vizard_project_id and not should_sync_outputs:
             update_task_status_message(
@@ -4390,7 +4391,7 @@ def process_content_task(self, task_id: int):
                     output_path,
                     caption=(
                         f"✅ Vizard-клип {output_index}/{len(rendered_outputs)} готов.\n"
-                        f"Видео #{getattr(task, 'id', '-')}"
+                        f"{build_task_context_text(task)}"
                     ),
                 )
         if should_sync_outputs and not per_output_publication_enabled:

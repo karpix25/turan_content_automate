@@ -50,6 +50,7 @@ class VideoTaskCreate(BaseModel):
     publish_at: Optional[datetime.datetime] = None
     telegram_chat_id: Optional[str] = None
     telegram_status_message_id: Optional[str] = None
+    telegram_reply_message_id: Optional[str] = None
 
 class VideoTaskScheduleUpdate(BaseModel):
     publish_at: Optional[datetime.datetime] = None

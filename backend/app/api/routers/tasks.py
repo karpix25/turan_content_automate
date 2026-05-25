@@ -61,6 +61,7 @@ def create_task(telegram_id: str, payload: schemas.VideoTaskCreate, db: Session 
         publishing_status="scheduled" if publish_at else "not_published",
         telegram_chat_id=(payload.telegram_chat_id or "").strip() or None,
         telegram_status_message_id=(payload.telegram_status_message_id or "").strip() or None,
+        telegram_reply_message_id=(payload.telegram_reply_message_id or "").strip() or None,
     )
     db.add(new_task)
     db.commit()

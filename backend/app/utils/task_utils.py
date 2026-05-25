@@ -208,6 +208,9 @@ def _upsert_processed_task(
         existing.vizard_project_id = base_task.vizard_project_id
         existing.source_url = source_label
         existing.source_title = source_title
+        existing.telegram_chat_id = base_task.telegram_chat_id
+        existing.telegram_status_message_id = base_task.telegram_status_message_id
+        existing.telegram_reply_message_id = getattr(base_task, "telegram_reply_message_id", None)
         existing.publish_at = publish_at
         existing.target_account_id = target_account_id
         existing.target_platform = target_platform
@@ -228,6 +231,9 @@ def _upsert_processed_task(
         vizard_project_id=base_task.vizard_project_id,
         output_path=output_path,
         source_title=source_title,
+        telegram_chat_id=base_task.telegram_chat_id,
+        telegram_status_message_id=base_task.telegram_status_message_id,
+        telegram_reply_message_id=getattr(base_task, "telegram_reply_message_id", None),
         publish_at=publish_at,
         target_account_id=target_account_id,
         target_platform=target_platform,

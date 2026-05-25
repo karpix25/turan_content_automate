@@ -209,6 +209,7 @@ async def create_task_in_backend(
     task_type: str,
     status_message: types.Message,
     source_title: str | None = None,
+    reply_message_id: int | str | None = None,
 ):
     """
     Helper to trigger task creation in backend and update status message.
@@ -223,6 +224,7 @@ async def create_task_in_backend(
                     "source_title": (source_title or "").strip() or None,
                     "telegram_chat_id": str(status_message.chat.id),
                     "telegram_status_message_id": str(status_message.message_id),
+                    "telegram_reply_message_id": str(reply_message_id or ""),
                 },
             )
         response.raise_for_status()
@@ -386,6 +388,7 @@ async def handle_heygen_video_id(message: types.Message):
         "avatar_heygen",
         status_message,
         source_title=source_title,
+        reply_message_id=message.message_id,
     )
 
 @dp.message_handler(regexp=r'(https?://)?(www\.)?(youtube\.com|youtu\.be|instagram\.com|vizard\.ai)/.+')
@@ -528,7 +531,7 @@ async def handle_link(message: types.Message):
 
     # Automatically process Instagram, YouTube Shorts, and Vizard project links.
     status_message = await message.reply("⏳ Получил ссылку\nЭтап: создаю задачу.")
-    await create_task_in_backend(user_id, url, task_type, status_message)
+    await create_task_in_backend(user_id, url, task_type, status_message, reply_message_id=message.message_id)
 
 
 
@@ -540,6 +543,11 @@ async def process_choice(callback_query: types.CallbackQuery):
         return
     
     service, platform, identifier = parts[0], parts[1], parts[2]
+    original_message_id = (
+        callback_query.message.reply_to_message.message_id
+        if callback_query.message and callback_query.message.reply_to_message
+        else None
+    )
 
     if service == "five":
         if platform != "igp":
@@ -548,13 +556,16 @@ async def process_choice(callback_query: types.CallbackQuery):
         await callback_query.answer("Запускаю 5 секунд...")
         status_message = await bot.send_message(
             callback_query.message.chat.id,
-            "⏳ Выбран вариант 5 секунд\nЭтап: создаю задачу."
+            "⏳ Выбран вариант 5 секунд\nЭтап: создаю задачу.",
+            reply_to_message_id=original_message_id,
+            allow_sending_without_reply=True,
         )
         await create_task_in_backend(
             str(callback_query.from_user.id),
             url,
             "avatar_instagram_post_5s",
             status_message,
+            reply_message_id=original_message_id,
         )
         try:
             await callback_query.message.delete()
@@ -583,10 +594,18 @@ async def process_choice(callback_query: types.CallbackQuery):
         
         status_message = await bot.send_message(
             callback_query.message.chat.id,
-            "⏳ Выбран Аватар\nЭтап: создаю задачу."
+            "⏳ Выбран Аватар\nЭтап: создаю задачу.",
+            reply_to_message_id=original_message_id,
+            allow_sending_without_reply=True,
         )
         
-        await create_task_in_backend(str(callback_query.from_user.id), url, task_type, status_message)
+        await create_task_in_backend(
+            str(callback_query.from_user.id),
+            url,
+            task_type,
+            status_message,
+            reply_message_id=original_message_id,
+        )
         
         try:
             await callback_query.message.delete()
@@ -613,8 +632,19 @@ async def process_choice(callback_query: types.CallbackQuery):
             return
 
         await callback_query.answer(answer_text)
-        status_message = await bot.send_message(callback_query.message.chat.id, selected_text)
-        await create_task_in_backend(str(callback_query.from_user.id), url, task_type, status_message)
+        status_message = await bot.send_message(
+            callback_query.message.chat.id,
+            selected_text,
+            reply_to_message_id=original_message_id,
+            allow_sending_without_reply=True,
+        )
+        await create_task_in_backend(
+            str(callback_query.from_user.id),
+            url,
+            task_type,
+            status_message,
+            reply_message_id=original_message_id,
+        )
 
         try:
             await callback_query.message.delete()
@@ -630,10 +660,18 @@ async def process_choice(callback_query: types.CallbackQuery):
     # We create a new status message to show progress
     status_message = await bot.send_message(
         callback_query.message.chat.id,
-        "⏳ Выбран Vizard\nЭтап: создаю задачу."
+        "⏳ Выбран Vizard\nЭтап: создаю задачу.",
+        reply_to_message_id=original_message_id,
+        allow_sending_without_reply=True,
     )
     
-    await create_task_in_backend(str(callback_query.from_user.id), url, "youtube", status_message)
+    await create_task_in_backend(
+        str(callback_query.from_user.id),
+        url,
+        "youtube",
+        status_message,
+        reply_message_id=original_message_id,
+    )
     
     # Optionally remove the selection keyboard
     try:
