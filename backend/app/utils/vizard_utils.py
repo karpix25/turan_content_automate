@@ -191,7 +191,7 @@ def _download_vizard_project_clips(db, task: models.VideoTask, source_url: str, 
     if not clips:
         raise Exception(f"Vizard conversion timed out or failed: {last_poll_message}")
 
-    max_clips = _env_int("VIZARD_MAX_CLIPS_PER_TASK", 8)
+    max_clips = _env_int("VIZARD_MAX_CLIPS_PER_TASK", 0)
     total_clips = len(clips)
     if max_clips > 0 and total_clips > max_clips:
         clips = clips[:max_clips]
@@ -205,7 +205,7 @@ def _download_vizard_project_clips(db, task: models.VideoTask, source_url: str, 
             db,
             task,
             stage="Vizard",
-            detail=f"Vizard вернул {total_clips} клипов. Беру первые {max_clips}, чтобы задача не зависла на часы.",
+            detail=f"Vizard вернул {total_clips} клипов. Беру первые {max_clips}, потому что задан лимит VIZARD_MAX_CLIPS_PER_TASK.",
         )
 
     update_task_status_message(
