@@ -447,7 +447,7 @@ async def handle_link(message: types.Message):
                         {
                             "text": "5 секунд (только посты)",
                             "callback_data": f"five:igp:{instagram_shortcode_value}",
-                            "style": "warning",
+                            "style": "primary",
                         }
                     ],
                     [
