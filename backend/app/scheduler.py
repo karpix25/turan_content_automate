@@ -138,6 +138,17 @@ def _build_publication_content(account_description: str | None) -> str:
     return (account_description or "").strip()
 
 
+def _build_publication_title(account_description: str | None) -> str:
+    description = (account_description or "").strip()
+    if not description:
+        return "Видео"
+    for line in description.splitlines():
+        title = line.strip()
+        if title:
+            return title[:100]
+    return "Видео"
+
+
 def _normalize_post_at(value: datetime.datetime | None, force_now: bool) -> datetime.datetime:
     if force_now or value is None:
         return datetime.datetime.now(datetime.timezone.utc)
@@ -547,19 +558,17 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
 
         account_ids = _get_task_account_ids(db, task, user.id)
         account_descriptions = _get_account_descriptions(db, user.id)
-        vizard_title = (getattr(task, "source_title", None) or "").strip()
         content_by_account = {
             account_id: _build_publication_content(account_descriptions.get(account_id))
             for account_id in account_ids
         }
         logger.info(
-            "Task %s publication payload: user_id=%s telegram_id=%s account_ids=%s account_descriptions=%s vizard_title=%s",
+            "Task %s publication payload: user_id=%s telegram_id=%s account_ids=%s account_descriptions=%s",
             task_id,
             user.id,
             getattr(user, "telegram_id", None),
             account_ids,
             list(account_descriptions.keys()),
-            bool(vizard_title),
         )
         project_id = _get_project_id()
         post_at = _normalize_post_at(task.publish_at, force_now)
@@ -576,7 +585,6 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
             )
 
         content = ""
-        # Prepare account-specific titles
         title_by_account: dict[int, str] = {}
 
         # Determine publication type (1: Post, 4: Reels/Shorts/Clips)
@@ -585,14 +593,11 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
         if target_platform in {"youtube", "instagram", "tiktok"}:
             pub_type = 4
 
-        # For YouTube, we MUST have a title.
-        # We populate it for any account identified as 'youtube' or if task.target_platform is 'youtube'.
-        if vizard_title:
-            account_platform_map = _get_account_platform_map(account_ids)
-            for account_id in account_ids:
-                acc_platform = account_platform_map.get(account_id, "universal")
-                if acc_platform == "youtube" or target_platform == "youtube":
-                    title_by_account[account_id] = vizard_title
+        account_platform_map = _get_account_platform_map(account_ids)
+        for account_id in account_ids:
+            acc_platform = account_platform_map.get(account_id, "universal")
+            if acc_platform == "youtube" or target_platform == "youtube":
+                title_by_account[account_id] = _build_publication_title(account_descriptions.get(account_id))
 
         file_id = task.postmypost_file_id
         if not task.preview_url:

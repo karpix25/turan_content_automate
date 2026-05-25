@@ -26,6 +26,30 @@ PENDING_THUMBNAIL_PROMPT_EDITS: dict[str, int] = {}
 SUPPORTED_URL_RE = re.compile(r"(https?://[^\s]+|(?:www\.)?(?:youtube\.com|youtu\.be|instagram\.com|vizard\.ai)/[^\s]+)", re.IGNORECASE)
 
 
+def strip_keyboard_styles(markup):
+    if not isinstance(markup, dict):
+        return markup
+    cleaned = {"inline_keyboard": []}
+    for row in markup.get("inline_keyboard", []):
+        cleaned_row = []
+        for button in row:
+            if isinstance(button, dict):
+                item = dict(button)
+                item.pop("style", None)
+                cleaned_row.append(item)
+        if cleaned_row:
+            cleaned["inline_keyboard"].append(cleaned_row)
+    return cleaned
+
+
+async def reply_with_keyboard(message: types.Message, text: str, kb: dict, **kwargs):
+    try:
+        return await message.reply(text, reply_markup=json.dumps(kb), **kwargs)
+    except Exception:
+        logging.exception("Failed to send styled inline keyboard, retrying without button styles")
+        return await message.reply(text, reply_markup=json.dumps(strip_keyboard_styles(kb)), **kwargs)
+
+
 async def remove_inline_keyboard(message: types.Message | None) -> None:
     if not message:
         return
@@ -404,9 +428,10 @@ async def handle_link(message: types.Message):
                 ]
             ]
         }
-        await message.reply(
+        await reply_with_keyboard(
+            message,
             "📹 Это длинное видео. Что вы хотите сделать?",
-            reply_markup=json.dumps(kb)
+            kb,
         )
         return
 
@@ -431,9 +456,10 @@ async def handle_link(message: types.Message):
                     ]
                 ]
             }
-            await message.reply(
+            await reply_with_keyboard(
+                message,
                 "🎬 Это YouTube Shorts. Что вы хотите сделать?",
-                reply_markup=json.dumps(kb),
+                kb,
                 disable_web_page_preview=True,
             )
             return
@@ -466,9 +492,10 @@ async def handle_link(message: types.Message):
                     ]
                 ]
             }
-            await message.reply(
+            await reply_with_keyboard(
+                message,
                 "🖼️ Это Instagram Post/Reels. Что вы хотите сделать?",
-                reply_markup=json.dumps(kb),
+                kb,
                 disable_web_page_preview=True,
             )
             return
@@ -491,9 +518,10 @@ async def handle_link(message: types.Message):
                 ]
             ]
         }
-        await message.reply(
+        await reply_with_keyboard(
+            message,
             "🎞️ Это Instagram Reels. Что вы хотите сделать?",
-            reply_markup=json.dumps(kb),
+            kb,
             disable_web_page_preview=True,
         )
         return

@@ -158,10 +158,6 @@ def send_postmypost_ready_message(task, *, publication_id: str | None, post_at=N
         f"PostMyPost: {stage}",
     ]
 
-    title = (getattr(task, "source_title", None) or "").strip()
-    if title:
-        lines.append(title)
-
     if publication_id:
         lines.append(f"ID публикации: {publication_id}")
 
