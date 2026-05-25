@@ -3528,16 +3528,15 @@ def process_content_task(self, task_id: int):
                 for engine in ((avatar_look or {}).get("supported_api_engines") or [])
                 if str(engine).strip()
             ]
-            force_photo_avatar_v3 = avatar_type == "photo_avatar" and heygen_api_version == "v2"
-            if force_photo_avatar_v3:
-                heygen_api_version = "v3"
-                avatar_engine = "avatar_iv"
-                logging.info(
-                    "Task %s: routing HeyGen photo avatar %s through v3 avatar_iv for motion support. supported_engines=%s",
-                    task_id,
-                    avatar_id,
-                    supported_engines,
-                )
+            logging.info(
+                "Task %s: using selected HeyGen generation model api_version=%s engine=%s avatar=%s avatar_type=%s supported_engines=%s",
+                task_id,
+                heygen_api_version,
+                avatar_engine if heygen_api_version == "v3" else None,
+                avatar_id,
+                avatar_type or None,
+                supported_engines,
+            )
             motion_prompt = None
             expressiveness = None
             if avatar_type == "photo_avatar" and heygen_api_version == "v3" and avatar_engine == "avatar_iv":
@@ -3595,7 +3594,7 @@ def process_content_task(self, task_id: int):
                 "engine": avatar_engine if heygen_api_version == "v3" else None,
                 "avatar_id": avatar_id,
                 "avatar_type": avatar_type or None,
-                "forced_photo_avatar_v3": force_photo_avatar_v3,
+                "forced_photo_avatar_v3": False,
                 "motion_prompt": bool(motion_prompt),
                 "expressiveness": expressiveness,
                 "video_id": heygen_video_id,

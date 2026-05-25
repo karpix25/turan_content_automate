@@ -822,11 +822,11 @@ export const SettingsTab: React.FC = () => {
 	            Выбранный avatar поддерживает Avatar IV/V, а сверху включен Avatar III. В таком режиме HeyGen может дать только слабый lip-sync без движения рук.
 	          </div>
 	        )}
-	        {selectedHeyGenGenerationModel === 'avatar_iii' && heygenAvatars.some(avatar => avatar.avatarType === 'photo_avatar' && (avatar.id === selectedAvatar || avatar.id === selectedVerticalAvatar)) && (
-	          <div className="mb-3 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] font-semibold leading-snug text-sky-800">
-	            Photo Avatar будет автоматически отправлен через Avatar IV с motion prompt, даже если сверху выбран Avatar III.
-	          </div>
-	        )}
+		        {selectedHeyGenGenerationModel === 'avatar_iii' && heygenAvatars.some(avatar => avatar.avatarType === 'photo_avatar' && (avatar.id === selectedAvatar || avatar.id === selectedVerticalAvatar)) && (
+		          <div className="mb-3 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] font-semibold leading-snug text-sky-800">
+		            Photo Avatar будет отправлен через Avatar III. Motion prompt применяется только для Avatar IV.
+		          </div>
+		        )}
 	        {loadingAvatars ? (
 	          <div className="flex items-center justify-center py-6 text-slate-400">
 	            <Loader2 className="animate-spin w-5 h-5 mr-2" />
