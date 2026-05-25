@@ -3543,16 +3543,16 @@ def process_content_task(self, task_id: int):
                 motion_prompt = (
                     os.getenv("HEYGEN_PHOTO_AVATAR_MOTION_PROMPT")
                     or (
-                        "The subject is framed in a stable, static shot, with the camera held steady to create a calm "
-                        "and professional look. Their posture appears upright but relaxed, projecting quiet confidence "
-                        "and ease. They keep steady eye contact with the lens, paired with a light, consistent smile "
-                        "that feels approachable and positive without ever becoming exaggerated.\n\n"
-                        "Totally avoid describing inferred motions or actions like 'nodding', 'waving', or 'gesturing'. "
-                        "Instead, describe the static position and orientation of the body, head, and limbs as they appear "
-                        "in the frozen frame. For example, instead of 'he is nodding,' describe 'his head is tilted slightly "
-                        "forward.' The description must be of a single, unmoving moment.\n\n"
-                        "The overall performance is steady, polished, and versatile, designed to feel safe, approachable, "
-                        "and professional. Always lean towards conservative movement, especially with any type of head movement."
+                        "The subject appears as a natural, expressive presenter speaking directly to the camera. "
+                        "The camera stays stable and professional, while the performance feels alive, focused, and confident. "
+                        "Facial expression remains neutral and attentive, without a smile, with subtle changes that match "
+                        "the rhythm and emphasis of speech.\n\n"
+                        "Use natural presenter movement: small shifts in posture, controlled head movement, steady eye contact, "
+                        "and restrained hand movement when it supports emphasis. The gestures should feel conversational and "
+                        "intentional, not theatrical or exaggerated.\n\n"
+                        "The overall delivery should feel like a clear, expressive narrator or news-style speaker: composed, "
+                        "engaged, professional, and dynamic enough to avoid looking frozen. Avoid forced smiling, waving, "
+                        "large gestures, dancing, or dramatic body movement."
                     )
                 ).strip()
                 expressiveness = (os.getenv("HEYGEN_PHOTO_AVATAR_EXPRESSIVENESS") or "high").strip().lower()
