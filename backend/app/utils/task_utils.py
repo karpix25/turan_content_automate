@@ -201,7 +201,7 @@ def _upsert_processed_task(
         already_synced = bool(
             existing.postmypost_id
             or existing.postmypost_file_id
-            or existing.publishing_status in {"scheduled", "published", "in_progress"}
+            or existing.publishing_status in {"published", "in_progress"}
         )
         existing.type = base_task.type
         existing.status = "completed"
