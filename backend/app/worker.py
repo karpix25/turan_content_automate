@@ -2961,6 +2961,7 @@ def process_content_task(self, task_id: int):
             local_avatar_video = downloader.download_media(final_video_url, f"heygen_{task_id}")
             if not local_avatar_video:
                 raise Exception("Failed to download existing HeyGen video")
+            avatar_clean_audio_path = local_avatar_video
 
             detected_task_type, detection_meta = _detect_avatar_video_type(local_avatar_video)
             if detected_task_type and task.type != detected_task_type:
