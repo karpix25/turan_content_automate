@@ -10,7 +10,7 @@ from .database import SessionLocal
 from . import models
 from .integrations.postmypost import PostMyPostClient
 from .publish_planner import get_min_publish_lead_delta
-from .telegram_progress import update_task_status_message
+from .telegram_progress import send_postmypost_ready_message, update_task_status_message
 from .utils.platform_utils import _get_account_platform_map
 from .worker import celery_app
 
@@ -231,6 +231,34 @@ def _cleanup_local_output(task: models.VideoTask) -> None:
         logger.warning("Failed to remove local output file %s: %s", path, e)
         return
     task.output_path = None
+
+
+def _notify_postmypost_ready_once(db, task: models.VideoTask, post_at: datetime.datetime) -> None:
+    publication_id = (task.postmypost_id or "").strip()
+    if not publication_id:
+        return
+
+    meta = dict(task.script_meta or {})
+    notification_meta = dict(meta.get("postmypost_ready_notification") or {})
+    if notification_meta.get("publication_id") == publication_id:
+        return
+
+    sent = send_postmypost_ready_message(
+        task,
+        publication_id=publication_id,
+        post_at=post_at,
+        status=task.publishing_status,
+    )
+    if not sent:
+        return
+
+    notification_meta = {
+        "publication_id": publication_id,
+        "sent_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    meta["postmypost_ready_notification"] = notification_meta
+    task.script_meta = meta
+    db.commit()
 
 
 def _extract_status_summary(payload) -> dict:
@@ -613,6 +641,7 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
                 detail="Ролик отправлен в PostMyPost.",
                 ok=True,
             )
+        _notify_postmypost_ready_once(db, task, post_at)
         logger.info(f"Task {task_id} synced to PostMyPost publication {task.postmypost_id}")
     except Exception as e:
         logger.error(f"Failed to sync publication for task {task_id}: {e}")

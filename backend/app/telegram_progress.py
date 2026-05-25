@@ -3,6 +3,7 @@ import os
 import re
 import subprocess
 import tempfile
+from datetime import datetime, timezone
 
 import httpx
 
@@ -128,6 +129,60 @@ def _send_telegram_message(token: str, chat_id: str, text: str) -> bool:
     except Exception as exc:
         logger.warning("Failed to send Telegram message: %s", exc)
         return False
+
+
+def _format_publish_time(value) -> str | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        value = value.astimezone(timezone.utc)
+        return value.strftime("%d.%m %H:%M UTC")
+    text = str(value).strip()
+    return text or None
+
+
+def send_postmypost_ready_message(task, *, publication_id: str | None, post_at=None, status: str | None = None) -> bool:
+    token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+    chat_id = (getattr(task, "telegram_chat_id", None) or "").strip()
+    if not token or not chat_id:
+        return False
+
+    status_value = (status or getattr(task, "publishing_status", "") or "").strip()
+    is_scheduled = status_value == "scheduled"
+    stage = "Запланировано" if is_scheduled else "Готово к публикации"
+
+    lines = [
+        f"✅ Видео #{getattr(task, 'id', '-')}",
+        f"PostMyPost: {stage}",
+    ]
+
+    title = (getattr(task, "source_title", None) or "").strip()
+    if title:
+        lines.append(title)
+
+    if publication_id:
+        lines.append(f"ID публикации: {publication_id}")
+
+    platform = (getattr(task, "target_platform", None) or "").strip()
+    account_id = getattr(task, "target_account_id", None)
+    if platform or account_id:
+        destination_parts = []
+        if platform:
+            destination_parts.append(platform)
+        if account_id:
+            destination_parts.append(f"аккаунт {account_id}")
+        lines.append("Куда: " + ", ".join(destination_parts))
+
+    time_label = _format_publish_time(post_at or getattr(task, "publish_at", None))
+    if time_label:
+        if is_scheduled:
+            lines.append(f"Время публикации: {time_label}")
+        else:
+            lines.append(f"Передано: {time_label}")
+
+    return _send_telegram_message(token, chat_id, "\n".join(lines))
 
 
 def send_thumbnail_prompt_review_to_telegram(task, prompt: str) -> bool:
