@@ -1078,9 +1078,40 @@ def _run_hyperframes_pipeline(
             logging.warning("Task %s: Failed to probe duration for %s: %s", task_id, path, exc)
             return None
 
+    def probe_audio_codec(path: str) -> str | None:
+        if not os.path.exists(path):
+            return None
+        try:
+            probe = subprocess.run(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "a:0",
+                    "-show_entries",
+                    "stream=codec_name",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    path,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            if probe.returncode != 0:
+                return None
+            codec = (probe.stdout or "").strip().lower()
+            return codec or None
+        except Exception as exc:
+            logging.warning("Task %s: Failed to probe audio codec for %s: %s", task_id, path, exc)
+            return None
+
     def normalize_video_for_hyperframes(path: str) -> str | None:
         normalized_path = os.path.join(out_dir, f"hyperframes_source_{task_id}.mp4")
         temp_path = f"{normalized_path}.tmp.mp4"
+        audio_codec = probe_audio_codec(path)
+        audio_args = ["-c:a", "copy"] if audio_codec == "aac" else ["-c:a", "aac", "-b:a", "256k"]
         cmd = [
             "ffmpeg",
             "-y",
@@ -1106,10 +1137,7 @@ def _run_hyperframes_pipeline(
             "0",
             "-movflags",
             "+faststart",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "160k",
+            *audio_args,
             temp_path,
         ]
         logging.info("Task %s: Normalizing video for Hyperframes: %s", task_id, " ".join(cmd))

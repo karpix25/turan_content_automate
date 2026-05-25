@@ -35,6 +35,28 @@ function runFfprobe(params, label) {
   return result.stdout.trim();
 }
 
+function readAudioCodec(filePath) {
+  try {
+    const raw = runFfprobe(
+      [
+        "-v",
+        "error",
+        "-select_streams",
+        "a:0",
+        "-show_entries",
+        "stream=codec_name",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        filePath,
+      ],
+      "ffprobe audio codec",
+    );
+    return raw.trim().toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
 function runFfmpeg(params, label) {
   const result = spawnSync("ffmpeg", params, { encoding: "utf8" });
   if (result.error) throw result.error;
@@ -45,6 +67,8 @@ function runFfmpeg(params, label) {
 
 async function normalizeVideoForRendering(inputPath, outputPath) {
   const tempPath = `${outputPath}.normalized.tmp.mp4`;
+  const audioCodec = readAudioCodec(inputPath);
+  const audioArgs = audioCodec === "aac" ? ["-c:a", "copy"] : ["-c:a", "aac", "-b:a", "256k"];
   runFfmpeg(
     [
       "-y",
@@ -70,10 +94,7 @@ async function normalizeVideoForRendering(inputPath, outputPath) {
       "0",
       "-movflags",
       "+faststart",
-      "-c:a",
-      "aac",
-      "-b:a",
-      "160k",
+      ...audioArgs,
       tempPath,
     ],
     "ffmpeg normalize source video",
