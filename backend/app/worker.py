@@ -9,6 +9,7 @@ import time
 import math
 import selectors
 import uuid
+import subprocess
 from typing import List
 from urllib.parse import urlparse, parse_qs
 from billiard.exceptions import SoftTimeLimitExceeded
@@ -1896,6 +1897,96 @@ def process_content_task(self, task_id: int):
         task.script_meta = current_meta
         db.commit()
 
+    def _replace_video_audio_with_elevenlabs(
+        video_path: str,
+        audio_path: str | None,
+        *,
+        stage: str,
+    ) -> tuple[str, dict]:
+        meta = {
+            "status": "skipped",
+            "stage": stage,
+            "video_path": video_path,
+            "audio_path": audio_path,
+            "reason": None,
+            "output_path": None,
+        }
+        if (os.getenv("AVATAR_REMUX_ELEVENLABS_AUDIO", "true") or "").strip().lower() in {"0", "false", "no", "off"}:
+            meta["reason"] = "disabled_by_env"
+            return video_path, meta
+        if not video_path or not os.path.exists(video_path):
+            meta["reason"] = "video_missing"
+            return video_path, meta
+        if not audio_path or not os.path.exists(audio_path):
+            meta["reason"] = "audio_missing"
+            return video_path, meta
+
+        base, ext = os.path.splitext(video_path)
+        output_path = f"{base}_elevenlabs_audio{ext or '.mp4'}"
+        temp_path = f"{output_path}.tmp.mp4"
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            video_path,
+            "-i",
+            audio_path,
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "256k",
+            "-shortest",
+            "-movflags",
+            "+faststart",
+            temp_path,
+        ]
+        logging.info("Task %s: remuxing %s audio from ElevenLabs: %s", task_id, stage, " ".join(cmd))
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=min(900, max(120, PROCESS_TASK_SOFT_LIMIT_SECONDS - 600)),
+            )
+        except subprocess.TimeoutExpired as exc:
+            meta["status"] = "failed"
+            meta["reason"] = "timeout"
+            meta["stderr"] = (exc.stderr or "")[-2000:]
+            logging.error("Task %s: ElevenLabs audio remux timed out. STDERR: %s", task_id, meta["stderr"])
+            return video_path, meta
+        if result.returncode != 0:
+            meta["status"] = "failed"
+            meta["reason"] = f"ffmpeg_exit_{result.returncode}"
+            meta["stderr"] = (result.stderr or "")[-3000:]
+            logging.error("Task %s: ElevenLabs audio remux failed. STDERR: %s", task_id, meta["stderr"])
+            return video_path, meta
+        try:
+            os.replace(temp_path, output_path)
+        except OSError as exc:
+            meta["status"] = "failed"
+            meta["reason"] = f"replace_failed: {exc}"
+            logging.error("Task %s: failed to move remuxed ElevenLabs audio output: %s", task_id, exc)
+            return video_path, meta
+
+        file_meta = _probe_video_file_meta(output_path)
+        if not file_meta.get("valid"):
+            meta["status"] = "failed"
+            meta["reason"] = "output_invalid"
+            meta["file"] = file_meta
+            logging.error("Task %s: remuxed ElevenLabs audio output is invalid: %s", task_id, file_meta)
+            return video_path, meta
+
+        meta["status"] = "ready"
+        meta["output_path"] = output_path
+        meta["file"] = file_meta
+        return output_path, meta
+
     def _render_avatar_with_graphics(
         input_video: str,
         script_text: str,
@@ -3033,6 +3124,19 @@ def process_content_task(self, task_id: int):
             )
             if render_output:
                 local_avatar_video = render_output
+                if is_short_avatar:
+                    local_avatar_video, remux_meta = _replace_video_audio_with_elevenlabs(
+                        local_avatar_video,
+                        audio_output_path,
+                        stage="after_hyperframes",
+                    )
+                    current_meta = dict(task.script_meta or {})
+                    current_meta["elevenlabs_audio_remux"] = {
+                        **dict(current_meta.get("elevenlabs_audio_remux") or {}),
+                        "after_hyperframes": remux_meta,
+                    }
+                    task.script_meta = current_meta
+                    db.commit()
                 _save_avatar_render_checkpoint(renderer_name, local_avatar_video)
                 logging.info(
                     "Task %s: Successfully replaced raw video with %s output.",
@@ -3700,8 +3804,17 @@ def process_content_task(self, task_id: int):
                     cover_image_path=thumbnail_image_path,
                     cover_prompt=thumbnail_prompt,
                 )
+                local_avatar_video, cover_remux_meta = _replace_video_audio_with_elevenlabs(
+                    local_avatar_video,
+                    audio_output_path,
+                    stage="after_vertical_cover",
+                )
                 current_meta = dict(task.script_meta or {})
                 current_meta["short_vertical_cover"] = vertical_cover_meta
+                current_meta["elevenlabs_audio_remux"] = {
+                    **dict(current_meta.get("elevenlabs_audio_remux") or {}),
+                    "after_vertical_cover": cover_remux_meta,
+                }
                 task.script_meta = current_meta
                 db.commit()
                 
