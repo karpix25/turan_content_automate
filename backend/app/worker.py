@@ -3514,7 +3514,18 @@ def process_content_task(self, task_id: int):
             if avatar_type == "photo_avatar" and heygen_api_version == "v3" and avatar_engine == "avatar_iv":
                 motion_prompt = (
                     os.getenv("HEYGEN_PHOTO_AVATAR_MOTION_PROMPT")
-                    or "natural upper body movement, confident hand gestures while speaking, subtle head nods, presenter-style gestures"
+                    or (
+                        "The subject is framed in a stable, static shot, with the camera held steady to create a calm "
+                        "and professional look. Their posture appears upright but relaxed, projecting quiet confidence "
+                        "and ease. They keep steady eye contact with the lens, paired with a light, consistent smile "
+                        "that feels approachable and positive without ever becoming exaggerated.\n\n"
+                        "Totally avoid describing inferred motions or actions like 'nodding', 'waving', or 'gesturing'. "
+                        "Instead, describe the static position and orientation of the body, head, and limbs as they appear "
+                        "in the frozen frame. For example, instead of 'he is nodding,' describe 'his head is tilted slightly "
+                        "forward.' The description must be of a single, unmoving moment.\n\n"
+                        "The overall performance is steady, polished, and versatile, designed to feel safe, approachable, "
+                        "and professional. Always lean towards conservative movement, especially with any type of head movement."
+                    )
                 ).strip()
                 expressiveness = (os.getenv("HEYGEN_PHOTO_AVATAR_EXPRESSIVENESS") or "high").strip().lower()
             update_task_status_message(
