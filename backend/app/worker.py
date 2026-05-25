@@ -4085,6 +4085,25 @@ def process_content_task(self, task_id: int):
                 task.output_path,
                 caption=f"✅ Финальный {label} готов.\nВидео #{getattr(task, 'id', '-')}",
             )
+        if task.vizard_project_id and not should_sync_outputs:
+            update_task_status_message(
+                db,
+                task,
+                stage="Telegram",
+                detail=f"Отправляю готовые Vizard-клипы в Telegram: {len(rendered_outputs)}.",
+            )
+            for output_index, rendered_output in enumerate(rendered_outputs, start=1):
+                output_path = (rendered_output.get("output_path") or "").strip()
+                if not output_path:
+                    continue
+                send_avatar_video_to_telegram(
+                    task,
+                    output_path,
+                    caption=(
+                        f"✅ Vizard-клип {output_index}/{len(rendered_outputs)} готов.\n"
+                        f"Видео #{getattr(task, 'id', '-')}"
+                    ),
+                )
         if should_sync_outputs and not per_output_publication_enabled:
             update_task_status_message(
                 db,

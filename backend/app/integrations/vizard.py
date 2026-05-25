@@ -98,12 +98,19 @@ class VizardClient:
         """
         for attempt in range(max_attempts):
             data = await self.query_project(project_id)
-            if data and data.get("code") == 2000:
-                videos = data.get("videos")
-                if videos:
-                    return videos
-                # If code is 2000 but no videos yet, it might still be processing
-                logger.info(f"Vizard project {project_id} still processing... (Attempt {attempt+1})")
+            if data:
+                code = data.get("code")
+                if code == 2000:
+                    videos = data.get("videos")
+                    if videos:
+                        return videos
+                    logger.info(f"Vizard project {project_id} still processing... (Attempt {attempt+1})")
+                elif code == 1000:
+                    logger.info(f"Vizard project {project_id} still processing... (Attempt {attempt+1})")
+                else:
+                    message = data.get("errMsg") or data.get("msg") or data.get("message") or data.get("error") or data
+                    logger.error("Vizard project %s failed while polling: %s", project_id, message)
+                    return None
             
             await asyncio.sleep(interval)
         

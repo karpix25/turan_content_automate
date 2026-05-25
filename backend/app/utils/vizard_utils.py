@@ -79,6 +79,16 @@ def _env_int(name: str, default: int, minimum: int = 0) -> int:
     except (TypeError, ValueError):
         return default
 
+def _vizard_message(data: dict | None) -> str:
+    if not isinstance(data, dict):
+        return "empty response"
+    for key in ("errMsg", "msg", "message", "error"):
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    code = data.get("code")
+    return f"code={code}" if code is not None else "unknown response"
+
 def _download_vizard_project_clips(db, task: models.VideoTask, source_url: str, **create_kwargs) -> List[tuple[str, str | None]]:
     from ..worker import vizard, downloader
     logging.info(f"Task {task.id}: Processing vizard/youtube source: '{source_url}'")
@@ -137,13 +147,25 @@ def _download_vizard_project_clips(db, task: models.VideoTask, source_url: str, 
     max_attempts = max(1, int(os.getenv("VIZARD_POLL_MAX_ATTEMPTS", "60")))
     started_at = time.monotonic()
     clips = None
+    last_poll_message = "no polling response yet"
     for attempt in range(1, max_attempts + 1):
         data = asyncio.run(vizard.query_project(p_id))
-        if data and data.get("code") == 2000:
-            videos = data.get("videos")
-            if videos:
-                clips = videos
-                break
+        if not isinstance(data, dict):
+            last_poll_message = "Vizard did not return JSON"
+        else:
+            code = data.get("code")
+            if code == 2000:
+                videos = data.get("videos")
+                if isinstance(videos, list) and videos:
+                    clips = videos
+                    break
+                last_poll_message = "Vizard returned success, but clips are not ready yet"
+            elif code == 1000:
+                last_poll_message = _vizard_message(data) or "Vizard is still processing"
+            else:
+                message = _vizard_message(data)
+                logging.error("Task %s: Vizard project %s failed while polling: %s", task.id, p_id, data)
+                raise Exception(f"Vizard project #{p_id} failed: {message}")
 
         elapsed_minutes = int((time.monotonic() - started_at) // 60)
         update_task_status_message(
@@ -155,11 +177,19 @@ def _download_vizard_project_clips(db, task: models.VideoTask, source_url: str, 
                 f"прошло ~{elapsed_minutes} мин."
             ),
         )
-        logging.info("Task %s: Vizard project %s still processing... (Attempt %s/%s)", task.id, p_id, attempt, max_attempts)
-        time.sleep(poll_interval)
+        logging.info(
+            "Task %s: Vizard project %s still processing... (Attempt %s/%s). Last status: %s",
+            task.id,
+            p_id,
+            attempt,
+            max_attempts,
+            last_poll_message,
+        )
+        if attempt < max_attempts:
+            time.sleep(poll_interval)
 
     if not clips:
-        raise Exception("Vizard conversion timed out or failed")
+        raise Exception(f"Vizard conversion timed out or failed: {last_poll_message}")
 
     max_clips = _env_int("VIZARD_MAX_CLIPS_PER_TASK", 8)
     total_clips = len(clips)
