@@ -1772,6 +1772,35 @@ def process_content_task(self, task_id: int):
     if not task:
         db.close()
         return
+    if task.vizard_project_id and task.status in {"pending", "processing"}:
+        child_count = db.query(models.VideoTask).filter(
+            models.VideoTask.id != task.id,
+            models.VideoTask.user_id == task.user_id,
+            models.VideoTask.vizard_project_id == task.vizard_project_id,
+            models.VideoTask.status == "completed",
+            models.VideoTask.output_path.isnot(None),
+        ).count()
+        if child_count > 0:
+            logging.warning(
+                "Task %s: skipping duplicate Vizard parent processing because %s child output(s) already exist",
+                task_id,
+                child_count,
+            )
+            current_meta = dict(task.script_meta or {})
+            duplicate_meta = dict(current_meta.get("duplicate_processing_guard") or {})
+            duplicate_meta.update(
+                {
+                    "skipped_at": datetime.datetime.utcnow().isoformat(),
+                    "reason": "vizard_parent_has_child_outputs",
+                    "child_output_count": child_count,
+                }
+            )
+            current_meta["duplicate_processing_guard"] = duplicate_meta
+            task.script_meta = current_meta
+            task.status = "completed"
+            db.commit()
+            db.close()
+            return
     if task.status == "completed" and (task.output_path or "").strip():
         logging.info("Task %s is already completed with output_path=%s; skipping duplicate processing.", task_id, task.output_path)
         existing_meta = dict(task.script_meta or {})

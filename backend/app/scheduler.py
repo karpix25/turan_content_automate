@@ -410,6 +410,42 @@ def _update_postmypost_sync_meta(task: models.VideoTask, status_summary: dict, s
     task.script_meta = meta
 
 
+def _complete_vizard_parent_with_existing_outputs(db, task: models.VideoTask, now: datetime.datetime) -> bool:
+    if not task.vizard_project_id:
+        return False
+
+    child_count = db.query(models.VideoTask).filter(
+        models.VideoTask.id != task.id,
+        models.VideoTask.user_id == task.user_id,
+        models.VideoTask.vizard_project_id == task.vizard_project_id,
+        models.VideoTask.status == "completed",
+        models.VideoTask.output_path.isnot(None),
+    ).count()
+    if child_count <= 0:
+        return False
+
+    meta = dict(task.script_meta or {})
+    rescue_meta = dict(meta.get("queue_rescue") or {})
+    rescue_meta.update(
+        {
+            "completed_without_requeue_at": now.isoformat(),
+            "reason": "vizard_parent_has_child_outputs",
+            "child_output_count": child_count,
+        }
+    )
+    meta["queue_rescue"] = rescue_meta
+    task.script_meta = meta
+    task.status = "completed"
+    db.commit()
+    logger.warning(
+        "Marked stale Vizard parent task id=%s project=%s completed because %s child output(s) already exist",
+        task.id,
+        task.vizard_project_id,
+        child_count,
+    )
+    return True
+
+
 @celery_app.task(name="rescue_stale_content_tasks")
 def rescue_stale_content_tasks():
     pending_after_minutes = _env_int("TASK_REQUEUE_PENDING_AFTER_MINUTES", 5)
@@ -441,6 +477,8 @@ def rescue_stale_content_tasks():
         for task in candidates:
             updated_at = task.updated_at or task.created_at
             if task.status == "processing" and updated_at > processing_cutoff:
+                continue
+            if _complete_vizard_parent_with_existing_outputs(db, task, now):
                 continue
 
             meta = dict(task.script_meta or {})
