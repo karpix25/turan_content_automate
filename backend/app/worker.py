@@ -1850,6 +1850,7 @@ def process_content_task(self, task_id: int):
     update_task_status_message(db, task, stage="Обработка началась", detail="Подготавливаю видео к обработке.")
     input_videos: List[str] = []
     input_video_titles: List[str | None] = []
+    avatar_clean_audio_path: str | None = None
 
     def _remaining_task_budget_seconds() -> float:
         return max(0.0, PROCESS_TASK_SOFT_LIMIT_SECONDS - (time.monotonic() - task_started_monotonic))
@@ -3127,7 +3128,7 @@ def process_content_task(self, task_id: int):
                 if is_short_avatar:
                     local_avatar_video, remux_meta = _replace_video_audio_with_elevenlabs(
                         local_avatar_video,
-                        audio_output_path,
+                        avatar_clean_audio_path,
                         stage="after_hyperframes",
                     )
                     current_meta = dict(task.script_meta or {})
@@ -3620,6 +3621,7 @@ def process_content_task(self, task_id: int):
 
             if not generated_audio:
                 raise Exception("Failed to generate audio with ElevenLabs")
+            avatar_clean_audio_path = audio_output_path
 
             actual_audio_seconds = get_audio_duration_seconds(audio_output_path)
             if actual_audio_seconds and actual_audio_seconds > 0:
@@ -3806,7 +3808,7 @@ def process_content_task(self, task_id: int):
                 )
                 local_avatar_video, cover_remux_meta = _replace_video_audio_with_elevenlabs(
                     local_avatar_video,
-                    audio_output_path,
+                    avatar_clean_audio_path,
                     stage="after_vertical_cover",
                 )
                 current_meta = dict(task.script_meta or {})
