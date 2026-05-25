@@ -1072,6 +1072,9 @@
       document.documentElement.dataset.overlayCoverage = (overlaySeconds / totalDuration).toFixed(3);
 
       if (hookOverlay) {
+        const hookExitStart = 2.25;
+        const hookEnd = 2.45;
+        const firstBeatStart = beats.reduce((min, beat) => Math.min(min, Number(beat.dataset.start)), Infinity);
         const hookTitle = hookOverlay.querySelector(".hook-title");
         const hookPromise = hookOverlay.querySelector(".hook-promise");
         const hookKicker = hookOverlay.querySelector(".hook-kicker");
@@ -1079,8 +1082,11 @@
         tl.to(glassLayer, { opacity: 0.32, duration: 0.12, ease: "power2.out" }, 0);
         tl.fromTo(hookOverlay, { autoAlpha: 0, y: -18 }, { autoAlpha: 1, y: 0, duration: 0.18, ease: "power3.out" }, 0.05);
         tl.from([hookKicker, hookTitle, hookPromise], { opacity: 0, y: 22, duration: 0.28, stagger: 0.06, ease: "power3.out" }, 0.12);
-        tl.to(hookOverlay, { autoAlpha: 0, y: -18, duration: 0.18, ease: "power2.in" }, 2.25);
-        tl.set(hookOverlay, { autoAlpha: 0 }, 2.45);
+        tl.to(hookOverlay, { autoAlpha: 0, y: -18, duration: 0.18, ease: "power2.in" }, hookExitStart);
+        if (firstBeatStart >= hookEnd) {
+          tl.to(glassLayer, { opacity: 0, duration: 0.16, ease: "power2.in" }, hookExitStart);
+        }
+        tl.set(hookOverlay, { autoAlpha: 0 }, hookEnd);
       }
 
       beats.forEach((beat) => {
