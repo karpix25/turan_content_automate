@@ -204,17 +204,21 @@ async def create_task_in_backend(
         response.raise_for_status()
         payload = response.json()
         task_id = payload.get("task_id")
+        queue_position = payload.get("queue_position")
+        queue_total = payload.get("queue_total")
+        queue_line = None
+        if queue_position and queue_total:
+            queue_line = f"Очередь: #{queue_position} из {queue_total}."
 
-        await status_message.edit_text(
-            "\n".join(
-                [
-                    f"⏳ Видео #{task_id}" if task_id else "⏳ Видео",
-                    "Этап: задача создана",
-                    "Видео добавлено в очередь обработки.",
-                ]
-            ),
-            disable_web_page_preview=True,
-        )
+        lines = [
+            f"⏳ Видео #{task_id}" if task_id else "⏳ Видео",
+            "Этап: задача создана",
+            "Видео добавлено в очередь обработки.",
+        ]
+        if queue_line:
+            lines.append(queue_line)
+
+        await status_message.edit_text("\n".join(lines), disable_web_page_preview=True)
     except Exception as e:
         logging.error(f"Error creating task: {e}")
         try:

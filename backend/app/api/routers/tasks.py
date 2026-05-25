@@ -20,6 +20,28 @@ AVATAR_TASK_TYPES = {
     "avatar_shorts",
 }
 
+
+def _get_queue_snapshot(db: Session, user_id: int, task_id: int) -> tuple[int, int]:
+    active_statuses = ["pending", "processing"]
+    total = db.query(models.VideoTask).filter(
+        models.VideoTask.user_id == user_id,
+        models.VideoTask.status.in_(active_statuses),
+    ).count()
+    position = db.query(models.VideoTask).filter(
+        models.VideoTask.user_id == user_id,
+        models.VideoTask.status.in_(active_statuses),
+        models.VideoTask.id <= task_id,
+    ).count()
+    return max(1, position), max(position, total)
+
+
+def _build_created_task_detail(queue_position: int, queue_total: int) -> str:
+    return (
+        "Видео добавлено в очередь обработки.\n"
+        f"Очередь: #{queue_position} из {queue_total}."
+    )
+
+
 @router.post("/{telegram_id}")
 def create_task(telegram_id: str, payload: schemas.VideoTaskCreate, db: Session = Depends(get_db)):
     user = get_or_create_user(db, telegram_id)
@@ -43,12 +65,13 @@ def create_task(telegram_id: str, payload: schemas.VideoTaskCreate, db: Session 
     db.add(new_task)
     db.commit()
     db.refresh(new_task)
+    queue_position, queue_total = _get_queue_snapshot(db, user.id, new_task.id)
 
     update_task_status_message(
         db,
         new_task,
         stage="Задача создана",
-        detail="Видео добавлено в очередь обработки.",
+        detail=_build_created_task_detail(queue_position, queue_total),
     )
 
     try:
@@ -57,7 +80,13 @@ def create_task(telegram_id: str, payload: schemas.VideoTaskCreate, db: Session 
         logging.error(f"Failed to enqueue task {new_task.id}: {e}")
         raise HTTPException(status_code=500, detail="Task created but queue enqueue failed")
 
-    return {"status": "queued", "task_id": new_task.id, "type": payload.type}
+    return {
+        "status": "queued",
+        "task_id": new_task.id,
+        "type": payload.type,
+        "queue_position": queue_position,
+        "queue_total": queue_total,
+    }
 
 @router.get("/{telegram_id}", response_model=list[schemas.VideoTaskOut])
 def list_user_tasks(
