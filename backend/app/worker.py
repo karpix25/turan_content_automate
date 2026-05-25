@@ -3492,6 +3492,31 @@ def process_content_task(self, task_id: int):
             heygen_api_version = (getattr(user, "heygen_video_api_version", None) or "v2").strip().lower()
             if heygen_api_version not in {"v2", "v3"}:
                 heygen_api_version = "v2"
+            avatar_look = asyncio.run(heygen_client.get_avatar_look(avatar_id))
+            avatar_type = ((avatar_look or {}).get("avatar_type") or "").strip().lower()
+            supported_engines = [
+                str(engine).strip().lower()
+                for engine in ((avatar_look or {}).get("supported_api_engines") or [])
+                if str(engine).strip()
+            ]
+            force_photo_avatar_v3 = avatar_type == "photo_avatar" and heygen_api_version == "v2"
+            if force_photo_avatar_v3:
+                heygen_api_version = "v3"
+                avatar_engine = "avatar_iv"
+                logging.info(
+                    "Task %s: routing HeyGen photo avatar %s through v3 avatar_iv for motion support. supported_engines=%s",
+                    task_id,
+                    avatar_id,
+                    supported_engines,
+                )
+            motion_prompt = None
+            expressiveness = None
+            if avatar_type == "photo_avatar" and heygen_api_version == "v3" and avatar_engine == "avatar_iv":
+                motion_prompt = (
+                    os.getenv("HEYGEN_PHOTO_AVATAR_MOTION_PROMPT")
+                    or "natural upper body movement, confident hand gestures while speaking, subtle head nods, presenter-style gestures"
+                ).strip()
+                expressiveness = (os.getenv("HEYGEN_PHOTO_AVATAR_EXPRESSIVENESS") or "high").strip().lower()
             update_task_status_message(
                 db,
                 task,
@@ -3518,6 +3543,8 @@ def process_content_task(self, task_id: int):
                     api_version=heygen_api_version,
                     engine=avatar_engine,
                     title=task.source_title or f"Turan Avatar {task_id}",
+                    motion_prompt=motion_prompt,
+                    expressiveness=expressiveness,
                 )
             )
             if not heygen_video_id:
@@ -3527,6 +3554,10 @@ def process_content_task(self, task_id: int):
                 "api_version": heygen_api_version,
                 "engine": avatar_engine if heygen_api_version == "v3" else None,
                 "avatar_id": avatar_id,
+                "avatar_type": avatar_type or None,
+                "forced_photo_avatar_v3": force_photo_avatar_v3,
+                "motion_prompt": bool(motion_prompt),
+                "expressiveness": expressiveness,
                 "video_id": heygen_video_id,
             }
             task.script_meta = current_meta

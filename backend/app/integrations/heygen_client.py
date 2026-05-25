@@ -45,6 +45,31 @@ class HeyGenClient:
             logger.exception(f"Error uploading asset to HeyGen: {e}")
             return None
 
+    async def get_avatar_look(self, avatar_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Returns metadata for a private avatar look, including avatar_type and supported engines.
+        """
+        avatar_id_value = (avatar_id or "").strip()
+        if not avatar_id_value:
+            return None
+        url = f"{self.base_url}/v3/avatars/looks?ownership=private"
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(url, headers=self.headers)
+                if response.status_code != 200:
+                    logger.warning("HeyGen avatar look lookup failed: %s %s", response.status_code, response.text)
+                    return None
+                data = response.json()
+                looks = data.get("data", {}).get("avatars") if isinstance(data.get("data"), dict) else data.get("data")
+                if not isinstance(looks, list):
+                    looks = data.get("avatars", [])
+                for look in looks:
+                    if (look.get("id") or look.get("avatar_id") or "").strip() == avatar_id_value:
+                        return look
+        except Exception as e:
+            logger.warning("Error looking up HeyGen avatar look %s: %s", avatar_id_value, e)
+        return None
+
     async def generate_avatar_video(
         self,
         avatar_id: str,
@@ -53,6 +78,8 @@ class HeyGenClient:
         api_version: str = "v2",
         engine: str = "avatar_iv",
         title: str | None = None,
+        motion_prompt: str | None = None,
+        expressiveness: str | None = None,
     ) -> Optional[str]:
         """
         Submits a video generation task to HeyGen.
@@ -76,6 +103,13 @@ class HeyGenClient:
             }
             if title:
                 payload["title"] = title[:120]
+            if engine_type == "avatar_iv":
+                motion_prompt_value = (motion_prompt or "").strip()
+                expressiveness_value = (expressiveness or "").strip().lower()
+                if motion_prompt_value:
+                    payload["motion_prompt"] = motion_prompt_value[:500]
+                if expressiveness_value in {"low", "medium", "high"}:
+                    payload["expressiveness"] = expressiveness_value
         else:
             url = f"{self.base_url}/v2/video/generate"
             payload = {
@@ -99,13 +133,15 @@ class HeyGenClient:
             }
 
         logger.info(
-            "HeyGen generation request: api_version=%s endpoint=%s orientation=%s dimension=%s resolution=%s engine=%s",
+            "HeyGen generation request: api_version=%s endpoint=%s orientation=%s dimension=%s resolution=%s engine=%s motion_prompt=%s expressiveness=%s",
             api_version_value,
             url,
             "vertical" if is_vertical else "horizontal",
             payload.get("dimension"),
             payload.get("resolution"),
             payload.get("engine"),
+            bool(payload.get("motion_prompt")),
+            payload.get("expressiveness"),
         )
         
         try:
