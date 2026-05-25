@@ -25,6 +25,14 @@ from pathlib import Path
 from typing import Any
 
 
+def min_cutaway_gap_seconds() -> float:
+    try:
+        value = float(os.environ.get("HYPERFRAMES_MIN_CLEAN_VIDEO_GAP_SECONDS", "3"))
+    except (TypeError, ValueError):
+        value = 3.0
+    return max(0.0, value)
+
+
 def eprint(msg: str) -> None:
     print(msg, file=sys.stderr)
 
@@ -973,11 +981,12 @@ def build_llm_prompt_payload(
             "max_scenes": max_scenes,
             "overlay_coverage_percent": overlay_coverage_percent,
             "target_scene_count": target_scene_count,
-            "target_scenes": f"Верни ровно {target_scene_count} scenes, если в речи есть столько отдельных мыслей. Процент перебивок задан пользователем: {overlay_coverage_percent}%. Не возвращай меньше сцен без крайней причины.",
+            "target_scenes": f"Верни ровно {target_scene_count} scenes, если в речи есть столько отдельных мыслей и они помещаются с чистым промежутком между перебивками. Процент перебивок задан пользователем: {overlay_coverage_percent}%. Не возвращай меньше сцен без крайней причины.",
             "scene_min_seconds": 2.0,
             "scene_max_seconds": 5.5,
+            "min_clean_video_gap_seconds": min_cutaway_gap_seconds(),
             "visual_density": "Карточка должна появляться на сильной фразе, а не закрывать весь ролик.",
-            "timing_anchor_rule": "Карточка должна появляться за 0.1-0.3 сек до первого слова новой темы. Не ставь start после того, как смысловой блок уже начался.",
+            "timing_anchor_rule": "Карточка должна появляться за 0.1-0.3 сек до первого слова новой темы. Не ставь start после того, как смысловой блок уже начался. Если сильные фразы идут слишком близко, выбери другую сильную фразу дальше по ролику, а не двигай карточку от смысла.",
             "block_names": ["ПРОБЛЕМА", "ПРИЧИНА", "ПОВОРОТ", "ДЕЙСТВИЕ", "РИСК", "ВЫВОД"],
             "editorial_strategy": {
                 "philosophy": "МЕНЬШЕ — ЭТО БОЛЬШЕ. Аватар должен быть виден 70% времени. Плашка — это акцент, а не фон.",
@@ -990,8 +999,9 @@ def build_llm_prompt_payload(
                 }
             },
             "pacing_rules": {
-                "breathing_room": "ОБЯЗАТЕЛЬНО оставляй разрыв 4-6 секунд между сценами. Пример: если Сцена 1 закончилась на 15.0с, то Сцена 2 должна начаться НЕ РАНЬШЕ 19.0с.",
+                "breathing_room": "ОБЯЗАТЕЛЬНО оставляй минимум 3 секунды чистого видео с диктором между перебивками. Пример: если Сцена 1 закончилась на 15.0с, то Сцена 2 должна начаться НЕ РАНЬШЕ 18.0с. Лучше 4-6 секунд, если позволяет смысл.",
                 "no_consecutive": "Запрещено ставить сцены встык. Между ними всегда должно быть чистое видео с диктором.",
+                "semantic_integrity": "Не исправляй плотность механическим сдвигом таймингов. Если выбранный смысловой beat нарушает разрыв, выбери следующий подходящий beat, где anchorWords реально звучат.",
                 "max_consecutive_full_screen": "12 секунд. Каждая плашка — это короткий инсайт, а не бесконечная простыня текста."
             },
             "bars_count": 4,
@@ -1087,8 +1097,9 @@ def generate_scene_plan_llm(
 
 ЖЕСТКИЕ ПРАВИЛА:
 1. Каждый scene — один отдельный смысл: проблема, причина, поворот, действие, риск или вывод.
-2. Верни количество scenes, заданное в constraints.target_scene_count. Это число рассчитано из пользовательской настройки процента перебивок. Не склеивай весь ролик в слишком малое количество сцен.
+2. Верни количество scenes, заданное в constraints.target_scene_count. Это число рассчитано из пользовательской настройки процента перебивок и монтажного зазора. Не склеивай весь ролик в слишком малое количество сцен.
 3. start/end должны попадать в реальный момент речи, где звучат anchorWords. start ставь на начало фразы или за 0.1-0.3 сек до первого anchorWord, чтобы плашка сопровождала новую тему сразу, как в новостях. Длительность сцены 2.0-5.5 секунд.
+3a. Между перебивками обязателен чистый диктор: next.start - previous.end >= constraints.min_clean_video_gap_seconds. Нельзя ставить scenes подряд или почти подряд. Если два сильных смысла идут близко, выбери более важный из них и следующий beat дальше по ролику. Не сдвигай карточку от anchorWords ради формального зазора.
 4. title: 2-4 слова, как в новостях и retention-роликах: не цитата, а человеческий крючок. Назови конкретную ставку для зрителя: деньги, штраф, отказ, заморозка, дедлайн, лишний шаг, что потеряет или что может вернуть. Хорошо: "СЧЕТ МОГУТ ЗАМОРОЗИТЬ", "ВЫЧЕТ ДАДУТ НЕ ВСЕМ", "ВТОРАЯ МАШИНА МЕШАЕТ", "НДС ПОПРОСЯТ ЗАРАНЕЕ". Плохо: "СТАТУС РЕШАЕТ ВЫПЛАТУ", "КОНТРОЛЬ СТАЛ НОРМОЙ", "ГЛАВНОЕ УСЛОВИЕ". Не копируй сырую речь и не начинай с вводных: "с одной стороны", "вроде как", "получается", "то есть", "вам".
 5. subtitle: 5-8 слов, объясняет механику крючка простыми словами: почему важно, кому грозит, какой риск, какое условие, срок, документ, действие или последствие. Не повторяй title и не пересказывай его теми же словами.
 6. anchorWords: 2-5 точных слов/коротких фраз из транскрипта. Это якоря, которые доказывают, что сцена привязана к речи.
@@ -2251,6 +2262,22 @@ def validate_scene_plan_quality(
 
     errors: list[str] = []
     seen_titles: set[str] = set()
+    ordered_scenes = sorted(scenes, key=lambda item: float(item.get("start", 0.0) or 0.0))
+    min_gap = min_cutaway_gap_seconds()
+    for idx in range(1, len(ordered_scenes)):
+        prev = ordered_scenes[idx - 1]
+        cur = ordered_scenes[idx]
+        try:
+            prev_end = float(prev.get("end", prev.get("start", 0.0)) or 0.0)
+            cur_start = float(cur.get("start", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            continue
+        gap = cur_start - prev_end
+        if gap < min_gap - 0.05:
+            errors.append(
+                f"scene {idx} starts too soon after previous scene: gap={gap:.2f}s < {min_gap:.2f}s"
+            )
+
     for idx, scene in enumerate(scenes):
         label = f"scene[{idx}]"
         title = normalize_plain_text(str(scene.get("title") or ""))
@@ -2302,8 +2329,18 @@ def _base_min_required_scene_count(duration: float) -> int:
 def _min_required_scene_count(duration: float, target_scene_count: int | None = None) -> int:
     base = _base_min_required_scene_count(duration)
     if target_scene_count and target_scene_count > 0:
-        return max(base, int(target_scene_count))
-    return base
+        required = max(base, int(target_scene_count))
+    else:
+        required = base
+    feasible = _max_scenes_with_gap(duration, scene_seconds=2.0)
+    return max(1, min(required, feasible))
+
+
+def _max_scenes_with_gap(duration: float, scene_seconds: float) -> int:
+    gap = min_cutaway_gap_seconds()
+    usable_duration = max(1.0, float(duration or 0.0))
+    scene_seconds = max(0.5, float(scene_seconds or 0.0))
+    return max(1, int(math.floor((usable_duration + gap) / (scene_seconds + gap))))
 
 
 def _target_scene_count_from_coverage(duration: float, overlay_coverage_percent: int, max_scenes: int) -> int:
@@ -2315,7 +2352,8 @@ def _target_scene_count_from_coverage(duration: float, overlay_coverage_percent:
     estimated = int(math.ceil(target_overlay_seconds / 4.1))
     base = _base_min_required_scene_count(duration)
     upper = max(1, int(max_scenes or 8))
-    return max(1, min(upper, max(base, estimated)))
+    feasible = _max_scenes_with_gap(duration, scene_seconds=2.0)
+    return max(1, min(upper, feasible, max(base, estimated)))
 
 
 def _scene_overlaps_existing(start: float, end: float, scenes: list[dict[str, Any]]) -> bool:
@@ -2328,6 +2366,21 @@ def _scene_overlaps_existing(start: float, end: float, scenes: list[dict[str, An
         if max(start, cur_start) < min(end, cur_end):
             return True
     return False
+
+
+def _scene_has_required_gap(start: float, end: float, scenes: list[dict[str, Any]]) -> bool:
+    min_gap = min_cutaway_gap_seconds()
+    for scene in scenes:
+        try:
+            cur_start = float(scene.get("start", 0.0))
+            cur_end = float(scene.get("end", cur_start))
+        except (TypeError, ValueError):
+            continue
+        if start >= cur_end and start - cur_end < min_gap:
+            return False
+        if cur_start >= end and cur_start - end < min_gap:
+            return False
+    return True
 
 
 def _build_repair_scene_from_utterance(utterance: dict[str, Any], index: int, duration: float) -> dict[str, Any] | None:
@@ -2408,6 +2461,8 @@ def _ensure_min_scene_count(
         if not scene:
             continue
         if _scene_overlaps_existing(float(scene["start"]), float(scene["end"]), scenes):
+            continue
+        if not _scene_has_required_gap(float(scene["start"]), float(scene["end"]), scenes):
             continue
         seen_titles = {
             normalize_plain_text(str(existing.get("title") or "")).lower()
