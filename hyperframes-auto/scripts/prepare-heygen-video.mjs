@@ -197,6 +197,20 @@ html = replaceOne(
   `$1${durationText}$2`,
   "source video data-duration",
 );
+html = html.replace(
+  /(<video\s+id="source-video"[\s\S]*?data-volume=")[^"]+(")/,
+  (_match, before, after) => `${before}0${after}`,
+);
+html = replaceOne(
+  html,
+  /(<video\s+id="source-video"[\s\S]*?data-has-audio=")[^"]+(")/,
+  "$1false$2",
+  "source video data-has-audio",
+);
+html = html.replace(
+  /(<video\s+id="source-video"[\s\S]*?src="[^"]+"[\s\S]*?)(\s+playsinline)/,
+  (match, before, after) => (/\smuted(\s|>)/.test(match) ? match : `${before}\n        muted${after}`),
+);
 html = replaceOne(html, /(\bdata-fps=")[^"]+(")/, `$1${fps}$2`, "data-fps");
 html = replaceOne(html, /const totalDuration = [0-9.]+;/, `const totalDuration = ${durationText};`, "totalDuration");
 

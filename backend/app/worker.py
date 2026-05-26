@@ -413,6 +413,10 @@ HYPERFRAMES_RENDER_TIMEOUT_SECONDS = max(
         )
     ),
 )
+HYPERFRAMES_VERTICAL_RENDER_TIMEOUT_SECONDS = max(
+    300,
+    int(os.getenv("HYPERFRAMES_VERTICAL_RENDER_TIMEOUT_SECONDS", "3600")),
+)
 REMOTION_RENDER_TIMEOUT_SECONDS = max(
     600,
     int(os.getenv("REMOTION_RENDER_TIMEOUT_SECONDS", "7200")),
@@ -1205,8 +1209,13 @@ def _run_hyperframes_pipeline(
         return normalized_path
 
     overlay_coverage_percent = max(0, min(100, int(overlay_coverage_percent or 0)))
+    configured_render_timeout_seconds = (
+        HYPERFRAMES_VERTICAL_RENDER_TIMEOUT_SECONDS
+        if layout == "vertical_reels"
+        else HYPERFRAMES_RENDER_TIMEOUT_SECONDS
+    )
     render_timeout_seconds = min(
-        HYPERFRAMES_RENDER_TIMEOUT_SECONDS,
+        configured_render_timeout_seconds,
         max(300, PROCESS_TASK_SOFT_LIMIT_SECONDS - 300),
     )
     step_timeout_seconds = min(
@@ -1627,6 +1636,7 @@ def _run_hyperframes_pipeline(
     def run_hf_step(label: str, cmd: list[str]) -> bool:
         logging.info("Task %s: %s: %s", task_id, label, " ".join(cmd))
         try:
+            save_hyperframes_heartbeat(f"{label} started", progress_percent=0)
             result = subprocess.run(
                 cmd,
                 cwd=hyperframes_dir,
@@ -1756,11 +1766,17 @@ def _run_hyperframes_pipeline(
                 stdout=exc.stdout or "",
                 stderr=exc.stderr or f"Timed out after {render_timeout_seconds}s",
             )
+            save_hyperframes_heartbeat("timeout", progress_percent=0, status="failed")
             return cmd, timeout_result
         if result.stdout:
             logging.info("Task %s: %s stdout: %s", task_id, label, result.stdout[-4000:])
         if result.stderr:
             logging.info("Task %s: %s stderr: %s", task_id, label, result.stderr[-4000:])
+        save_hyperframes_heartbeat(
+            "completed" if result.returncode == 0 else f"failed_exit_{result.returncode}",
+            progress_percent=100 if result.returncode == 0 else 0,
+            status="ready" if result.returncode == 0 else "failed",
+        )
         return cmd, result
 
     cmd_render, render_result = run_hyperframes_render("Hyperframes render", final_output)
@@ -2020,6 +2036,104 @@ def process_content_task(self, task_id: int):
         meta["file"] = file_meta
         return output_path, meta
 
+    def _replace_video_audio_stream_copy(
+        video_path: str,
+        audio_path: str | None,
+        *,
+        stage: str,
+        audio_offset_seconds: float = 0.0,
+    ) -> tuple[str, dict]:
+        meta = {
+            "status": "skipped",
+            "stage": stage,
+            "video_path": video_path,
+            "audio_path": audio_path,
+            "audio_offset_seconds": round(float(audio_offset_seconds or 0.0), 3),
+            "copy_audio": True,
+            "reason": None,
+            "output_path": None,
+        }
+        if (os.getenv("AVATAR_REMUX_ORIGINAL_AUDIO", "true") or "").strip().lower() in {"0", "false", "no", "off"}:
+            meta["reason"] = "disabled_by_env"
+            return video_path, meta
+        if not video_path or not os.path.exists(video_path):
+            meta["reason"] = "video_missing"
+            return video_path, meta
+        if not audio_path or not os.path.exists(audio_path):
+            meta["reason"] = "audio_missing"
+            return video_path, meta
+
+        safe_offset = max(0.0, float(audio_offset_seconds or 0.0))
+        base, ext = os.path.splitext(video_path)
+        output_path = f"{base}_original_audio{ext or '.mp4'}"
+        temp_path = f"{output_path}.tmp.mp4"
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            video_path,
+        ]
+        if safe_offset > 0:
+            cmd.extend(["-itsoffset", f"{safe_offset:.3f}"])
+        cmd.extend([
+            "-i",
+            audio_path,
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "copy",
+            "-shortest",
+            "-avoid_negative_ts",
+            "make_zero",
+            "-movflags",
+            "+faststart",
+            temp_path,
+        ])
+        logging.info("Task %s: remuxing %s audio with stream copy: %s", task_id, stage, " ".join(cmd))
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=min(900, max(120, PROCESS_TASK_SOFT_LIMIT_SECONDS - 600)),
+            )
+        except subprocess.TimeoutExpired as exc:
+            meta["status"] = "failed"
+            meta["reason"] = "timeout"
+            meta["stderr"] = (exc.stderr or "")[-2000:]
+            logging.error("Task %s: original audio remux timed out. STDERR: %s", task_id, meta["stderr"])
+            return video_path, meta
+        if result.returncode != 0:
+            meta["status"] = "failed"
+            meta["reason"] = f"ffmpeg_exit_{result.returncode}"
+            meta["stderr"] = (result.stderr or "")[-3000:]
+            logging.error("Task %s: original audio remux failed. STDERR: %s", task_id, meta["stderr"])
+            return video_path, meta
+        try:
+            os.replace(temp_path, output_path)
+        except OSError as exc:
+            meta["status"] = "failed"
+            meta["reason"] = f"replace_failed: {exc}"
+            logging.error("Task %s: failed to move original-audio remux output: %s", task_id, exc)
+            return video_path, meta
+
+        file_meta = _probe_video_file_meta(output_path)
+        if not file_meta.get("valid"):
+            meta["status"] = "failed"
+            meta["reason"] = "output_invalid"
+            meta["file"] = file_meta
+            logging.error("Task %s: original-audio remux output is invalid: %s", task_id, file_meta)
+            return video_path, meta
+
+        meta["status"] = "ready"
+        meta["output_path"] = output_path
+        meta["file"] = file_meta
+        return output_path, meta
+
     def _extract_denoised_audio_track(source_video_path: str, *, stage: str) -> tuple[str | None, dict]:
         output_dir = os.getenv("OUTPUT_DIR", "./output").strip()
         os.makedirs(output_dir, exist_ok=True)
@@ -2031,13 +2145,14 @@ def process_content_task(self, task_id: int):
             "output_path": output_path,
             "reason": None,
         }
-        if (os.getenv("AVATAR_READY_HEYGEN_DENOISE_AUDIO", "true") or "").strip().lower() in {"0", "false", "no", "off"}:
+        if (os.getenv("AVATAR_READY_HEYGEN_DENOISE_AUDIO", "false") or "").strip().lower() in {"0", "false", "no", "off"}:
             meta["reason"] = "disabled_by_env"
             return None, meta
         if not source_video_path or not os.path.exists(source_video_path):
             meta["reason"] = "source_missing"
             return None, meta
 
+        audio_filter = (os.getenv("AVATAR_READY_HEYGEN_AUDIO_FILTER", "").strip() or "highpass=f=80,lowpass=f=12000,afftdn=nf=-25")
         cmd = [
             "ffmpeg",
             "-y",
@@ -2045,7 +2160,7 @@ def process_content_task(self, task_id: int):
             source_video_path,
             "-vn",
             "-af",
-            "highpass=f=80,lowpass=f=12000,afftdn=nf=-25",
+            audio_filter,
             "-c:a",
             "aac",
             "-b:a",
@@ -2073,6 +2188,7 @@ def process_content_task(self, task_id: int):
             logging.error("Task %s: ready-HeyGen audio denoise failed. STDERR: %s", task_id, meta["stderr"])
             return None, meta
         meta["status"] = "ready"
+        meta["filter"] = audio_filter
         meta["duration_seconds"] = get_audio_duration_seconds(output_path)
         return output_path, meta
 
@@ -3051,13 +3167,14 @@ def process_content_task(self, task_id: int):
             local_avatar_video = downloader.download_media(final_video_url, f"heygen_{task_id}")
             if not local_avatar_video:
                 raise Exception("Failed to download existing HeyGen video")
-            ready_heygen_clean_audio_path, ready_heygen_audio_meta = _extract_denoised_audio_track(
-                local_avatar_video,
-                stage="downloaded_source",
-            )
-            avatar_clean_audio_path = ready_heygen_clean_audio_path or local_avatar_video
+            avatar_clean_audio_path = local_avatar_video
             existing_meta = dict(task.script_meta or {})
-            existing_meta["ready_heygen_audio_cleanup"] = ready_heygen_audio_meta
+            existing_meta["ready_heygen_original_audio"] = {
+                "status": "ready",
+                "source_video_path": local_avatar_video,
+                "mode": "stream_copy",
+            }
+            existing_meta.pop("ready_heygen_audio_cleanup", None)
             task.script_meta = existing_meta
             db.commit()
 
@@ -3225,14 +3342,14 @@ def process_content_task(self, task_id: int):
             if render_output:
                 local_avatar_video = render_output
                 if is_short_avatar:
-                    local_avatar_video, remux_meta = _replace_video_audio_with_elevenlabs(
+                    local_avatar_video, remux_meta = _replace_video_audio_stream_copy(
                         local_avatar_video,
                         avatar_clean_audio_path,
                         stage="after_hyperframes",
                     )
                     current_meta = dict(task.script_meta or {})
-                    current_meta["elevenlabs_audio_remux"] = {
-                        **dict(current_meta.get("elevenlabs_audio_remux") or {}),
+                    current_meta["original_audio_remux"] = {
+                        **dict(current_meta.get("original_audio_remux") or {}),
                         "after_hyperframes": remux_meta,
                     }
                     task.script_meta = current_meta
@@ -3259,6 +3376,23 @@ def process_content_task(self, task_id: int):
                     cover_prompt=thumbnail_prompt,
                 )
                 post_hyperframes_meta["short_vertical_cover"] = vertical_cover_meta
+                local_avatar_video, cover_audio_remux_meta = _replace_video_audio_stream_copy(
+                    local_avatar_video,
+                    avatar_clean_audio_path,
+                    stage="after_vertical_cover",
+                    audio_offset_seconds=REELS_VERTICAL_COVER_SECONDS,
+                )
+                post_hyperframes_meta["original_audio_remux"] = {
+                    **dict(post_hyperframes_meta.get("original_audio_remux") or {}),
+                    "after_vertical_cover": cover_audio_remux_meta,
+                }
+                if cover_audio_remux_meta.get("status") != "ready":
+                    logging.warning(
+                        "Task %s: failed to remux original ready-HeyGen audio after vertical cover; "
+                        "keeping cover output audio. meta=%s",
+                        task_id,
+                        cover_audio_remux_meta,
+                    )
             else:
                 local_avatar_video, insert_meta = _apply_avatar_insert_montage(local_avatar_video)
                 post_hyperframes_meta["avatar_insert_montage"] = insert_meta
@@ -3266,7 +3400,14 @@ def process_content_task(self, task_id: int):
             existing_meta = dict(task.script_meta or {})
             existing_meta["thumbnail_prompt"] = thumbnail_prompt
             existing_meta["thumbnail"] = thumbnail_meta
-            existing_meta.update(post_hyperframes_meta)
+            for meta_key, meta_value in post_hyperframes_meta.items():
+                if isinstance(meta_value, dict) and isinstance(existing_meta.get(meta_key), dict):
+                    existing_meta[meta_key] = {
+                        **dict(existing_meta.get(meta_key) or {}),
+                        **meta_value,
+                    }
+                else:
+                    existing_meta[meta_key] = meta_value
             if youtube_description_meta:
                 existing_meta["youtube_description"] = youtube_description_meta
             else:
