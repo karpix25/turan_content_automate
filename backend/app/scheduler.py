@@ -4,6 +4,7 @@ import os
 import subprocess
 from typing import List
 
+import httpx
 from dotenv import load_dotenv
 
 from .database import SessionLocal
@@ -33,6 +34,7 @@ DEFAULT_PMP_PUBLISHED_STATUS_CODES = "6"
 DEFAULT_PMP_FAILED_STATUS_CODES = ""
 PMP_STATUS_SYNC_DEFAULT_LIMIT = 50
 PMP_STATUS_SYNC_DEFAULT_LOOKAHEAD_MINUTES = 30
+PMP_STATUS_UNAVAILABLE = "status_unavailable"
 
 
 def _env_int(name: str, default: int, minimum: int = 1) -> int:
@@ -406,6 +408,20 @@ def _update_postmypost_sync_meta(task: models.VideoTask, status_summary: dict, s
     task.script_meta = meta
 
 
+def _is_postmypost_missing_publication_status_error(exc: Exception) -> bool:
+    if not isinstance(exc, httpx.HTTPStatusError):
+        return False
+    response = exc.response
+    if response is None or response.status_code != 422:
+        return False
+    try:
+        body = response.text or ""
+    except Exception:
+        body = ""
+    normalized = body.lower()
+    return "publication_status" in normalized and "required property" in normalized
+
+
 def _complete_vizard_parent_with_existing_outputs(db, task: models.VideoTask, now: datetime.datetime) -> bool:
     if not task.vizard_project_id:
         return False
@@ -766,6 +782,23 @@ def sync_postmypost_publication_statuses(limit: int | None = None):
 
                 db.commit()
             except Exception as e:
+                if _is_postmypost_missing_publication_status_error(e):
+                    logger.warning(
+                        "PostMyPost status unavailable for task %s publication=%s; excluding from future status sync: %s",
+                        task.id,
+                        task.postmypost_id,
+                        e,
+                    )
+                    try:
+                        db.rollback()
+                        task.publishing_status = PMP_STATUS_UNAVAILABLE
+                        _update_postmypost_sync_meta(task, {}, PMP_STATUS_UNAVAILABLE, error=str(e))
+                        updated += 1
+                        db.commit()
+                    except Exception:
+                        db.rollback()
+                    continue
+
                 logger.warning("Failed to sync PostMyPost status for task %s: %s", task.id, e)
                 try:
                     db.rollback()
