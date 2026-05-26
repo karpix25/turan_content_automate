@@ -3115,6 +3115,180 @@ def process_content_task(self, task_id: int):
             )
         return uploaded
 
+    def _clean_plate_title(value: str | None, *, fallback: str = "Главный тезис") -> str:
+        title = re.sub(r"\s+", " ", (value or "")).strip().strip("\"'«»“”")
+        title = re.sub(r"[#@]\S+", "", title).strip()
+        if not title:
+            title = fallback
+        if len(title) > 52:
+            title = title[:52].rsplit(" ", 1)[0].strip() or title[:52].strip()
+        return title
+
+    def _wrap_plate_title(value: str, *, max_chars: int = 18, max_lines: int = 2) -> list[str]:
+        words = _clean_plate_title(value).split()
+        lines: list[str] = []
+        current = ""
+        for word in words:
+            candidate = f"{current} {word}".strip()
+            if current and len(candidate) > max_chars:
+                lines.append(current)
+                current = word
+            else:
+                current = candidate
+            if len(lines) >= max_lines:
+                break
+        if current and len(lines) < max_lines:
+            lines.append(current)
+        if not lines:
+            lines = ["Главный тезис"]
+        used_words = sum(len(line.split()) for line in lines)
+        if len(words) > used_words:
+            lines[-1] = lines[-1].rstrip(" .,!?:;") + "..."
+        return lines[:max_lines]
+
+    def _render_five_second_post_video(
+        *,
+        image_path: str,
+        title: str,
+        output_path: str,
+        duration_seconds: float = 5.0,
+    ) -> tuple[str | None, dict]:
+        output_dir = os.path.dirname(output_path) or "."
+        os.makedirs(output_dir, exist_ok=True)
+        plate_png_path = os.path.join(output_dir, f"instagram_post_5s_title_{task_id}.png")
+        title_lines = _wrap_plate_title(title)
+        font_size = 82 if len(title_lines) == 1 else 68
+        first_line_y = 1328 if len(title_lines) == 1 else 1288
+        line_gap = 86
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+
+            plate = Image.new("RGBA", (1080, 1920), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(plate)
+            draw.rounded_rectangle(
+                (42, 1210, 1038, 1455),
+                radius=46,
+                fill=(255, 79, 87, 255),
+            )
+            font_candidates = [
+                "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+                "/System/Library/Fonts/Helvetica.ttc",
+            ]
+            font = None
+            for font_path in font_candidates:
+                if os.path.isfile(font_path):
+                    try:
+                        font = ImageFont.truetype(font_path, font_size)
+                        break
+                    except Exception:
+                        font = None
+            if font is None:
+                font = ImageFont.load_default()
+            for index, line in enumerate(title_lines):
+                text = line.upper()
+                bbox = draw.textbbox((0, 0), text, font=font)
+                text_width = bbox[2] - bbox[0]
+                text_height = bbox[3] - bbox[1]
+                x = int((1080 - text_width) / 2)
+                y = int(first_line_y + index * line_gap - text_height / 2)
+                draw.text((x, y), text, font=font, fill=(43, 47, 51, 255))
+            plate.save(plate_png_path)
+        except Exception as plate_error:
+            logging.exception("Task %s: failed to render 5s title plate PNG: %s", task_id, plate_error)
+            raise
+
+        temp_path = f"{output_path}.tmp.mp4"
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-loop",
+            "1",
+            "-t",
+            f"{duration_seconds:.3f}",
+            "-i",
+            image_path,
+            "-loop",
+            "1",
+            "-t",
+            f"{duration_seconds:.3f}",
+            "-i",
+            plate_png_path,
+            "-f",
+            "lavfi",
+            "-t",
+            f"{duration_seconds:.3f}",
+            "-i",
+            "anullsrc=r=48000:cl=stereo",
+            "-filter_complex",
+            (
+                "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,"
+                "crop=1080:1920[base];"
+                "[1:v]format=rgba[plate];"
+                "[base][plate]overlay=0:0[v]"
+            ),
+            "-map",
+            "[v]",
+            "-map",
+            "2:a:0",
+            "-r",
+            "30",
+            "-c:v",
+            "libx264",
+            "-preset",
+            os.getenv("FFMPEG_X264_PRESET", "veryfast"),
+            "-crf",
+            os.getenv("FFMPEG_X264_CRF", "18"),
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-shortest",
+            "-movflags",
+            "+faststart",
+            temp_path,
+        ]
+        meta = {
+            "status": "skipped",
+            "image_path": image_path,
+            "title": title,
+            "plate_png_path": plate_png_path,
+            "output_path": output_path,
+            "duration_seconds": duration_seconds,
+            "reason": None,
+        }
+        logging.info("Task %s: rendering Instagram post 5s video: %s", task_id, " ".join(cmd))
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=min(900, max(120, PROCESS_TASK_SOFT_LIMIT_SECONDS - 600)),
+            )
+        except subprocess.TimeoutExpired as exc:
+            meta["status"] = "failed"
+            meta["reason"] = "timeout"
+            meta["stderr"] = (exc.stderr or "")[-2000:]
+            return None, meta
+        if result.returncode != 0 or not os.path.isfile(temp_path):
+            meta["status"] = "failed"
+            meta["reason"] = f"ffmpeg_exit_{result.returncode}"
+            meta["stderr"] = (result.stderr or "")[-3000:]
+            return None, meta
+        os.replace(temp_path, output_path)
+        file_meta = _probe_video_file_meta(output_path)
+        if not file_meta.get("valid"):
+            meta["status"] = "failed"
+            meta["reason"] = "output_invalid"
+            meta["file"] = file_meta
+            return None, meta
+        meta["status"] = "ready"
+        meta["file"] = file_meta
+        return output_path, meta
+
     try:
         source_url_raw = (task.source_url or "").strip()
         if not source_url_raw:
@@ -3418,6 +3592,98 @@ def process_content_task(self, task_id: int):
             input_videos.append(local_avatar_video)
             input_video_titles.append(task.source_title or f"Avatar Video {task_id}")
             input_video_contexts.append(thumbnail_script or task.source_title or f"Avatar Video {task_id}")
+
+        elif task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
+            update_task_status_message(db, task, stage="Instagram Post", detail="Получаю картинку и подпись поста.")
+            details = scraper.get_instagram_details(source_url)
+            caption = ((details or {}).get("caption") or "").strip()
+            creator = ((details or {}).get("creator") or "").strip()
+            image_urls = [
+                url for url in ((details or {}).get("image_urls") or [])
+                if isinstance(url, str) and url.startswith(("http://", "https://"))
+            ]
+            if not image_urls:
+                raise Exception("Failed to retrieve image URL for Instagram post 5s format")
+
+            output_dir = os.getenv("OUTPUT_DIR", "./output").strip()
+            os.makedirs(output_dir, exist_ok=True)
+            source_image_url = image_urls[0]
+            update_task_status_message(db, task, stage="Instagram Post", detail="Скачиваю изображение поста.")
+            local_post_image = downloader.download_media(source_image_url, f"instagram_post_{task_id}")
+            if not local_post_image:
+                raise Exception("Failed to download Instagram post image")
+
+            public_image_url = None
+            try:
+                public_image_url = thumbnail_generator._ensure_public_url(local_post_image, prefix=f"igpost{task_id}")
+            except Exception as public_url_error:
+                logging.warning("Task %s: failed to make Instagram post image public: %s", task_id, public_url_error)
+            public_image_url = public_image_url or source_image_url
+
+            update_task_status_message(db, task, stage="Заголовок", detail="Анализирую текст на картинке и переписываю заголовок.")
+            rewritten_title = llm.generate_instagram_post_5s_title(
+                image_url=public_image_url,
+                caption=caption,
+            )
+            if not rewritten_title:
+                rewritten_title = llm.generate_youtube_publication_title(caption) if caption else None
+            final_title = _clean_plate_title(
+                rewritten_title,
+                fallback=(task.source_title or (f"Пост @{creator}" if creator else "Главный тезис")),
+            )
+            task.source_title = final_title
+            task.script_text = caption or final_title
+            db.commit()
+
+            update_task_status_message(db, task, stage="Изображение", detail="Очищаю картинку от текста через image-to-image.")
+            clean_image_prompt = (
+                "Use the provided Instagram post image as the main reference. "
+                "Create a clean 9:16 vertical background image from it: preserve the main subject, scene, colors, "
+                "lighting and overall mood, but remove all readable text, captions, headlines, numbers, logos, "
+                "UI elements, stickers, watermarks and overlay graphics. Do not add any new text. "
+                "The output must be only the visual first layer/background, ready for a separate title plate."
+            )
+            clean_image_path = os.path.join(output_dir, f"instagram_post_clean_{task_id}.png")
+            generated_clean_image = thumbnail_generator.generate_image_from_references(
+                prompt=clean_image_prompt,
+                reference_paths=[local_post_image],
+                output_path=clean_image_path,
+                aspect_ratio="9:16",
+                resolution="1K",
+            )
+            if not generated_clean_image:
+                logging.warning("Task %s: image cleanup failed; using original post image as fallback.", task_id)
+                generated_clean_image = local_post_image
+
+            update_task_status_message(db, task, stage="Монтаж", detail="Собираю 5-секундное видео с плашкой.")
+            five_second_output = os.path.join(output_dir, f"instagram_post_5s_{task_id}.mp4")
+            final_post_video, five_second_meta = _render_five_second_post_video(
+                image_path=generated_clean_image,
+                title=final_title,
+                output_path=five_second_output,
+                duration_seconds=5.0,
+            )
+            if not final_post_video:
+                raise Exception(f"Failed to render Instagram post 5s video: {five_second_meta.get('reason')}")
+
+            current_meta = dict(task.script_meta or {})
+            current_meta["instagram_post_5s"] = {
+                "status": "ready",
+                "source_image_url": source_image_url,
+                "public_image_url": public_image_url,
+                "source_image_path": local_post_image,
+                "clean_image_path": generated_clean_image,
+                "title": final_title,
+                "caption": caption,
+                "creator": creator,
+                "render": five_second_meta,
+            }
+            task.script_meta = current_meta
+            db.commit()
+
+            input_videos.append(final_post_video)
+            input_video_titles.append(final_title)
+            input_video_contexts.append(caption or final_title)
 
         elif task.type in AVATAR_TASK_TYPES:
             cleaned_reels_transcript = ""

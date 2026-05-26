@@ -57,6 +57,31 @@ class ScrapeCreatorsClient:
             caption_text = ((caption_edges[0].get("node") or {}).get("text"))
 
         owner = media.get("owner") or {}
+        image_urls: list[str] = []
+
+        def add_image_url(value: Any) -> None:
+            if isinstance(value, str) and value.startswith(("http://", "https://")) and value not in image_urls:
+                image_urls.append(value)
+
+        def collect_media_images(node: Any) -> None:
+            if not isinstance(node, dict):
+                return
+            add_image_url(node.get("display_url"))
+            add_image_url(node.get("thumbnail_src"))
+            add_image_url(node.get("image_url"))
+            add_image_url(node.get("imageUrl"))
+            for resource in node.get("display_resources") or []:
+                if isinstance(resource, dict):
+                    add_image_url(resource.get("src"))
+            sidecar_edges = ((node.get("edge_sidecar_to_children") or {}).get("edges") or [])
+            for edge in sidecar_edges:
+                collect_media_images((edge or {}).get("node"))
+
+        collect_media_images(media)
+        add_image_url(data.get("image_url"))
+        add_image_url(data.get("imageUrl"))
+        add_image_url(data.get("thumbnail_url"))
+        add_image_url(data.get("thumbnailUrl"))
 
         return {
             "download_url": (
@@ -64,10 +89,12 @@ class ScrapeCreatorsClient:
                 or data.get("download_url")
                 or media.get("video_url")
             ),
+            "image_urls": image_urls,
             "caption": data.get("caption") or caption_text,
             "view_count": data.get("viewCountInt") or media.get("video_view_count"),
             "creator": (data.get("owner") or {}).get("username") or owner.get("username"),
             "error": None,
+            "raw": data,
         }
 
     def get_youtube_transcript(self, video_url: str) -> Optional[Dict]:

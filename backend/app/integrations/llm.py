@@ -25,7 +25,7 @@ class LLMClient:
             "Content-Type": "application/json"
         }
 
-    def _complete(self, messages: List[Dict[str, str]], temperature: float = 0.7) -> Optional[str]:
+    def _complete(self, messages: List[Dict[str, Any]], temperature: float = 0.7) -> Optional[str]:
         if not self.api_key:
             logger.error("OpenRouter API key is missing")
             return None
@@ -160,6 +160,45 @@ class LLMClient:
         title = re.sub(r"^[\"'«“]+|[\"'»”]+$", "", title.strip())
         title = re.sub(r"\s+", " ", title).strip()
         return title[:100] or None
+
+    def generate_instagram_post_5s_title(self, *, image_url: str | None, caption: str | None = None) -> Optional[str]:
+        clean_caption = re.sub(r"\s+", " ", (caption or "")).strip()
+        clean_image_url = (image_url or "").strip()
+        if not clean_caption and not clean_image_url:
+            return None
+
+        content: list[dict[str, Any]] = [
+            {
+                "type": "text",
+                "text": (
+                    "Проанализируй Instagram post image. Обычно на картинке есть заголовок/тезис. "
+                    "Найди главный смысл заголовка на изображении, затем перепиши его как сильную короткую "
+                    "плашку для 5-секундного вертикального видео.\n\n"
+                    "Правила: русский язык, 2-6 слов, максимум 42 символа, без эмодзи, без кавычек, "
+                    "без ссылок и CTA, не копируй дословно если можно усилить. Верни только текст плашки.\n\n"
+                    f"Caption поста для контекста:\n{clean_caption[:1200] or 'нет'}"
+                ),
+            }
+        ]
+        if clean_image_url:
+            content.append({"type": "image_url", "image_url": {"url": clean_image_url}})
+
+        messages: list[dict[str, Any]] = [
+            {
+                "role": "system",
+                "content": "Ты редактор коротких заголовков для Reels/Stories и умеешь читать текст на изображениях.",
+            },
+            {"role": "user", "content": content},
+        ]
+        title = self._complete(messages, temperature=0.35)
+        if not title:
+            return None
+        title = re.sub(r"^[\"'«“]+|[\"'»”]+$", "", title.strip())
+        title = re.sub(r"\s+", " ", title).strip()
+        title = re.sub(r"[#@]\S+", "", title).strip()
+        if len(title) > 52:
+            title = title[:52].rsplit(" ", 1)[0].strip()
+        return title or None
 
     @staticmethod
     def estimate_word_count(text: str | None) -> int:

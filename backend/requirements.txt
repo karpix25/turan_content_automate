@@ -4,6 +4,7 @@ aiogram
 python-dotenv
 httpx
 moviepy
+Pillow
 ffmpeg-python
 celery
 redis

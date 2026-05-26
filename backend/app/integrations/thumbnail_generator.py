@@ -267,3 +267,47 @@ class ThumbnailGeneratorClient:
         if not result_url:
             return None
         return self._download_to_file(result_url, output_path)
+
+    def generate_image_from_references(
+        self,
+        *,
+        prompt: str,
+        reference_paths: list[str],
+        output_path: str,
+        aspect_ratio: str | None = None,
+        resolution: str | None = None,
+    ) -> str | None:
+        clean_prompt = (prompt or "").strip()
+        if not clean_prompt:
+            return None
+
+        input_urls: list[str] = []
+        for index, path in enumerate(reference_paths, start=1):
+            maybe_url = self._ensure_public_url(path, prefix=f"image_ref{index}")
+            if maybe_url and maybe_url not in input_urls:
+                input_urls.append(maybe_url)
+
+        if not input_urls:
+            logger.error("Image generation skipped: no public reference URLs.")
+            return None
+
+        request_payload: dict[str, Any] = {
+            "model": self.model_id,
+            "input": {
+                "prompt": clean_prompt,
+                "input_urls": input_urls,
+                "aspect_ratio": (aspect_ratio or self.aspect_ratio).strip(),
+                "resolution": (resolution or self.resolution).strip(),
+            },
+        }
+        if self.callback_url:
+            request_payload["callBackUrl"] = self.callback_url
+
+        task_id = self._create_task(request_payload)
+        if not task_id:
+            return None
+
+        result_url = self._poll_task_result_url(task_id)
+        if not result_url:
+            return None
+        return self._download_to_file(result_url, output_path)
