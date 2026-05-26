@@ -24,6 +24,7 @@ class ThumbnailGeneratorClient:
             0.5,
             float((os.getenv("THUMBNAIL_KIE_CREATE_TASK_RETRY_DELAY_SECONDS") or "3").strip() or "3"),
         )
+        self.force_ipv4 = (os.getenv("THUMBNAIL_KIE_FORCE_IPV4") or "1").strip() not in {"0", "false", "False"}
         self.aspect_ratio = (os.getenv("THUMBNAIL_KIE_ASPECT_RATIO") or "16:9").strip()
         self.resolution = (os.getenv("THUMBNAIL_KIE_RESOLUTION") or "1K").strip()
         self.callback_url = (os.getenv("THUMBNAIL_KIE_CALLBACK_URL") or "").strip()
@@ -127,6 +128,12 @@ class ThumbnailGeneratorClient:
             return raw
         return self._upload_local_file_to_cloudinary(raw, prefix=prefix)
 
+    def _kie_http_client(self) -> httpx.Client:
+        if not self.force_ipv4:
+            return httpx.Client(timeout=self.timeout_seconds)
+        transport = httpx.HTTPTransport(local_address="0.0.0.0", retries=1)
+        return httpx.Client(timeout=self.timeout_seconds, transport=transport)
+
     def _create_task(self, payload: dict[str, Any]) -> str | None:
         if not self.api_key:
             logger.warning("KIE_API_KEY is empty; thumbnail generation skipped.")
@@ -136,7 +143,7 @@ class ThumbnailGeneratorClient:
             "Content-Type": "application/json",
         }
         data = None
-        with httpx.Client(timeout=self.timeout_seconds) as client:
+        with self._kie_http_client() as client:
             for attempt in range(1, self.create_task_max_attempts + 1):
                 try:
                     response = client.post(f"{self.base_url}/api/v1/jobs/createTask", headers=headers, json=payload)
@@ -193,7 +200,7 @@ class ThumbnailGeneratorClient:
     def _poll_task_result_url(self, task_id: str) -> str | None:
         headers = {"Authorization": f"Bearer {self.api_key}"}
         deadline = time.time() + self.poll_timeout_seconds
-        with httpx.Client(timeout=self.timeout_seconds) as client:
+        with self._kie_http_client() as client:
             while time.time() < deadline:
                 try:
                     response = client.get(

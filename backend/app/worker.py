@@ -3690,8 +3690,29 @@ def process_content_task(self, task_id: int):
                 resolution="1K",
             )
             if not generated_clean_image:
-                logging.warning("Task %s: image cleanup failed; using original post image as fallback.", task_id)
-                generated_clean_image = local_post_image
+                current_meta = dict(task.script_meta or {})
+                current_meta["instagram_post_5s"] = {
+                    **dict(current_meta.get("instagram_post_5s") or {}),
+                    "status": "failed",
+                    "reason": "image_cleanup_failed",
+                    "source_image_url": source_image_url,
+                    "public_image_url": public_image_url,
+                    "source_image_path": local_post_image,
+                    "clean_image_path": clean_image_path,
+                    "title": final_title,
+                    "caption": caption,
+                    "creator": creator,
+                }
+                task.script_meta = current_meta
+                db.commit()
+                if (os.getenv("INSTAGRAM_POST_5S_ALLOW_ORIGINAL_IMAGE_FALLBACK") or "0").strip() in {"1", "true", "True"}:
+                    logging.warning("Task %s: image cleanup failed; using original post image as fallback.", task_id)
+                    generated_clean_image = local_post_image
+                else:
+                    raise Exception(
+                        "KIE image cleanup failed for Instagram post 5s format; "
+                        "refusing to render with the original uncleaned image"
+                    )
 
             update_task_status_message(db, task, stage="Монтаж", detail="Собираю 5-секундное видео с плашкой.")
             five_second_output = os.path.join(output_dir, f"instagram_post_5s_{task_id}.mp4")
