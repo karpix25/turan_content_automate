@@ -1,5 +1,7 @@
+import contextlib
 import logging
 import os
+import socket
 from typing import Any
 import json
 import time
@@ -129,10 +131,25 @@ class ThumbnailGeneratorClient:
         return self._upload_local_file_to_cloudinary(raw, prefix=prefix)
 
     def _kie_http_client(self) -> httpx.Client:
-        if not self.force_ipv4:
-            return httpx.Client(timeout=self.timeout_seconds)
-        transport = httpx.HTTPTransport(local_address="0.0.0.0", retries=1)
+        transport = httpx.HTTPTransport(retries=1)
         return httpx.Client(timeout=self.timeout_seconds, transport=transport)
+
+    @contextlib.contextmanager
+    def _kie_network_context(self):
+        if not self.force_ipv4:
+            yield
+            return
+
+        original_getaddrinfo = socket.getaddrinfo
+
+        def ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+            return original_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+
+        socket.getaddrinfo = ipv4_getaddrinfo
+        try:
+            yield
+        finally:
+            socket.getaddrinfo = original_getaddrinfo
 
     def _create_task(self, payload: dict[str, Any]) -> str | None:
         if not self.api_key:
@@ -143,7 +160,7 @@ class ThumbnailGeneratorClient:
             "Content-Type": "application/json",
         }
         data = None
-        with self._kie_http_client() as client:
+        with self._kie_network_context(), self._kie_http_client() as client:
             for attempt in range(1, self.create_task_max_attempts + 1):
                 try:
                     response = client.post(f"{self.base_url}/api/v1/jobs/createTask", headers=headers, json=payload)
@@ -200,7 +217,7 @@ class ThumbnailGeneratorClient:
     def _poll_task_result_url(self, task_id: str) -> str | None:
         headers = {"Authorization": f"Bearer {self.api_key}"}
         deadline = time.time() + self.poll_timeout_seconds
-        with self._kie_http_client() as client:
+        with self._kie_network_context(), self._kie_http_client() as client:
             while time.time() < deadline:
                 try:
                     response = client.get(
