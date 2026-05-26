@@ -3123,11 +3123,9 @@ def process_content_task(self, task_id: int):
             title = ""
         if not title:
             title = fallback
-        if len(title) > 52:
-            title = title[:52].rsplit(" ", 1)[0].strip() or title[:52].strip()
         return title
 
-    def _wrap_plate_title(value: str, *, max_chars: int = 18, max_lines: int = 2) -> list[str]:
+    def _wrap_plate_title(value: str, *, max_chars: int = 20) -> list[str]:
         words = _clean_plate_title(value).split()
         lines: list[str] = []
         current = ""
@@ -3138,16 +3136,11 @@ def process_content_task(self, task_id: int):
                 current = word
             else:
                 current = candidate
-            if len(lines) >= max_lines:
-                break
-        if current and len(lines) < max_lines:
+        if current:
             lines.append(current)
         if not lines:
             lines = ["Главный тезис"]
-        used_words = sum(len(line.split()) for line in lines)
-        if len(words) > used_words:
-            lines[-1] = lines[-1].rstrip(" .,!?:;") + "..."
-        return lines[:max_lines]
+        return lines
 
     def _render_five_second_post_video(
         *,
@@ -3160,19 +3153,11 @@ def process_content_task(self, task_id: int):
         os.makedirs(output_dir, exist_ok=True)
         plate_png_path = os.path.join(output_dir, f"instagram_post_5s_title_{task_id}.png")
         title_lines = _wrap_plate_title(title)
-        font_size = 82 if len(title_lines) == 1 else 68
-        first_line_y = 1328 if len(title_lines) == 1 else 1288
-        line_gap = 86
         try:
             from PIL import Image, ImageDraw, ImageFont
 
             plate = Image.new("RGBA", (1080, 1920), (0, 0, 0, 0))
             draw = ImageDraw.Draw(plate)
-            draw.rounded_rectangle(
-                (42, 1210, 1038, 1455),
-                radius=46,
-                fill=(255, 79, 87, 255),
-            )
             font_candidates = [
                 "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
                 "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
@@ -3181,16 +3166,51 @@ def process_content_task(self, task_id: int):
                 "/System/Library/Fonts/Helvetica.ttc",
             ]
             font_candidates.extend(glob.glob("/usr/share/fonts/truetype/**/*Sans*Bold*.ttf", recursive=True))
-            font = None
-            for font_path in font_candidates:
-                if os.path.isfile(font_path):
-                    try:
-                        font = ImageFont.truetype(font_path, font_size)
-                        break
-                    except Exception:
-                        font = None
-            if font is None:
+            selected_font_path = None
+            for candidate_font_path in font_candidates:
+                if os.path.isfile(candidate_font_path):
+                    selected_font_path = candidate_font_path
+                    break
+            if not selected_font_path:
                 raise RuntimeError("No TrueType font found for Instagram post 5s title plate")
+
+            plate_x1 = 42
+            plate_x2 = 1038
+            max_text_width = plate_x2 - plate_x1 - 64
+            font = None
+            font_size = 82
+            line_gap = 86
+            for candidate_size in range(82, 33, -2):
+                candidate_font = ImageFont.truetype(selected_font_path, candidate_size)
+                candidate_gap = max(int(candidate_size * 1.18), candidate_size + 8)
+                too_wide = False
+                for line in title_lines:
+                    bbox = draw.textbbox((0, 0), line.upper(), font=candidate_font)
+                    if (bbox[2] - bbox[0]) > max_text_width:
+                        too_wide = True
+                        break
+                total_text_height = (len(title_lines) - 1) * candidate_gap + candidate_size
+                if not too_wide and total_text_height <= 380:
+                    font = candidate_font
+                    font_size = candidate_size
+                    line_gap = candidate_gap
+                    break
+            if font is None:
+                font_size = 34
+                font = ImageFont.truetype(selected_font_path, font_size)
+                line_gap = 42
+
+            total_text_height = (len(title_lines) - 1) * line_gap + font_size
+            plate_height = max(210, min(460, total_text_height + 96))
+            plate_y1 = int(1455 - plate_height)
+            plate_y2 = 1455
+            draw.rounded_rectangle(
+                (plate_x1, plate_y1, plate_x2, plate_y2),
+                radius=46,
+                fill=(255, 79, 87, 255),
+            )
+            center_y = (plate_y1 + plate_y2) / 2
+            first_line_y = center_y - ((len(title_lines) - 1) * line_gap / 2)
             for index, line in enumerate(title_lines):
                 text = line.upper()
                 bbox = draw.textbbox((0, 0), text, font=font)
