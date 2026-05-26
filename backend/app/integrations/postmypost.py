@@ -142,6 +142,12 @@ class PostMyPostClient:
                     return response.json()
             except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError) as exc:
                 last_error = exc
+                if (
+                    isinstance(exc, httpx.HTTPStatusError)
+                    and 400 <= exc.response.status_code < 500
+                    and exc.response.status_code != 429
+                ):
+                    break
                 if attempt >= self.max_retries:
                     break
                 
