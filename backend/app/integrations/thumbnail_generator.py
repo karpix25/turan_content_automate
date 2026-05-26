@@ -19,6 +19,11 @@ class ThumbnailGeneratorClient:
         self.timeout_seconds = float(os.getenv("THUMBNAIL_GENERATOR_TIMEOUT_SECONDS", "240"))
         self.poll_timeout_seconds = float(os.getenv("THUMBNAIL_KIE_POLL_TIMEOUT_SECONDS", "300"))
         self.poll_interval_seconds = float(os.getenv("THUMBNAIL_KIE_POLL_INTERVAL_SECONDS", "3"))
+        self.create_task_max_attempts = max(1, int((os.getenv("THUMBNAIL_KIE_CREATE_TASK_MAX_ATTEMPTS") or "4").strip() or "4"))
+        self.create_task_retry_delay_seconds = max(
+            0.5,
+            float((os.getenv("THUMBNAIL_KIE_CREATE_TASK_RETRY_DELAY_SECONDS") or "3").strip() or "3"),
+        )
         self.aspect_ratio = (os.getenv("THUMBNAIL_KIE_ASPECT_RATIO") or "16:9").strip()
         self.resolution = (os.getenv("THUMBNAIL_KIE_RESOLUTION") or "1K").strip()
         self.callback_url = (os.getenv("THUMBNAIL_KIE_CALLBACK_URL") or "").strip()
@@ -130,14 +135,54 @@ class ThumbnailGeneratorClient:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        try:
-            with httpx.Client(timeout=self.timeout_seconds) as client:
-                response = client.post(f"{self.base_url}/api/v1/jobs/createTask", headers=headers, json=payload)
-                response.raise_for_status()
-                data = response.json()
-        except Exception as exc:
-            logger.error("KIE createTask failed: %s", exc)
-            return None
+        data = None
+        with httpx.Client(timeout=self.timeout_seconds) as client:
+            for attempt in range(1, self.create_task_max_attempts + 1):
+                try:
+                    response = client.post(f"{self.base_url}/api/v1/jobs/createTask", headers=headers, json=payload)
+                    response.raise_for_status()
+                    data = response.json()
+                    break
+                except httpx.HTTPStatusError as exc:
+                    status_code = exc.response.status_code if exc.response is not None else None
+                    response_text = exc.response.text[:1000] if exc.response is not None else ""
+                    if status_code and 400 <= status_code < 500 and status_code != 429:
+                        logger.error("KIE createTask failed with non-retryable HTTP %s: %s", status_code, response_text)
+                        return None
+                    if attempt >= self.create_task_max_attempts:
+                        logger.error(
+                            "KIE createTask failed after %s attempts with HTTP %s: %s",
+                            attempt,
+                            status_code,
+                            response_text,
+                        )
+                        return None
+                    delay = self.create_task_retry_delay_seconds * attempt
+                    logger.warning(
+                        "KIE createTask HTTP %s failed on attempt %s/%s; retrying in %.1fs: %s",
+                        status_code,
+                        attempt,
+                        self.create_task_max_attempts,
+                        delay,
+                        response_text,
+                    )
+                    time.sleep(delay)
+                except (httpx.TimeoutException, httpx.NetworkError, httpx.TransportError) as exc:
+                    if attempt >= self.create_task_max_attempts:
+                        logger.error("KIE createTask failed after %s attempts: %s", attempt, exc)
+                        return None
+                    delay = self.create_task_retry_delay_seconds * attempt
+                    logger.warning(
+                        "KIE createTask transport failed on attempt %s/%s; retrying in %.1fs: %s",
+                        attempt,
+                        self.create_task_max_attempts,
+                        delay,
+                        exc,
+                    )
+                    time.sleep(delay)
+                except Exception as exc:
+                    logger.error("KIE createTask failed: %s", exc)
+                    return None
 
         task_id = (((data or {}).get("data") or {}).get("taskId") or "").strip()
         if not task_id:
