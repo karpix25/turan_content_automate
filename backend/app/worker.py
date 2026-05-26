@@ -2020,6 +2020,62 @@ def process_content_task(self, task_id: int):
         meta["file"] = file_meta
         return output_path, meta
 
+    def _extract_denoised_audio_track(source_video_path: str, *, stage: str) -> tuple[str | None, dict]:
+        output_dir = os.getenv("OUTPUT_DIR", "./output").strip()
+        os.makedirs(output_dir, exist_ok=True)
+        output_path = os.path.join(output_dir, f"ready_heygen_clean_audio_{task_id}_{stage}.m4a")
+        meta = {
+            "status": "skipped",
+            "stage": stage,
+            "source_video_path": source_video_path,
+            "output_path": output_path,
+            "reason": None,
+        }
+        if (os.getenv("AVATAR_READY_HEYGEN_DENOISE_AUDIO", "true") or "").strip().lower() in {"0", "false", "no", "off"}:
+            meta["reason"] = "disabled_by_env"
+            return None, meta
+        if not source_video_path or not os.path.exists(source_video_path):
+            meta["reason"] = "source_missing"
+            return None, meta
+
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            source_video_path,
+            "-vn",
+            "-af",
+            "highpass=f=80,lowpass=f=12000,afftdn=nf=-25",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "256k",
+            output_path,
+        ]
+        logging.info("Task %s: extracting denoised ready-HeyGen audio: %s", task_id, " ".join(cmd))
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=min(900, max(120, PROCESS_TASK_SOFT_LIMIT_SECONDS - 600)),
+            )
+        except subprocess.TimeoutExpired as exc:
+            meta["status"] = "failed"
+            meta["reason"] = "timeout"
+            meta["stderr"] = (exc.stderr or "")[-2000:]
+            logging.error("Task %s: ready-HeyGen audio denoise timed out. STDERR: %s", task_id, meta["stderr"])
+            return None, meta
+        if result.returncode != 0 or not os.path.isfile(output_path):
+            meta["status"] = "failed"
+            meta["reason"] = f"ffmpeg_exit_{result.returncode}"
+            meta["stderr"] = (result.stderr or "")[-3000:]
+            logging.error("Task %s: ready-HeyGen audio denoise failed. STDERR: %s", task_id, meta["stderr"])
+            return None, meta
+        meta["status"] = "ready"
+        meta["duration_seconds"] = get_audio_duration_seconds(output_path)
+        return output_path, meta
+
     def _render_avatar_with_graphics(
         input_video: str,
         script_text: str,
@@ -2995,7 +3051,15 @@ def process_content_task(self, task_id: int):
             local_avatar_video = downloader.download_media(final_video_url, f"heygen_{task_id}")
             if not local_avatar_video:
                 raise Exception("Failed to download existing HeyGen video")
-            avatar_clean_audio_path = local_avatar_video
+            ready_heygen_clean_audio_path, ready_heygen_audio_meta = _extract_denoised_audio_track(
+                local_avatar_video,
+                stage="downloaded_source",
+            )
+            avatar_clean_audio_path = ready_heygen_clean_audio_path or local_avatar_video
+            existing_meta = dict(task.script_meta or {})
+            existing_meta["ready_heygen_audio_cleanup"] = ready_heygen_audio_meta
+            task.script_meta = existing_meta
+            db.commit()
 
             detected_task_type, detection_meta = _detect_avatar_video_type(local_avatar_video)
             if detected_task_type and task.type != detected_task_type:
