@@ -1904,12 +1904,14 @@ def process_content_task(self, task_id: int):
     def _remaining_task_budget_seconds() -> float:
         return max(0.0, PROCESS_TASK_SOFT_LIMIT_SECONDS - (time.monotonic() - task_started_monotonic))
 
-    def _probe_video_file_meta(path: str) -> dict:
+    def _probe_video_file_meta(path: str, *, min_size_bytes: int = 128 * 1024, min_duration_seconds: float = 0.5) -> dict:
         meta = {
             "path": path,
             "exists": bool(path and os.path.isfile(path)),
             "size": None,
             "duration": None,
+            "min_size_bytes": min_size_bytes,
+            "min_duration_seconds": min_duration_seconds,
             "valid": False,
         }
         if not meta["exists"]:
@@ -1918,7 +1920,13 @@ def process_content_task(self, task_id: int):
             size = os.path.getsize(path)
             probe = processor._probe_media(path)
             duration = float(probe.get("format", {}).get("duration") or 0.0)
-            meta.update({"size": size, "duration": round(duration, 3), "valid": size >= 128 * 1024 and duration > 0.5})
+            meta.update(
+                {
+                    "size": size,
+                    "duration": round(duration, 3),
+                    "valid": size >= min_size_bytes and duration > min_duration_seconds,
+                }
+            )
         except Exception as exc:
             meta["error"] = str(exc)
         return meta
@@ -3304,11 +3312,16 @@ def process_content_task(self, task_id: int):
             meta["stderr"] = (result.stderr or "")[-3000:]
             return None, meta
         os.replace(temp_path, output_path)
-        file_meta = _probe_video_file_meta(output_path)
+        file_meta = _probe_video_file_meta(
+            output_path,
+            min_size_bytes=24 * 1024,
+            min_duration_seconds=max(0.5, duration_seconds - 1.0),
+        )
         if not file_meta.get("valid"):
             meta["status"] = "failed"
             meta["reason"] = "output_invalid"
             meta["file"] = file_meta
+            logging.error("Task %s: Instagram post 5s output is invalid: %s", task_id, file_meta)
             return None, meta
         meta["status"] = "ready"
         meta["file"] = file_meta
@@ -3689,7 +3702,10 @@ def process_content_task(self, task_id: int):
                 duration_seconds=5.0,
             )
             if not final_post_video:
-                raise Exception(f"Failed to render Instagram post 5s video: {five_second_meta.get('reason')}")
+                raise Exception(
+                    "Failed to render Instagram post 5s video: "
+                    f"{five_second_meta.get('reason')} file={five_second_meta.get('file')}"
+                )
 
             current_meta = dict(task.script_meta or {})
             current_meta["instagram_post_5s"] = {
