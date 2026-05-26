@@ -10,6 +10,7 @@ import math
 import selectors
 import uuid
 import subprocess
+import glob
 from typing import List
 from urllib.parse import urlparse, parse_qs
 from billiard.exceptions import SoftTimeLimitExceeded
@@ -3118,6 +3119,8 @@ def process_content_task(self, task_id: int):
     def _clean_plate_title(value: str | None, *, fallback: str = "Главный тезис") -> str:
         title = re.sub(r"\s+", " ", (value or "")).strip().strip("\"'«»“”")
         title = re.sub(r"[#@]\S+", "", title).strip()
+        if not re.search(r"[\wА-Яа-яЁё]", title, flags=re.UNICODE):
+            title = ""
         if not title:
             title = fallback
         if len(title) > 52:
@@ -3171,11 +3174,13 @@ def process_content_task(self, task_id: int):
                 fill=(255, 79, 87, 255),
             )
             font_candidates = [
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
                 "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
                 "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
                 "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
                 "/System/Library/Fonts/Helvetica.ttc",
             ]
+            font_candidates.extend(glob.glob("/usr/share/fonts/truetype/**/*Sans*Bold*.ttf", recursive=True))
             font = None
             for font_path in font_candidates:
                 if os.path.isfile(font_path):
@@ -3185,7 +3190,7 @@ def process_content_task(self, task_id: int):
                     except Exception:
                         font = None
             if font is None:
-                font = ImageFont.load_default()
+                raise RuntimeError("No TrueType font found for Instagram post 5s title plate")
             for index, line in enumerate(title_lines):
                 text = line.upper()
                 bbox = draw.textbbox((0, 0), text, font=font)
