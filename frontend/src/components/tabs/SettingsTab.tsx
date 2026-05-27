@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Settings, Save, Loader2, Link2, BookOpen, User, Mic, Upload, Image as ImageIcon, Trash2, Film } from 'lucide-react';
+import { Settings, Save, Loader2, Link2, BookOpen, User, Mic, Upload, Image as ImageIcon, Trash2, Film, Music2, ImagePlus } from 'lucide-react';
 import { apiClient } from '../../api/client';
 import { useTelegram } from '../../context/TelegramContext';
-import { ThumbnailReference, ThumbnailFaceReference, AvatarInsertClip } from '../../types';
+import { ThumbnailReference, ThumbnailFaceReference, AvatarInsertClip, InstagramPost5sSettings } from '../../types';
 
 type VoiceSpeed = {
   chars_per_second?: number;
@@ -69,6 +69,21 @@ export const SettingsTab: React.FC = () => {
   const [avatarInsertClipsCount, setAvatarInsertClipsCount] = useState<number>(2);
   const [youtubeDescriptionTemplate, setYoutubeDescriptionTemplate] = useState<string>('');
   const [avatarScriptDurationMinutes, setAvatarScriptDurationMinutes] = useState<number>(5);
+  const [fiveSecondSettings, setFiveSecondSettings] = useState<InstagramPost5sSettings | null>(null);
+  const [audioProfileInput, setAudioProfileInput] = useState('');
+  const [refreshingAudio, setRefreshingAudio] = useState(false);
+  const [uploadingFiveSecondOverlay, setUploadingFiveSecondOverlay] = useState(false);
+  const fiveSecondOverlayInputRef = useRef<HTMLInputElement>(null);
+
+  const loadFiveSecondSettings = async () => {
+    if (!telegramId) return;
+    try {
+      const data = await apiClient.getInstagramPost5sSettings(telegramId);
+      setFiveSecondSettings(data);
+      setAudioProfileInput(data.audio_profile || '');
+    } catch (error) {
+    }
+  };
 
   useEffect(() => {
     const loadStyle = async () => {
@@ -186,6 +201,7 @@ export const SettingsTab: React.FC = () => {
     loadAvatars();
     loadThumbnailAssets();
     loadAvatarInsertClips();
+    loadFiveSecondSettings();
   }, [telegramId]);
 
   const trainStyle = async () => {
@@ -241,6 +257,51 @@ export const SettingsTab: React.FC = () => {
     const parts = path.split('/media/');
     if (parts.length > 1) return `${API_BASE}/media/${parts[1]}`;
     return '';
+  };
+
+  const refreshAudioLibrary = async () => {
+    if (!telegramId) return;
+    const profile = audioProfileInput.trim();
+    if (!profile) {
+      alert('Укажите Instagram-профиль');
+      return;
+    }
+    setRefreshingAudio(true);
+    try {
+      const data = await apiClient.refreshInstagramPost5sAudioProfile(telegramId, profile);
+      setFiveSecondSettings(data);
+      setTimeout(loadFiveSecondSettings, 3000);
+    } catch (error: any) {
+      alert(error.response?.data?.detail || 'Ошибка обновления аудио');
+    } finally {
+      setRefreshingAudio(false);
+    }
+  };
+
+  const handleFiveSecondOverlayUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !telegramId) return;
+    setUploadingFiveSecondOverlay(true);
+    try {
+      const data = await apiClient.uploadInstagramPost5sOverlay(telegramId, file);
+      setFiveSecondSettings(data);
+    } catch (error) {
+      alert('Ошибка при загрузке плашки 5 секунд');
+    } finally {
+      setUploadingFiveSecondOverlay(false);
+      if (fiveSecondOverlayInputRef.current) fiveSecondOverlayInputRef.current.value = '';
+    }
+  };
+
+  const deleteFiveSecondOverlay = async () => {
+    if (!telegramId) return;
+    if (!window.confirm('Удалить плашку формата 5 секунд?')) return;
+    try {
+      const data = await apiClient.deleteInstagramPost5sOverlay(telegramId);
+      setFiveSecondSettings(data);
+    } catch (error) {
+      alert('Ошибка при удалении плашки');
+    }
   };
 
   const handleUploadThumbnailReference = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -544,6 +605,88 @@ export const SettingsTab: React.FC = () => {
         className="hidden"
         onChange={handleUploadAvatarInsertClip}
       />
+      <input
+        ref={fiveSecondOverlayInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFiveSecondOverlayUpload}
+      />
+
+      <details open className="tg-card p-4 settings-section">
+        <summary className="list-none">
+        <div className="flex items-center gap-2">
+          <Music2 size={18} className="text-[#24a1de]" />
+          <h3 className="text-[15px] font-bold text-slate-900">5 секунд</h3>
+        </div>
+        </summary>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+          <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+            <label className="text-xs font-bold text-[#707579] uppercase tracking-wider mb-2 block">Аудио-профиль</label>
+            <div className="flex gap-2">
+              <input
+                value={audioProfileInput}
+                onChange={(e) => setAudioProfileInput(e.target.value)}
+                placeholder="@profile или ссылка Instagram"
+                className="input-field h-10 text-sm"
+              />
+              <button
+                onClick={refreshAudioLibrary}
+                disabled={refreshingAudio}
+                className="h-10 px-3 bg-[#24a1de] text-white rounded-xl text-xs font-bold flex items-center gap-2 disabled:opacity-50"
+              >
+                {refreshingAudio ? <Loader2 size={14} className="animate-spin" /> : <Music2 size={14} />}
+                Обновить
+              </button>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <span className="px-2 py-1 rounded-lg text-[10px] font-bold bg-white text-slate-500 border border-slate-100">
+                Треков {fiveSecondSettings?.audio_tracks?.length || 0}
+              </span>
+              {fiveSecondSettings?.audio_status && (
+                <span className={`px-2 py-1 rounded-lg text-[10px] font-bold ${
+                  fiveSecondSettings.audio_status === 'ready' ? 'bg-emerald-50 text-emerald-700' :
+                  fiveSecondSettings.audio_status === 'failed' ? 'bg-rose-50 text-rose-700' :
+                  'bg-amber-50 text-amber-700'
+                }`}>
+                  {fiveSecondSettings.audio_status}
+                </span>
+              )}
+            </div>
+            {fiveSecondSettings?.audio_error && (
+              <p className="mt-2 text-xs text-rose-500">{fiveSecondSettings.audio_error}</p>
+            )}
+          </div>
+
+          <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+            <div className="flex items-center justify-between mb-3">
+              <label className="text-xs font-bold text-[#707579] uppercase tracking-wider">Плашка с 2 секунды</label>
+              <button
+                onClick={() => fiveSecondOverlayInputRef.current?.click()}
+                disabled={uploadingFiveSecondOverlay}
+                className="text-[#24a1de] hover:bg-blue-50 p-1.5 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {uploadingFiveSecondOverlay ? <Loader2 size={16} className="animate-spin" /> : <ImagePlus size={16} />}
+              </button>
+            </div>
+            {fiveSecondSettings?.overlay_path ? (
+              <div className="flex items-center gap-2 bg-white p-1.5 rounded-lg border border-slate-100">
+                <img src={getMediaUrl(fiveSecondSettings.overlay_path)} alt="5s overlay" className="w-10 h-10 object-cover rounded bg-slate-100" />
+                <span className="text-[10px] text-slate-500 flex-1 truncate">{fiveSecondSettings.overlay_path.split('/').pop()}</span>
+                <button
+                  onClick={deleteFiveSecondOverlay}
+                  className="p-1.5 text-slate-400 hover:text-rose-500 rounded-md"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 italic">Нет плашки. Если загрузить, появится на 2 секунде и будет до конца.</p>
+            )}
+          </div>
+        </div>
+      </details>
 
       <details className="tg-card p-4 settings-section">
         <summary className="list-none">
