@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
-  Video, CalendarDays, Clock3, PlaySquare, 
+  Video, CalendarDays, Clock3,
   Loader2, Download, Trash2, Globe2, ExternalLink, X
 } from 'lucide-react';
 import { apiClient } from '../../api/client';
@@ -76,11 +76,6 @@ export const QueueTab: React.FC = () => {
   const [deletingTaskId, setDeletingTaskId] = useState<number | null>(null);
   const [publishingTaskId, setPublishingTaskId] = useState<number | null>(null);
   
-  const [testVideoFile, setTestVideoFile] = useState<File | null>(null);
-  const [submittingTestVideo, setSubmittingTestVideo] = useState(false);
-  const [testVideoError, setTestVideoError] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   const loadTasks = async () => {
     if (!telegramId) return;
     setTasksLoading(true);
@@ -149,32 +144,6 @@ export const QueueTab: React.FC = () => {
     }
   };
 
-  const handleTestVideoSubmit = async () => {
-    if (!testVideoFile || !telegramId) return;
-    setSubmittingTestVideo(true);
-    setTestVideoError('');
-    try {
-      const formData = new FormData();
-      formData.append('file', testVideoFile);
-      const API_BASE = import.meta.env.VITE_API_BASE || '/api';
-      const response = await fetch(`${API_BASE}/upload/test-video/${telegramId}`, {
-        method: 'POST',
-        body: formData,
-      });
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || 'Ошибка загрузки');
-      }
-      setTestVideoFile(null);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      await loadTasks();
-    } catch (error: any) {
-      setTestVideoError(error.message || 'Ошибка загрузки');
-    } finally {
-      setSubmittingTestVideo(false);
-    }
-  };
-
   const filteredTasks = tasks.filter(task => {
     if (task.type === 'avatar_youtube') return false;
     if (queueStatusFilter !== 'all') {
@@ -201,42 +170,6 @@ export const QueueTab: React.FC = () => {
 
   return (
     <motion.div key="queue" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4 pb-20">
-      <div className="tg-card p-4">
-        <h3 className="text-[15px] font-bold uppercase text-[#707579] tracking-tight mb-4 flex items-center gap-2">
-          <PlaySquare size={18} />
-          Тестовый запуск
-        </h3>
-        <div className="space-y-3">
-          <div className="flex gap-2">
-            <input
-              type="file"
-              accept="video/mp4,video/quicktime,video/webm,video/x-matroska"
-              className="flex-1 text-xs file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-              onChange={(e) => {
-                if (e.target.files && e.target.files.length > 0) {
-                  setTestVideoFile(e.target.files[0]);
-                  setTestVideoError('');
-                }
-              }}
-              ref={fileInputRef}
-            />
-          </div>
-          {testVideoError && (
-            <div className="text-xs text-rose-500 font-medium">
-              {testVideoError}
-            </div>
-          )}
-          <button
-            onClick={handleTestVideoSubmit}
-            disabled={!testVideoFile || submittingTestVideo}
-            className="w-full h-10 bg-[#24a1de] text-white text-sm font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 disabled:opacity-50"
-          >
-            {submittingTestVideo ? <Loader2 className="animate-spin" size={16} /> : <PlaySquare size={16} />}
-            {submittingTestVideo ? 'Загрузка...' : 'Запустить тестовое видео'}
-          </button>
-        </div>
-      </div>
-
       <div className="tg-card p-3">
         <div className="flex flex-col gap-3">
           <input

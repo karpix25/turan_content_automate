@@ -452,7 +452,7 @@ async def handle_link(message: types.Message):
                     ],
                     [
                         {
-                            "text": "📌 Публикация с плашками",
+                            "text": "📌 Чужое видео + плашка",
                             "callback_data": f"publish:shorts:{video_id}",
                             "style": "primary",
                         }
@@ -488,7 +488,7 @@ async def handle_link(message: types.Message):
                     ],
                     [
                         {
-                            "text": "📌 Публикация с плашками",
+                            "text": "📌 Чужое видео + плашка",
                             "callback_data": f"publish:igp:{instagram_shortcode_value}",
                             "style": "primary",
                         }
@@ -514,7 +514,7 @@ async def handle_link(message: types.Message):
                 ],
                 [
                     {
-                        "text": "📌 Публикация с плашками",
+                        "text": "📌 Чужое видео + плашка",
                         "callback_data": f"publish:ig:{instagram_shortcode_value}",
                         "style": "primary",
                     }
@@ -621,13 +621,13 @@ async def process_choice(callback_query: types.CallbackQuery):
                 else f"https://www.instagram.com/reel/{identifier}/"
             )
             task_type = "instagram"
-            answer_text = "📌 Запускаю публикацию Instagram с плашками..."
-            selected_text = "⏳ Выбрана публикация с плашками\nЭтап: создаю задачу."
+            answer_text = "📌 Запускаю чужое видео + плашка для Instagram..."
+            selected_text = "⏳ Выбрано чужое видео + плашка\nЭтап: создаю задачу."
         elif platform == "shorts":
             url = f"https://www.youtube.com/shorts/{identifier}"
             task_type = "youtube"
-            answer_text = "📌 Запускаю публикацию Shorts с плашками..."
-            selected_text = "⏳ Выбрана публикация с плашками\nЭтап: создаю задачу."
+            answer_text = "📌 Запускаю чужое видео + плашка для Shorts..."
+            selected_text = "⏳ Выбрано чужое видео + плашка\nЭтап: создаю задачу."
         else:
             return
 
