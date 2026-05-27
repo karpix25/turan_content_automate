@@ -1,9 +1,7 @@
-import datetime
 from typing import List
 
 from .. import models
 from ..publish_planner import plan_next_publish_times
-from .platform_utils import _normalize_platform_code
 
 
 def _plan_publish_times_for_outputs(
@@ -26,74 +24,26 @@ def _plan_publish_times_for_outputs(
         for index, group_key in enumerate(output_group_keys):
             grouped_output_indices.setdefault(group_key, []).append(index)
 
-        group_platforms: dict[str | int | None, list[str]] = {}
-        can_share_group_slots = True
-        for group_key, indices in grouped_output_indices.items():
-            platforms = [_normalize_platform_code(output_platforms[index]) for index in indices]
-            if len(platforms) != len(set(platforms)):
-                can_share_group_slots = False
-                break
-            group_platforms[group_key] = platforms
-
-        if can_share_group_slots:
-            planned: list[datetime.datetime | None] = [None] * outputs_count
-            platforms = sorted({platform for values in group_platforms.values() for platform in values})
-            group_count = len(grouped_output_indices)
-            candidate_count = max(group_count + 50, group_count * max(2, len(platforms)))
-            candidates_by_platform = {
-                platform: plan_next_publish_times(
-                    db=db,
-                    user=user,
-                    count=candidate_count,
-                    platform_code=platform,
-                )
-                for platform in platforms
-            }
-            reserved_by_platform: dict[str, set[datetime.datetime]] = {platform: set() for platform in platforms}
-
-            for group_key, indices in grouped_output_indices.items():
-                required_platforms = group_platforms[group_key]
-                candidate_pool = sorted(
-                    {
-                        candidate
-                        for platform in required_platforms
-                        for candidate in candidates_by_platform.get(platform, [])
-                    }
-                )
-                shared_time = None
-                for candidate in candidate_pool:
-                    if all(
-                        candidate in candidates_by_platform.get(platform, [])
-                        and candidate not in reserved_by_platform[platform]
-                        for platform in required_platforms
-                    ):
-                        shared_time = candidate
-                        break
-                if shared_time is None:
-                    break
-                for platform in required_platforms:
-                    reserved_by_platform[platform].add(shared_time)
-                for index in indices:
-                    planned[index] = shared_time
-
-            if all(item is not None for item in planned):
-                return planned
-
-    planned: list[datetime.datetime | None] = [None] * outputs_count
-    grouped_indices: dict[str, list[int]] = {}
-    for index, platform_code in enumerate(output_platforms):
-        normalized = _normalize_platform_code(platform_code)
-        grouped_indices.setdefault(normalized, []).append(index)
-
-    for platform_code, indices in grouped_indices.items():
-        times = plan_next_publish_times(
+        planned = [None] * outputs_count
+        group_times = plan_next_publish_times(
             db=db,
             user=user,
-            count=len(indices),
-            platform_code=platform_code,
+            count=len(grouped_output_indices),
         )
-        for idx, planned_time in zip(indices, times):
-            planned[idx] = planned_time
+        for indices, planned_time in zip(grouped_output_indices.values(), group_times):
+            for index in indices:
+                planned[index] = planned_time
+        if all(item is not None for item in planned):
+            return planned
+
+    times = plan_next_publish_times(
+        db=db,
+        user=user,
+        count=outputs_count,
+    )
+    planned = [None] * outputs_count
+    for index, planned_time in enumerate(times):
+        planned[index] = planned_time
 
     return planned
 
