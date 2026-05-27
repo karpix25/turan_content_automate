@@ -200,14 +200,21 @@ def _collect_yandex_disk_upload_paths(task: models.VideoTask, rendered_items: Li
             ((task.script_meta or {}).get("youtube_description") or {}).get("txt_path")
             or ""
         ).strip()
+        instagram_post_description_txt_path = (
+            ((task.script_meta or {}).get("instagram_post_5s") or {}).get("description_txt_path")
+            or ""
+        ).strip()
     except Exception:
         thumbnail_path = ""
         description_txt_path = ""
+        instagram_post_description_txt_path = ""
 
     if thumbnail_path and os.path.isfile(thumbnail_path):
         file_paths.append(thumbnail_path)
     if description_txt_path and os.path.isfile(description_txt_path):
         file_paths.append(description_txt_path)
+    if instagram_post_description_txt_path and os.path.isfile(instagram_post_description_txt_path):
+        file_paths.append(instagram_post_description_txt_path)
 
     deduped: List[str] = []
     seen = set()
@@ -641,6 +648,19 @@ def _write_avatar_description_file(task_id: int, description_text: str) -> str |
     output_dir = os.getenv("OUTPUT_DIR", "./output").strip()
     os.makedirs(output_dir, exist_ok=True)
     path = os.path.join(output_dir, f"youtube_description_{task_id}.txt")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(content + "\n")
+    return path
+
+
+def _write_publication_description_file(task_id: int, description_text: str, *, prefix: str = "publication_description") -> str | None:
+    content = (description_text or "").strip()
+    if not content:
+        return None
+    output_dir = os.getenv("OUTPUT_DIR", "./output").strip()
+    os.makedirs(output_dir, exist_ok=True)
+    safe_prefix = re.sub(r"[^a-zA-Z0-9_-]+", "_", prefix).strip("_") or "publication_description"
+    path = os.path.join(output_dir, f"{safe_prefix}_{task_id}.txt")
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(content + "\n")
     return path
@@ -3133,7 +3153,7 @@ def process_content_task(self, task_id: int):
             title = fallback
         return title
 
-    def _wrap_plate_title(value: str, *, max_chars: int = 20) -> list[str]:
+    def _wrap_plate_title(value: str, *, max_chars: int = 22) -> list[str]:
         words = _clean_plate_title(value).split()
         lines: list[str] = []
         current = ""
@@ -3146,6 +3166,19 @@ def process_content_task(self, task_id: int):
                 current = candidate
         if current:
             lines.append(current)
+        if len(lines) > 7:
+            compact_lines: list[str] = []
+            current = ""
+            for word in words:
+                candidate = f"{current} {word}".strip()
+                if current and len(candidate) > 28:
+                    compact_lines.append(current)
+                    current = word
+                else:
+                    current = candidate
+            if current:
+                compact_lines.append(current)
+            lines = compact_lines[:7]
         if not lines:
             lines = ["Главный тезис"]
         return lines
@@ -3182,13 +3215,14 @@ def process_content_task(self, task_id: int):
             if not selected_font_path:
                 raise RuntimeError("No TrueType font found for Instagram post 5s title plate")
 
-            plate_x1 = 42
-            plate_x2 = 1038
-            max_text_width = plate_x2 - plate_x1 - 64
+            plate_x1 = 30
+            plate_x2 = 1050
+            max_text_width = plate_x2 - plate_x1 - 72
             font = None
-            font_size = 82
-            line_gap = 86
-            for candidate_size in range(82, 33, -2):
+            font_size = 78
+            line_gap = 84
+            max_text_block_height = 610
+            for candidate_size in range(78, 35, -2):
                 candidate_font = ImageFont.truetype(selected_font_path, candidate_size)
                 candidate_gap = max(int(candidate_size * 1.18), candidate_size + 8)
                 too_wide = False
@@ -3198,7 +3232,7 @@ def process_content_task(self, task_id: int):
                         too_wide = True
                         break
                 total_text_height = (len(title_lines) - 1) * candidate_gap + candidate_size
-                if not too_wide and total_text_height <= 380:
+                if not too_wide and total_text_height <= max_text_block_height:
                     font = candidate_font
                     font_size = candidate_size
                     line_gap = candidate_gap
@@ -3209,9 +3243,9 @@ def process_content_task(self, task_id: int):
                 line_gap = 42
 
             total_text_height = (len(title_lines) - 1) * line_gap + font_size
-            plate_height = max(210, min(460, total_text_height + 96))
-            plate_y1 = int(1455 - plate_height)
-            plate_y2 = 1455
+            plate_height = max(230, min(760, total_text_height + 118))
+            plate_y2 = 1505 if plate_height <= 520 else 1550
+            plate_y1 = int(plate_y2 - plate_height)
             draw.rounded_rectangle(
                 (plate_x1, plate_y1, plate_x2, plate_y2),
                 radius=46,
@@ -3669,17 +3703,33 @@ def process_content_task(self, task_id: int):
                 rewritten_title,
                 fallback=(task.source_title or (f"Пост @{creator}" if creator else "Главный тезис")),
             )
+            update_task_status_message(db, task, stage="Описание", detail="Переписываю описание поста под наш ролик.")
+            rewritten_description = llm.generate_instagram_post_5s_description(
+                caption=caption,
+                title=final_title,
+            )
+            if not rewritten_description:
+                rewritten_description = final_title
+            description_txt_path = _write_publication_description_file(
+                task_id,
+                rewritten_description,
+                prefix="instagram_post_5s_description",
+            )
             task.source_title = final_title
-            task.script_text = caption or final_title
+            task.script_text = rewritten_description or final_title
             db.commit()
 
             update_task_status_message(db, task, stage="Изображение", detail="Очищаю картинку от текста через image-to-image.")
             clean_image_prompt = (
                 "Use the provided Instagram post image as the main reference. "
-                "Create a clean 9:16 vertical background image from it: preserve the main subject, scene, colors, "
-                "lighting and overall mood, but remove all readable text, captions, headlines, numbers, logos, "
-                "UI elements, stickers, watermarks and overlay graphics. Do not add any new text. "
-                "The output must be only the visual first layer/background, ready for a separate title plate."
+                "Create a clean 9:16 vertical background image from it while keeping the original visual composition "
+                "and camera distance as close as possible. Do not zoom out, shrink the person, or turn the source "
+                "into a small centered poster. The main subject should stay large and prominent, close to the "
+                "reference crop, with natural outpainting only where 9:16 needs extra space. Preserve the scene, "
+                "colors, lighting and mood, but remove all readable text, captions, headlines, numbers, logos, "
+                "UI elements, stickers, watermarks and overlay graphics. Do not add any new text, borders, sidebars "
+                "or poster frame. The output must be only the visual first layer/background, ready for a separate "
+                "title plate."
             )
             clean_image_path = os.path.join(output_dir, f"instagram_post_clean_{task_id}.png")
             generated_clean_image = thumbnail_generator.generate_image_from_references(
@@ -3701,6 +3751,8 @@ def process_content_task(self, task_id: int):
                     "clean_image_path": clean_image_path,
                     "title": final_title,
                     "caption": caption,
+                    "rewritten_description": rewritten_description,
+                    "description_txt_path": description_txt_path,
                     "creator": creator,
                 }
                 task.script_meta = current_meta
@@ -3737,6 +3789,8 @@ def process_content_task(self, task_id: int):
                 "clean_image_path": generated_clean_image,
                 "title": final_title,
                 "caption": caption,
+                "rewritten_description": rewritten_description,
+                "description_txt_path": description_txt_path,
                 "creator": creator,
                 "render": five_second_meta,
             }
@@ -3745,7 +3799,7 @@ def process_content_task(self, task_id: int):
 
             input_videos.append(final_post_video)
             input_video_titles.append(final_title)
-            input_video_contexts.append(caption or final_title)
+            input_video_contexts.append(rewritten_description or final_title)
 
         elif task.type in AVATAR_TASK_TYPES:
             cleaned_reels_transcript = ""
@@ -4903,10 +4957,21 @@ def process_content_task(self, task_id: int):
                 stage="Telegram",
                 detail=f"Отправляю финальный {label} в Telegram.",
             )
+            telegram_caption = f"✅ Финальный {label} готов.\n{build_task_context_text(task)}"
+            if task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
+                try:
+                    post_description = (
+                        ((task.script_meta or {}).get("instagram_post_5s") or {}).get("rewritten_description")
+                        or ""
+                    ).strip()
+                except Exception:
+                    post_description = ""
+                if post_description:
+                    telegram_caption = f"{telegram_caption}\n\nОписание:\n{post_description[:700].strip()}"
             send_avatar_video_to_telegram(
                 task,
                 task.output_path,
-                caption=f"✅ Финальный {label} готов.\n{build_task_context_text(task)}",
+                caption=telegram_caption,
             )
         if task.vizard_project_id and not should_sync_outputs:
             update_task_status_message(

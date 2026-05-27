@@ -172,9 +172,10 @@ class LLMClient:
                 "type": "text",
                 "text": (
                     "Проанализируй Instagram post image. Обычно на картинке есть заголовок/тезис. "
-                    "Найди главный смысл заголовка на изображении, затем перепиши его как сильную короткую "
-                    "плашку для 5-секундного вертикального видео.\n\n"
-                    "Правила: русский язык, 2-6 слов, максимум 42 символа, без эмодзи, без кавычек, "
+                    "Найди главный смысл заголовка на изображении, затем перепиши его как сильную, понятную "
+                    "плашку для 5-секундного вертикального видео. Не сжимай смысл до двух-трех слов: "
+                    "зритель должен понять новость без открытия оригинального поста.\n\n"
+                    "Правила: русский язык, 6-14 слов, максимум 120 символов, без эмодзи, без кавычек, "
                     "без ссылок и CTA, не копируй дословно если можно усилить. Верни только текст плашки.\n\n"
                     f"Caption поста для контекста:\n{clean_caption[:1200] or 'нет'}"
                 ),
@@ -196,9 +197,57 @@ class LLMClient:
         title = re.sub(r"^[\"'«“]+|[\"'»”]+$", "", title.strip())
         title = re.sub(r"\s+", " ", title).strip()
         title = re.sub(r"[#@]\S+", "", title).strip()
-        if len(title) > 52:
-            title = title[:52].rsplit(" ", 1)[0].strip()
+        if len(title) > 120:
+            title = title[:120].rsplit(" ", 1)[0].strip()
         return title or None
+
+    def generate_instagram_post_5s_description(
+        self,
+        *,
+        caption: str | None,
+        title: str | None = None,
+    ) -> Optional[str]:
+        clean_caption = re.sub(r"\s+", " ", (caption or "")).strip()
+        clean_title = re.sub(r"\s+", " ", (title or "")).strip()
+        if not clean_caption and not clean_title:
+            return None
+
+        messages: list[dict[str, Any]] = [
+            {
+                "role": "system",
+                "content": (
+                    "Ты редактор коротких новостных публикаций для соцсетей. "
+                    "Нужно написать новое описание под наш ролик, опираясь на оригинальный Instagram caption. "
+                    "Нельзя копировать оригинал дословно и нельзя добавлять непроверенные факты."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Перепиши описание для публикации 5-секундного видео.\n\n"
+                    "Требования:\n"
+                    "- русский язык;\n"
+                    "- 2-4 предложения;\n"
+                    "- чуть более развернуто и интереснее оригинала;\n"
+                    "- сохранить фактический смысл новости;\n"
+                    "- убрать ссылки, хэштеги, упоминания, рекламу и CTA;\n"
+                    "- не использовать эмодзи;\n"
+                    "- вернуть только финальное описание.\n\n"
+                    f"Заголовок нашего ролика:\n{clean_title or 'нет'}\n\n"
+                    f"Оригинальное описание Instagram:\n{clean_caption[:2500] or 'нет'}"
+                ),
+            },
+        ]
+        description = self._complete(messages, temperature=0.45)
+        if not description:
+            return None
+        description = re.sub(r"^[\"'«“]+|[\"'»”]+$", "", description.strip())
+        description = re.sub(r"https?://\S+|www\.\S+", "", description)
+        description = re.sub(r"[#@]\S+", "", description)
+        description = re.sub(r"\s+", " ", description).strip()
+        if len(description) > 900:
+            description = description[:900].rsplit(" ", 1)[0].strip()
+        return description or None
 
     @staticmethod
     def estimate_word_count(text: str | None) -> int:
