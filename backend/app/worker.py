@@ -4817,7 +4817,14 @@ def process_content_task(self, task_id: int):
         subtitles_enabled = False
         ass_path = None
         target_account_ids = [] if task.type == "local_upload" else _get_target_account_ids(db, user.id)
-        if task.type in AVATAR_TASK_TYPES and task.type not in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
+        if task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
+            if not target_account_ids:
+                raise Exception(
+                    "No PostMyPost accounts configured/enabled for this user. "
+                    "Enable channels in UI or set POSTMYPOST_CHANNEL_IDS."
+                )
+            target_account_ids = []
+        elif task.type in AVATAR_TASK_TYPES:
             target_account_ids = []
         if task.type in {"instagram", "youtube"} and not target_account_ids and not process_all_clips:
             raise Exception(
@@ -4871,7 +4878,7 @@ def process_content_task(self, task_id: int):
             manual_publish_at=None if process_all_clips else task.publish_at,
             output_group_keys=output_group_keys if process_all_clips else None,
         )
-        should_sync_outputs = bool(target_account_ids)
+        should_sync_outputs = bool(target_account_ids) or task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES
         base_source = _get_base_source_label(task.source_url)
         rendered_outputs: List[dict] = []
         vertical_thumbnail_intro_meta: List[dict] = []
