@@ -86,6 +86,7 @@ def plan_next_publish_times(
     count: int,
     *,
     platform_code: str | None = None,
+    exclude_task_ids: set[int] | None = None,
 ) -> list[datetime.datetime]:
     if count < 1:
         return []
@@ -109,7 +110,10 @@ def plan_next_publish_times(
     ).all()
 
     occupied: set[datetime.datetime] = set()
+    excluded_ids = {int(item) for item in (exclude_task_ids or set())}
     for row in occupied_rows:
+        if row.id in excluded_ids:
+            continue
         publish_at = row.publish_at
         if not publish_at:
             continue

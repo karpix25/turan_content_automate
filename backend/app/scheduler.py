@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from .database import SessionLocal
 from . import models
 from .integrations.postmypost import PostMyPostClient
-from .publish_planner import get_min_publish_lead_delta
+from .publish_planner import get_min_publish_lead_delta, plan_next_publish_times
 from .telegram_progress import send_postmypost_ready_message, update_task_status_message
 from .utils.platform_utils import _get_account_platform_map
 from .worker import celery_app
@@ -173,6 +173,37 @@ def _normalize_post_at(value: datetime.datetime | None, force_now: bool) -> date
             min_post_at,
         )
         return min_post_at
+    return post_at
+
+
+def _resolve_publication_post_at(db, user: models.User, task: models.VideoTask, force_now: bool) -> datetime.datetime:
+    post_at = _normalize_post_at(task.publish_at, force_now)
+    if (
+        force_now
+        or task.type not in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES
+        or not bool(getattr(user, "auto_schedule_enabled", False))
+        or task.postmypost_id
+    ):
+        return post_at
+
+    try:
+        planned = plan_next_publish_times(db, user, 1, exclude_task_ids={task.id})
+    except Exception as error:
+        logger.warning("Task %s: failed to recheck 5s publish slot before PostMyPost sync: %s", task.id, error)
+        return post_at
+
+    if not planned:
+        return post_at
+
+    candidate = _normalize_post_at(planned[0], force_now=False)
+    if task.publish_at is None or candidate < post_at - datetime.timedelta(minutes=1):
+        logger.info(
+            "Task %s: adjusted 5s PostMyPost schedule from %s to %s after final slot recheck",
+            task.id,
+            post_at,
+            candidate,
+        )
+        return candidate
     return post_at
 
 
@@ -593,7 +624,7 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
             list(account_descriptions.keys()),
         )
         project_id = _get_project_id()
-        post_at = _normalize_post_at(task.publish_at, force_now)
+        post_at = _resolve_publication_post_at(db, user, task, force_now)
         target_platform = (getattr(task, "target_platform", "") or "").lower()
 
         missing_description_account_ids = [
