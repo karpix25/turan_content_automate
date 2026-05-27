@@ -73,6 +73,11 @@ def init_database() -> None:
         add_column_if_missing("users", "reels_broll_clips_count", "INTEGER DEFAULT 3")
         add_column_if_missing("users", "reels_broll_coverage_percent", "INTEGER DEFAULT 50")
         add_column_if_missing("users", "youtube_description_template", "TEXT")
+        add_column_if_missing("users", "instagram_post_5s_audio_profile", "TEXT")
+        add_column_if_missing("users", "instagram_post_5s_audio_status", "VARCHAR(32)")
+        add_column_if_missing("users", "instagram_post_5s_audio_error", "TEXT")
+        add_column_if_missing("users", "instagram_post_5s_audio_refreshed_at", "TIMESTAMP WITHOUT TIME ZONE")
+        add_column_if_missing("users", "instagram_post_5s_overlay_path", "TEXT")
         conn.execute(
             text("UPDATE users SET auto_schedule_enabled = FALSE WHERE auto_schedule_enabled IS NULL")
         )
@@ -232,6 +237,26 @@ def init_database() -> None:
                     ")"
                 )
             )
+        if not table_exists("instagram_post_5s_audio_tracks"):
+            conn.execute(
+                text(
+                    "CREATE TABLE instagram_post_5s_audio_tracks ("
+                    "id SERIAL PRIMARY KEY, "
+                    "user_id INTEGER NOT NULL REFERENCES users(id), "
+                    "source_profile TEXT, "
+                    "source_url TEXT, "
+                    "source_code TEXT, "
+                    "file_path TEXT NOT NULL, "
+                    "created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()"
+                    ")"
+                )
+            )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_instagram_post_5s_audio_tracks_user_id "
+                "ON instagram_post_5s_audio_tracks(user_id)"
+            )
+        )
         add_column_if_missing("thumbnail_references", "kind", "VARCHAR(32) DEFAULT 'horizontal'")
         conn.execute(
             text("UPDATE thumbnail_references SET kind = 'horizontal' WHERE kind IS NULL OR kind = ''")

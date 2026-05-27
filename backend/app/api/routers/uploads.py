@@ -42,6 +42,38 @@ def _validate_thumbnail_file(file: UploadFile) -> str:
     return safe_name
 
 
+def _instagram_post_5s_assets_dir() -> str:
+    target = (os.getenv("INSTAGRAM_POST_5S_ASSETS_DIR") or "/app/database/media/instagram-post-5s").strip()
+    os.makedirs(target, exist_ok=True)
+    return target
+
+
+def _validate_instagram_post_5s_overlay(file: UploadFile) -> str:
+    safe_name = _build_safe_upload_filename(file.filename, fallback_extension=".png")
+    extension = os.path.splitext(safe_name)[1].lower()
+    allowed_extensions = {".jpg", ".jpeg", ".png", ".webp"}
+    if extension not in allowed_extensions:
+        raise HTTPException(status_code=400, detail="Unsupported overlay type. Use JPG, PNG, or WEBP.")
+    return safe_name
+
+
+def _instagram_post_5s_settings_response(user: models.User, db: Session) -> schemas.InstagramPost5sSettingsOut:
+    tracks = (
+        db.query(models.InstagramPost5sAudioTrack)
+        .filter(models.InstagramPost5sAudioTrack.user_id == user.id)
+        .order_by(models.InstagramPost5sAudioTrack.created_at.desc(), models.InstagramPost5sAudioTrack.id.desc())
+        .all()
+    )
+    return schemas.InstagramPost5sSettingsOut(
+        audio_profile=user.instagram_post_5s_audio_profile,
+        audio_status=user.instagram_post_5s_audio_status,
+        audio_error=user.instagram_post_5s_audio_error,
+        audio_refreshed_at=user.instagram_post_5s_audio_refreshed_at,
+        overlay_path=user.instagram_post_5s_overlay_path,
+        audio_tracks=tracks,
+    )
+
+
 async def _create_thumbnail_reference(
     *,
     db: Session,
@@ -192,6 +224,81 @@ async def upload_plate(telegram_id: str, file: UploadFile = File(...), db: Sessi
     db.commit()
     db.refresh(new_plate)
     return schemas.PlateAssetOut(id=new_plate.id, file_path=file_path)
+
+
+@router.get("/instagram-post-5s/settings/{telegram_id}", response_model=schemas.InstagramPost5sSettingsOut)
+def get_instagram_post_5s_settings(telegram_id: str, db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    return _instagram_post_5s_settings_response(user, db)
+
+
+@router.post("/instagram-post-5s/audio-profile/{telegram_id}", response_model=schemas.InstagramPost5sSettingsOut)
+def refresh_instagram_post_5s_audio_profile(
+    telegram_id: str,
+    payload: schemas.InstagramPost5sAudioProfileUpdate,
+    db: Session = Depends(get_db),
+):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    profile = (payload.profile or "").strip()
+    if not profile:
+        raise HTTPException(status_code=400, detail="Instagram profile is required")
+    user.instagram_post_5s_audio_profile = profile
+    user.instagram_post_5s_audio_status = "queued"
+    user.instagram_post_5s_audio_error = None
+    db.commit()
+    try:
+        celery_client.send_task("refresh_instagram_post_5s_audio_library", args=[user.id, profile])
+    except Exception as exc:
+        user.instagram_post_5s_audio_status = "failed"
+        user.instagram_post_5s_audio_error = str(exc)[:500]
+        db.commit()
+        raise HTTPException(status_code=500, detail="Failed to enqueue audio library refresh")
+    db.refresh(user)
+    return _instagram_post_5s_settings_response(user, db)
+
+
+@router.post("/upload/instagram-post-5s-overlay/{telegram_id}", response_model=schemas.InstagramPost5sSettingsOut)
+async def upload_instagram_post_5s_overlay(
+    telegram_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    safe_name = _validate_instagram_post_5s_overlay(file)
+    uploads_dir = _instagram_post_5s_assets_dir()
+    unique_name = f"overlay_{telegram_id}_{datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}_{safe_name}"
+    file_path = os.path.join(uploads_dir, unique_name)
+    previous_path = user.instagram_post_5s_overlay_path
+    with open(file_path, "wb") as target:
+        target.write(await file.read())
+    user.instagram_post_5s_overlay_path = file_path
+    db.commit()
+    if previous_path and previous_path != file_path and os.path.isfile(previous_path):
+        try:
+            os.remove(previous_path)
+        except OSError:
+            logging.warning("Failed to remove previous Instagram post 5s overlay: %s", previous_path)
+    db.refresh(user)
+    return _instagram_post_5s_settings_response(user, db)
+
+
+@router.delete("/instagram-post-5s-overlay/{telegram_id}", response_model=schemas.InstagramPost5sSettingsOut)
+def delete_instagram_post_5s_overlay(telegram_id: str, db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    previous_path = user.instagram_post_5s_overlay_path
+    user.instagram_post_5s_overlay_path = None
+    db.commit()
+    if previous_path and os.path.isfile(previous_path):
+        try:
+            os.remove(previous_path)
+        except OSError:
+            logging.warning("Failed to remove Instagram post 5s overlay: %s", previous_path)
+    db.refresh(user)
+    return _instagram_post_5s_settings_response(user, db)
 
 @router.delete("/plates/{telegram_id}/{plate_id}")
 def delete_plate(telegram_id: str, plate_id: int, db: Session = Depends(get_db)):

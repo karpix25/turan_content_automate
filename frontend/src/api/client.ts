@@ -1,5 +1,14 @@
 import axios from 'axios';
-import { UserSettings, VideoTaskItem, PublishAccount, EndingClip, ThumbnailReference, ThumbnailFaceReference, AvatarInsertClip } from '../types';
+import {
+  UserSettings,
+  VideoTaskItem,
+  PublishAccount,
+  EndingClip,
+  ThumbnailReference,
+  ThumbnailFaceReference,
+  AvatarInsertClip,
+  InstagramPost5sSettings,
+} from '../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
@@ -107,6 +116,24 @@ export const apiClient = {
   },
   deleteEnding: async (telegramId: string, endingId: number) => {
     const res = await axios.delete(`${API_BASE}/endings/${telegramId}/${endingId}`);
+    return res.data;
+  },
+  getInstagramPost5sSettings: async (telegramId: string) => {
+    const res = await axios.get<InstagramPost5sSettings>(`${API_BASE}/instagram-post-5s/settings/${telegramId}`);
+    return res.data;
+  },
+  refreshInstagramPost5sAudioProfile: async (telegramId: string, profile: string) => {
+    const res = await axios.post<InstagramPost5sSettings>(`${API_BASE}/instagram-post-5s/audio-profile/${telegramId}`, { profile });
+    return res.data;
+  },
+  uploadInstagramPost5sOverlay: async (telegramId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await axios.post<InstagramPost5sSettings>(`${API_BASE}/upload/instagram-post-5s-overlay/${telegramId}`, formData);
+    return res.data;
+  },
+  deleteInstagramPost5sOverlay: async (telegramId: string) => {
+    const res = await axios.delete<InstagramPost5sSettings>(`${API_BASE}/instagram-post-5s-overlay/${telegramId}`);
     return res.data;
   },
 

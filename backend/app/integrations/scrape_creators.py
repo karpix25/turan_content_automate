@@ -6,6 +6,20 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
+def normalize_instagram_handle(value: str | None) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    raw = raw.split()[0].strip().rstrip("/")
+    if raw.startswith("@"):
+        return raw[1:].strip("/")
+    parsed = urlparse(raw)
+    if parsed.netloc and "instagram.com" in parsed.netloc.lower():
+        parts = [part for part in parsed.path.split("/") if part]
+        if parts and parts[0] not in {"p", "reel", "reels", "stories", "tv"}:
+            return parts[0].lstrip("@")
+    return raw.lstrip("@").strip("/")
+
 class ScrapeCreatorsClient:
     BASE_URL = "https://api.scrapecreators.com/v1"
 
@@ -93,6 +107,29 @@ class ScrapeCreatorsClient:
             "caption": data.get("caption") or caption_text,
             "view_count": data.get("viewCountInt") or media.get("video_view_count"),
             "creator": (data.get("owner") or {}).get("username") or owner.get("username"),
+            "error": None,
+            "raw": data,
+        }
+
+    def get_instagram_user_reels(self, handle: str, *, max_items: int = 20) -> Optional[Dict]:
+        normalized_handle = normalize_instagram_handle(handle)
+        if not normalized_handle:
+            return {"items": [], "error": "Instagram handle is empty"}
+        data = self._get_json(
+            "instagram/user/reels",
+            {"handle": normalized_handle, "trim": "false"},
+        )
+        if not data:
+            return {"items": [], "error": "ScrapeCreators request failed"}
+        if data.get("success") is False:
+            return {"items": [], "error": data.get("message") or "ScrapeCreators returned success=false"}
+        items = data.get("items") or []
+        if not isinstance(items, list):
+            items = []
+        return {
+            "items": items[:max(1, max_items)],
+            "max_id": data.get("max_id"),
+            "user": data.get("user"),
             "error": None,
             "raw": data,
         }

@@ -44,6 +44,11 @@ class User(Base):
     reels_broll_clips_count = Column(Integer, default=3, nullable=False)
     reels_broll_coverage_percent = Column(Integer, default=50, nullable=False)
     youtube_description_template = Column(String, nullable=True)
+    instagram_post_5s_audio_profile = Column(String, nullable=True)
+    instagram_post_5s_audio_status = Column(String, nullable=True)
+    instagram_post_5s_audio_error = Column(String, nullable=True)
+    instagram_post_5s_audio_refreshed_at = Column(DateTime, nullable=True)
+    instagram_post_5s_overlay_path = Column(String, nullable=True)
 
 class Plate(Base):
     __tablename__ = "plates"
@@ -83,6 +88,18 @@ class AvatarInsertClip(Base):
     __tablename__ = "avatar_insert_clips"
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    file_path = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class InstagramPost5sAudioTrack(Base):
+    __tablename__ = "instagram_post_5s_audio_tracks"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    source_profile = Column(String, nullable=True)
+    source_url = Column(String, nullable=True)
+    source_code = Column(String, nullable=True)
     file_path = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 

@@ -29,6 +29,11 @@ export type UserSettings = {
   reels_broll_clips_count?: number;
   reels_broll_coverage_percent?: number;
   youtube_description_template?: string | null;
+  instagram_post_5s_audio_profile?: string | null;
+  instagram_post_5s_audio_status?: string | null;
+  instagram_post_5s_audio_error?: string | null;
+  instagram_post_5s_audio_refreshed_at?: string | null;
+  instagram_post_5s_overlay_path?: string | null;
 };
 
 export type VideoTaskItem = {
@@ -97,6 +102,25 @@ export type AvatarInsertClip = {
   user_id: number;
   file_path: string;
   created_at: string;
+};
+
+export type InstagramPost5sAudioTrack = {
+  id: number;
+  user_id: number;
+  source_profile?: string | null;
+  source_url?: string | null;
+  source_code?: string | null;
+  file_path: string;
+  created_at: string;
+};
+
+export type InstagramPost5sSettings = {
+  audio_profile?: string | null;
+  audio_status?: string | null;
+  audio_error?: string | null;
+  audio_refreshed_at?: string | null;
+  overlay_path?: string | null;
+  audio_tracks: InstagramPost5sAudioTrack[];
 };
 
 export type TelegramWebApp = {

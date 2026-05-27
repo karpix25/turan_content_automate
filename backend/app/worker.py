@@ -11,6 +11,7 @@ import selectors
 import uuid
 import subprocess
 import glob
+import httpx
 from typing import List
 from urllib.parse import urlparse, parse_qs
 from billiard.exceptions import SoftTimeLimitExceeded
@@ -224,6 +225,183 @@ def _collect_yandex_disk_upload_paths(task: models.VideoTask, rendered_items: Li
         seen.add(path)
         deduped.append(path)
     return deduped
+
+
+def _extract_instagram_reel_video_url(item: dict) -> str | None:
+    if not isinstance(item, dict):
+        return None
+    candidates = [item]
+    if isinstance(item.get("media"), dict):
+        candidates.append(item["media"])
+    for candidate in candidates:
+        for key in ("video_url", "download_url", "url"):
+            value = candidate.get(key)
+            if isinstance(value, str) and value.startswith(("http://", "https://")) and ".mp4" in value:
+                return value
+        versions = candidate.get("video_versions") or []
+        if isinstance(versions, list):
+            for version in versions:
+                if not isinstance(version, dict):
+                    continue
+                value = version.get("url")
+                if isinstance(value, str) and value.startswith(("http://", "https://")):
+                    return value
+    return None
+
+
+def _download_url_to_file(url: str, output_path: str, *, timeout_seconds: float = 120.0) -> str | None:
+    try:
+        os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+        with httpx.Client(timeout=timeout_seconds, follow_redirects=True) as client:
+            with client.stream("GET", url) as response:
+                response.raise_for_status()
+                with open(output_path, "wb") as fh:
+                    for chunk in response.iter_bytes():
+                        if chunk:
+                            fh.write(chunk)
+        return output_path if os.path.isfile(output_path) and os.path.getsize(output_path) > 0 else None
+    except Exception as exc:
+        logging.warning("Failed to download %s to %s: %s", url, output_path, exc)
+        return None
+
+
+def _extract_audio_track_from_video(video_path: str, output_path: str, *, max_seconds: float = 30.0) -> str | None:
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        video_path,
+        "-vn",
+        "-t",
+        f"{max_seconds:.3f}",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-movflags",
+        "+faststart",
+        output_path,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    except Exception as exc:
+        logging.warning("Failed to extract Instagram 5s audio from %s: %s", video_path, exc)
+        return None
+    if result.returncode != 0 or not os.path.isfile(output_path) or os.path.getsize(output_path) < 1024:
+        logging.warning(
+            "ffmpeg failed to extract Instagram 5s audio from %s: return=%s stderr=%s",
+            video_path,
+            result.returncode,
+            (result.stderr or "")[-1000:],
+        )
+        return None
+    return output_path
+
+
+@celery_app.task(bind=True, name="refresh_instagram_post_5s_audio_library", soft_time_limit=900, time_limit=960)
+def refresh_instagram_post_5s_audio_library(self, user_id: int, profile: str):
+    db = SessionLocal()
+    user = None
+    profile_value = (profile or "").strip()
+    try:
+        user = db.query(models.User).get(user_id)
+        if not user:
+            return {"status": "missing_user", "created": 0}
+        user.instagram_post_5s_audio_profile = profile_value
+        user.instagram_post_5s_audio_status = "refreshing"
+        user.instagram_post_5s_audio_error = None
+        db.commit()
+
+        reels_payload = scraper.get_instagram_user_reels(profile_value, max_items=20)
+        reels = (reels_payload or {}).get("items") or []
+        if not reels:
+            raise RuntimeError((reels_payload or {}).get("error") or "No reels found for Instagram profile")
+
+        audio_dir = (os.getenv("INSTAGRAM_POST_5S_AUDIO_DIR") or "/app/database/media/instagram-post-5s/audio").strip()
+        temp_dir = os.path.join(audio_dir, "tmp")
+        os.makedirs(audio_dir, exist_ok=True)
+        os.makedirs(temp_dir, exist_ok=True)
+
+        created = 0
+        new_tracks: list[dict] = []
+        for index, item in enumerate(reels[:20], start=1):
+            if not isinstance(item, dict):
+                continue
+            media = item.get("media") if isinstance(item.get("media"), dict) else item
+            if item.get("has_audio") is False or media.get("has_audio") is False:
+                continue
+            video_url = _extract_instagram_reel_video_url(item)
+            if not video_url:
+                continue
+            code = str(
+                media.get("code")
+                or media.get("shortcode")
+                or item.get("code")
+                or item.get("shortcode")
+                or media.get("id")
+                or media.get("pk")
+                or item.get("id")
+                or f"reel_{index}"
+            )
+            safe_code = re.sub(r"[^a-zA-Z0-9_-]+", "_", code).strip("_")[:80] or f"reel_{index}"
+            video_path = os.path.join(temp_dir, f"u{user.id}_{safe_code}.mp4")
+            audio_path = os.path.join(audio_dir, f"u{user.id}_{safe_code}.m4a")
+            if not _download_url_to_file(video_url, video_path, timeout_seconds=180):
+                continue
+            extracted = _extract_audio_track_from_video(video_path, audio_path)
+            try:
+                os.remove(video_path)
+            except OSError:
+                pass
+            if not extracted:
+                continue
+            new_tracks.append(
+                {
+                    "user_id": user.id,
+                    "source_profile": profile_value,
+                    "source_url": item.get("url") or f"https://www.instagram.com/reel/{safe_code}/",
+                    "source_code": code,
+                    "file_path": audio_path,
+                }
+            )
+            created += 1
+
+        if created <= 0:
+            raise RuntimeError("No usable audio tracks were extracted from the latest reels")
+
+        old_tracks = db.query(models.InstagramPost5sAudioTrack).filter(
+            models.InstagramPost5sAudioTrack.user_id == user.id
+        ).all()
+        old_paths = [track.file_path for track in old_tracks if track.file_path]
+        db.query(models.InstagramPost5sAudioTrack).filter(
+            models.InstagramPost5sAudioTrack.user_id == user.id
+        ).delete()
+        for track_data in new_tracks:
+            db.add(
+                models.InstagramPost5sAudioTrack(**track_data)
+            )
+
+        for old_path in old_paths:
+            if old_path and os.path.isfile(old_path):
+                try:
+                    os.remove(old_path)
+                except OSError:
+                    logging.warning("Failed to remove old Instagram 5s audio: %s", old_path)
+
+        user.instagram_post_5s_audio_status = "ready"
+        user.instagram_post_5s_audio_error = None
+        user.instagram_post_5s_audio_refreshed_at = datetime.datetime.utcnow()
+        db.commit()
+        return {"status": "ready", "created": created}
+    except Exception as exc:
+        logging.exception("Failed to refresh Instagram post 5s audio library for user=%s profile=%s", user_id, profile_value)
+        if user:
+            user.instagram_post_5s_audio_status = "failed"
+            user.instagram_post_5s_audio_error = str(exc)[:500]
+            db.commit()
+        return {"status": "failed", "created": 0, "error": str(exc)[:500]}
+    finally:
+        db.close()
 
 
 def _upload_files_to_yandex_disk(file_paths: List[str]) -> List[dict]:
@@ -3188,6 +3366,8 @@ def process_content_task(self, task_id: int):
         image_path: str,
         title: str,
         output_path: str,
+        audio_path: str | None = None,
+        overlay_path: str | None = None,
         duration_seconds: float = 5.0,
     ) -> tuple[str | None, dict]:
         output_dir = os.path.dirname(output_path) or "."
@@ -3267,6 +3447,8 @@ def process_content_task(self, task_id: int):
             raise
 
         temp_path = f"{output_path}.tmp.mp4"
+        use_audio_path = audio_path if audio_path and os.path.isfile(audio_path) else None
+        use_overlay_path = overlay_path if overlay_path and os.path.isfile(overlay_path) else None
         cmd = [
             "ffmpeg",
             "-y",
@@ -3282,21 +3464,48 @@ def process_content_task(self, task_id: int):
             f"{duration_seconds:.3f}",
             "-i",
             plate_png_path,
-            "-f",
-            "lavfi",
+        ]
+        if use_audio_path:
+            cmd.extend(["-stream_loop", "-1", "-i", use_audio_path])
+        else:
+            cmd.extend([
+                "-f",
+                "lavfi",
+                "-t",
+                f"{duration_seconds:.3f}",
+                "-i",
+                "anullsrc=r=48000:cl=stereo",
+            ])
+        if use_overlay_path:
+            cmd.extend([
+                "-loop",
+                "1",
+                "-t",
+                f"{duration_seconds:.3f}",
+                "-i",
+                use_overlay_path,
+            ])
+        filter_parts = [
+            "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920[base]",
+            "[1:v]format=rgba[plate]",
+            "[base][plate]overlay=0:0[v_title]",
+        ]
+        video_label = "[v_title]"
+        if use_overlay_path:
+            filter_parts.extend(
+                [
+                    "[3:v]scale=1080:1920:force_original_aspect_ratio=decrease,setsar=1,format=rgba[extra_plate]",
+                    "[v_title][extra_plate]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2:enable='gte(t,2)'[v]",
+                ]
+            )
+            video_label = "[v]"
+        cmd.extend([
             "-t",
             f"{duration_seconds:.3f}",
-            "-i",
-            "anullsrc=r=48000:cl=stereo",
             "-filter_complex",
-            (
-                "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,"
-                "crop=1080:1920[base];"
-                "[1:v]format=rgba[plate];"
-                "[base][plate]overlay=0:0[v]"
-            ),
+            ";".join(filter_parts),
             "-map",
-            "[v]",
+            video_label,
             "-map",
             "2:a:0",
             "-r",
@@ -3317,11 +3526,14 @@ def process_content_task(self, task_id: int):
             "-movflags",
             "+faststart",
             temp_path,
-        ]
+        ])
         meta = {
             "status": "skipped",
             "image_path": image_path,
             "title": title,
+            "audio_path": use_audio_path,
+            "overlay_path": use_overlay_path,
+            "overlay_start_seconds": 2.0 if use_overlay_path else None,
             "plate_png_path": plate_png_path,
             "output_path": output_path,
             "duration_seconds": duration_seconds,
@@ -3766,12 +3978,31 @@ def process_content_task(self, task_id: int):
                         "refusing to render with the original uncleaned image"
                     )
 
+            audio_tracks = (
+                db.query(models.InstagramPost5sAudioTrack)
+                .filter(models.InstagramPost5sAudioTrack.user_id == user.id)
+                .all()
+            )
+            usable_audio_tracks = [
+                track for track in audio_tracks
+                if track.file_path and os.path.isfile(track.file_path)
+            ]
+            selected_audio_track = random.choice(usable_audio_tracks) if usable_audio_tracks else None
+            selected_audio_path = selected_audio_track.file_path if selected_audio_track else None
+            overlay_path = (
+                user.instagram_post_5s_overlay_path
+                if user.instagram_post_5s_overlay_path and os.path.isfile(user.instagram_post_5s_overlay_path)
+                else None
+            )
+
             update_task_status_message(db, task, stage="Монтаж", detail="Собираю 5-секундное видео с плашкой.")
             five_second_output = os.path.join(output_dir, f"instagram_post_5s_{task_id}.mp4")
             final_post_video, five_second_meta = _render_five_second_post_video(
                 image_path=generated_clean_image,
                 title=final_title,
                 output_path=five_second_output,
+                audio_path=selected_audio_path,
+                overlay_path=overlay_path,
                 duration_seconds=5.0,
             )
             if not final_post_video:
@@ -3791,6 +4022,9 @@ def process_content_task(self, task_id: int):
                 "caption": caption,
                 "rewritten_description": rewritten_description,
                 "description_txt_path": description_txt_path,
+                "selected_audio_track_id": selected_audio_track.id if selected_audio_track else None,
+                "selected_audio_path": selected_audio_path,
+                "overlay_path": overlay_path,
                 "creator": creator,
                 "render": five_second_meta,
             }

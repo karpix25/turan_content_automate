@@ -1,4 +1,5 @@
 import logging
+import os
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from ... import models, schemas
@@ -104,6 +105,17 @@ def update_settings(telegram_id: str, settings: schemas.UserSettingsUpdate, db: 
             field_name="reels_broll_coverage_percent",
         )
 
+    if "instagram_post_5s_audio_profile" in update_data:
+        update_data["instagram_post_5s_audio_profile"] = (
+            update_data.get("instagram_post_5s_audio_profile") or ""
+        ).strip() or None
+
+    if "instagram_post_5s_overlay_path" in update_data:
+        overlay_path = (update_data.get("instagram_post_5s_overlay_path") or "").strip()
+        if overlay_path and not os.path.isfile(overlay_path):
+            raise HTTPException(status_code=400, detail="instagram_post_5s_overlay_path file does not exist")
+        update_data["instagram_post_5s_overlay_path"] = overlay_path or None
+
     if "avatar_script_duration_minutes" in update_data:
         try:
             duration_value = int(update_data.get("avatar_script_duration_minutes"))
@@ -155,6 +167,11 @@ async def get_style_settings(telegram_id: str, db: Session = Depends(get_db)):
         "reels_broll_clips_count": user.reels_broll_clips_count,
         "reels_broll_coverage_percent": user.reels_broll_coverage_percent,
         "youtube_description_template": user.youtube_description_template,
+        "instagram_post_5s_audio_profile": user.instagram_post_5s_audio_profile,
+        "instagram_post_5s_audio_status": user.instagram_post_5s_audio_status,
+        "instagram_post_5s_audio_error": user.instagram_post_5s_audio_error,
+        "instagram_post_5s_audio_refreshed_at": user.instagram_post_5s_audio_refreshed_at,
+        "instagram_post_5s_overlay_path": user.instagram_post_5s_overlay_path,
     }
 
 @router.post("/train-style/{telegram_id}")

@@ -30,6 +30,8 @@ class UserSettingsUpdate(BaseModel):
     reels_broll_clips_count: Optional[int] = None
     reels_broll_coverage_percent: Optional[int] = None
     youtube_description_template: Optional[str] = None
+    instagram_post_5s_audio_profile: Optional[str] = None
+    instagram_post_5s_overlay_path: Optional[str] = None
 
     telegram_chat_id: Optional[str] = None
     telegram_status_message_id: Optional[str] = None
@@ -164,6 +166,32 @@ class AvatarInsertClipOut(BaseModel):
     class Config:
         from_attributes = True
 
+
+class InstagramPost5sAudioProfileUpdate(BaseModel):
+    profile: str
+
+
+class InstagramPost5sAudioTrackOut(BaseModel):
+    id: int
+    user_id: int
+    source_profile: Optional[str]
+    source_url: Optional[str]
+    source_code: Optional[str]
+    file_path: str
+    created_at: datetime.datetime
+
+    class Config:
+        from_attributes = True
+
+
+class InstagramPost5sSettingsOut(BaseModel):
+    audio_profile: Optional[str] = None
+    audio_status: Optional[str] = None
+    audio_error: Optional[str] = None
+    audio_refreshed_at: Optional[datetime.datetime] = None
+    overlay_path: Optional[str] = None
+    audio_tracks: list[InstagramPost5sAudioTrackOut] = []
+
 class UserSettings(BaseModel):
     id: int
     telegram_id: str
@@ -197,6 +225,11 @@ class UserSettings(BaseModel):
     reels_broll_clips_count: int
     reels_broll_coverage_percent: int
     youtube_description_template: Optional[str] = None
+    instagram_post_5s_audio_profile: Optional[str] = None
+    instagram_post_5s_audio_status: Optional[str] = None
+    instagram_post_5s_audio_error: Optional[str] = None
+    instagram_post_5s_audio_refreshed_at: Optional[datetime.datetime] = None
+    instagram_post_5s_overlay_path: Optional[str] = None
 
     class Config:
         from_attributes = True
