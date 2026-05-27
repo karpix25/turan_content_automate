@@ -683,7 +683,27 @@ def send_yandex_disk_links_to_telegram(task, uploads: list[dict]) -> None:
     if not uploads:
         return
 
-    lines = [f"✅ Файл сохранен в Яндекс.Диск.\n{build_task_context_text(task)}"]
+    task_type = (getattr(task, "type", None) or "").strip()
+    format_labels = {
+        "avatar_heygen": "ИИ-аватар",
+        "avatar_horizontal": "ИИ-аватар горизонтальный",
+        "avatar_vertical": "ИИ-аватар вертикальный",
+        "avatar_youtube": "ИИ-аватар YouTube",
+        "avatar_instagram": "ИИ-аватар Reels",
+        "avatar_shorts": "ИИ-аватар Shorts",
+    }
+    format_label = format_labels.get(task_type, task_type or "Видео")
+
+    lines = [
+        "Все, Turan 🫶🏻",
+        "Задача выполнена.",
+        "",
+        f"Формат: {format_label}",
+        "Видео: 1/1",
+        "Файл сохранен в Яндекс.Диск.",
+        "",
+        "Ссылки:",
+    ]
     for idx, item in enumerate(uploads, start=1):
         file_name = os.path.basename((item.get("remote_path") or "").strip()) or f"Файл {idx}"
         public_url = (item.get("public_url") or "").strip()
@@ -692,6 +712,8 @@ def send_yandex_disk_links_to_telegram(task, uploads: list[dict]) -> None:
         else:
             remote_path = (item.get("remote_path") or "").strip()
             lines.append(f"{idx}. {file_name}: {remote_path}")
+
+    lines.extend(["", "Ошибки: нет"])
 
     text = "\n".join(lines)
     for chunk in _split_message_chunks(text):
