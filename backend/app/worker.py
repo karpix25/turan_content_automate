@@ -2081,6 +2081,7 @@ def process_content_task(self, task_id: int):
         existing_meta = dict(task.script_meta or {})
         if (
             task.type in AVATAR_TASK_TYPES
+            and task.type not in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES
             and existing_meta.get("yandex_disk_upload_status") in {"pending", "queued", "retrying", "failed"}
             and yandex_disk.is_configured
         ):
@@ -4816,7 +4817,7 @@ def process_content_task(self, task_id: int):
         subtitles_enabled = False
         ass_path = None
         target_account_ids = [] if task.type == "local_upload" else _get_target_account_ids(db, user.id)
-        if task.type in AVATAR_TASK_TYPES:
+        if task.type in AVATAR_TASK_TYPES and task.type not in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
             target_account_ids = []
         if task.type in {"instagram", "youtube"} and not target_account_ids and not process_all_clips:
             raise Exception(
@@ -4832,7 +4833,7 @@ def process_content_task(self, task_id: int):
         target_account_ids = list(dict.fromkeys(target_account_ids))
 
         account_platform_map = _get_account_platform_map(target_account_ids)
-        if task.type in AVATAR_TASK_TYPES:
+        if task.type in AVATAR_TASK_TYPES and task.type not in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
             logging.info("Task %s: avatar skips PostMyPost publication and account fan-out", task_id)
 
         variants_count, account_variant_index = _build_account_variant_plan(
@@ -4970,6 +4971,36 @@ def process_content_task(self, task_id: int):
                         else clip_title
                     )
                     account_output = f"{video_root}_final_s{slot_idx}_a{account_id}.mp4"
+
+                    if task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
+                        logging.info(
+                            "Task %s: clip=%s account=%s platform=%s slot=%s using 5s post output (no extra plate/CTA overlay)",
+                            task_id,
+                            clip_index,
+                            account_id,
+                            platform_code,
+                            slot_idx,
+                        )
+                        shutil.copy2(video_path, account_output)
+                        publish_at = publish_times[publish_index] if len(publish_times) > publish_index else None
+                        publish_index += 1
+                        rendered_output = {
+                            "output_path": account_output,
+                            "publish_at": publish_at,
+                            "target_account_id": account_id,
+                            "target_platform": platform_code,
+                            "source_title": output_source_title,
+                            "source_label": _build_source_label(
+                                base_source,
+                                clip_index=clip_index if process_all_clips else None,
+                                slot_index=slot_idx,
+                                account_id=account_id,
+                            ),
+                            "clip_index": clip_index,
+                        }
+                        rendered_outputs.append(rendered_output)
+                        _sync_rendered_output_now(rendered_output)
+                        continue
 
                     if task.type in AVATAR_TASK_TYPES:
                         logging.info(
@@ -5149,7 +5180,7 @@ def process_content_task(self, task_id: int):
             current_meta = dict(task.script_meta or {})
             current_meta["vertical_thumbnail_intro"] = vertical_thumbnail_intro_meta
             task.script_meta = current_meta
-        if task.type in AVATAR_TASK_TYPES:
+        if task.type in AVATAR_TASK_TYPES and task.type not in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
             current_meta = dict(task.script_meta or {})
             upload_paths = _collect_yandex_disk_upload_paths(task, rendered_outputs)
             current_meta["yandex_disk_uploads"] = []
@@ -5166,7 +5197,7 @@ def process_content_task(self, task_id: int):
             task.script_meta = current_meta
         db.commit()
         db.refresh(task)
-        if task.type in AVATAR_TASK_TYPES:
+        if task.type in AVATAR_TASK_TYPES and task.type not in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
             current_meta = dict(task.script_meta or {})
             upload_paths = list(current_meta.get("yandex_disk_upload_paths") or [])
             if current_meta.get("yandex_disk_upload_status") == "pending" and upload_paths:

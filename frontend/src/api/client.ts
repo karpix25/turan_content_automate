@@ -126,6 +126,16 @@ export const apiClient = {
     const res = await axios.post<InstagramPost5sSettings>(`${API_BASE}/instagram-post-5s/audio-profile/${telegramId}`, { profile });
     return res.data;
   },
+  uploadInstagramPost5sAudio: async (telegramId: string, files: File[]) => {
+    const formData = new FormData();
+    files.forEach((file) => formData.append('files', file));
+    const res = await axios.post<InstagramPost5sSettings>(`${API_BASE}/upload/instagram-post-5s-audio/${telegramId}`, formData);
+    return res.data;
+  },
+  deleteInstagramPost5sAudio: async (telegramId: string, trackId: number) => {
+    const res = await axios.delete<InstagramPost5sSettings>(`${API_BASE}/instagram-post-5s-audio/${telegramId}/${trackId}`);
+    return res.data;
+  },
   uploadInstagramPost5sOverlay: async (telegramId: string, file: File) => {
     const formData = new FormData();
     formData.append('file', file);

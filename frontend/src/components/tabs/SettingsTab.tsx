@@ -70,9 +70,10 @@ export const SettingsTab: React.FC = () => {
   const [youtubeDescriptionTemplate, setYoutubeDescriptionTemplate] = useState<string>('');
   const [avatarScriptDurationMinutes, setAvatarScriptDurationMinutes] = useState<number>(5);
   const [fiveSecondSettings, setFiveSecondSettings] = useState<InstagramPost5sSettings | null>(null);
-  const [audioProfileInput, setAudioProfileInput] = useState('');
-  const [refreshingAudio, setRefreshingAudio] = useState(false);
+  const [uploadingFiveSecondAudio, setUploadingFiveSecondAudio] = useState(false);
+  const [deletingFiveSecondAudioId, setDeletingFiveSecondAudioId] = useState<number | null>(null);
   const [uploadingFiveSecondOverlay, setUploadingFiveSecondOverlay] = useState(false);
+  const fiveSecondAudioInputRef = useRef<HTMLInputElement>(null);
   const fiveSecondOverlayInputRef = useRef<HTMLInputElement>(null);
 
   const loadFiveSecondSettings = async () => {
@@ -80,7 +81,6 @@ export const SettingsTab: React.FC = () => {
     try {
       const data = await apiClient.getInstagramPost5sSettings(telegramId);
       setFiveSecondSettings(data);
-      setAudioProfileInput(data.audio_profile || '');
     } catch (error) {
     }
   };
@@ -259,22 +259,32 @@ export const SettingsTab: React.FC = () => {
     return '';
   };
 
-  const refreshAudioLibrary = async () => {
-    if (!telegramId) return;
-    const profile = audioProfileInput.trim();
-    if (!profile) {
-      alert('Укажите Instagram-профиль');
-      return;
-    }
-    setRefreshingAudio(true);
+  const handleFiveSecondAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length || !telegramId) return;
+    setUploadingFiveSecondAudio(true);
     try {
-      const data = await apiClient.refreshInstagramPost5sAudioProfile(telegramId, profile);
+      const data = await apiClient.uploadInstagramPost5sAudio(telegramId, files);
       setFiveSecondSettings(data);
-      setTimeout(loadFiveSecondSettings, 3000);
     } catch (error: any) {
-      alert(error.response?.data?.detail || 'Ошибка обновления аудио');
+      alert(error.response?.data?.detail || 'Ошибка при загрузке аудио');
     } finally {
-      setRefreshingAudio(false);
+      setUploadingFiveSecondAudio(false);
+      if (fiveSecondAudioInputRef.current) fiveSecondAudioInputRef.current.value = '';
+    }
+  };
+
+  const deleteFiveSecondAudio = async (trackId: number) => {
+    if (!telegramId) return;
+    if (!window.confirm('Удалить аудио из библиотеки 5 секунд?')) return;
+    setDeletingFiveSecondAudioId(trackId);
+    try {
+      const data = await apiClient.deleteInstagramPost5sAudio(telegramId, trackId);
+      setFiveSecondSettings(data);
+    } catch (error) {
+      alert('Ошибка при удалении аудио');
+    } finally {
+      setDeletingFiveSecondAudioId(null);
     }
   };
 
@@ -606,6 +616,14 @@ export const SettingsTab: React.FC = () => {
         onChange={handleUploadAvatarInsertClip}
       />
       <input
+        ref={fiveSecondAudioInputRef}
+        type="file"
+        accept="audio/*,video/mp4,video/quicktime"
+        multiple
+        className="hidden"
+        onChange={handleFiveSecondAudioUpload}
+      />
+      <input
         ref={fiveSecondOverlayInputRef}
         type="file"
         accept="image/*"
@@ -623,21 +641,15 @@ export const SettingsTab: React.FC = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
           <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
-            <label className="text-xs font-bold text-[#707579] uppercase tracking-wider mb-2 block">Аудио-профиль</label>
-            <div className="flex gap-2">
-              <input
-                value={audioProfileInput}
-                onChange={(e) => setAudioProfileInput(e.target.value)}
-                placeholder="@profile или ссылка Instagram"
-                className="input-field h-10 text-sm"
-              />
+            <div className="flex items-center justify-between mb-3">
+              <label className="text-xs font-bold text-[#707579] uppercase tracking-wider">Аудиобиблиотека</label>
               <button
-                onClick={refreshAudioLibrary}
-                disabled={refreshingAudio}
-                className="h-10 px-3 bg-[#24a1de] text-white rounded-xl text-xs font-bold flex items-center gap-2 disabled:opacity-50"
+                onClick={() => fiveSecondAudioInputRef.current?.click()}
+                disabled={uploadingFiveSecondAudio}
+                className="h-9 px-3 bg-[#24a1de] text-white rounded-xl text-xs font-bold flex items-center gap-2 disabled:opacity-50"
               >
-                {refreshingAudio ? <Loader2 size={14} className="animate-spin" /> : <Music2 size={14} />}
-                Обновить
+                {uploadingFiveSecondAudio ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                Добавить
               </button>
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5">
@@ -657,6 +669,26 @@ export const SettingsTab: React.FC = () => {
             {fiveSecondSettings?.audio_error && (
               <p className="mt-2 text-xs text-rose-500">{fiveSecondSettings.audio_error}</p>
             )}
+            <div className="mt-3 space-y-2">
+              {(fiveSecondSettings?.audio_tracks || []).map((track) => (
+                <div key={track.id} className="flex items-center gap-2 bg-white p-1.5 rounded-lg border border-slate-100">
+                  <Music2 size={14} className="text-[#24a1de] shrink-0" />
+                  <span className="text-[10px] text-slate-500 flex-1 truncate">
+                    {(track.source_url || track.file_path).split('/').pop()}
+                  </span>
+                  <button
+                    onClick={() => deleteFiveSecondAudio(track.id)}
+                    disabled={deletingFiveSecondAudioId === track.id}
+                    className="p-1.5 text-slate-400 hover:text-rose-500 rounded-md disabled:opacity-50"
+                  >
+                    {deletingFiveSecondAudioId === track.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                  </button>
+                </div>
+              ))}
+              {(!fiveSecondSettings?.audio_tracks || fiveSecondSettings.audio_tracks.length === 0) && (
+                <p className="text-xs text-slate-400 italic">Загрузите несколько аудиофайлов. При рендере один будет выбран случайно.</p>
+              )}
+            </div>
           </div>
 
           <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">

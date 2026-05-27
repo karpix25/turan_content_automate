@@ -27,6 +27,7 @@ AVATAR_TASK_TYPES = {
     "avatar_instagram_post_5s",
     "avatar_shorts",
 }
+INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES = {"avatar_instagram_post_5s"}
 pmp_client = PostMyPostClient(api_key=os.getenv("POSTMYPOST_API_KEY", ""))
 
 PMP_PENDING_PUBLICATION_STATUS = 5
@@ -136,8 +137,24 @@ def _get_account_descriptions(db, user_id: int) -> dict[int, str]:
     return result
 
 
-def _build_publication_content(account_description: str | None) -> str:
-    return (account_description or "").strip()
+def _get_instagram_post_5s_description(task: models.VideoTask) -> str:
+    try:
+        post_meta = dict((task.script_meta or {}).get("instagram_post_5s") or {})
+    except Exception:
+        post_meta = {}
+    return (
+        (post_meta.get("rewritten_description") or "")
+        or (task.script_text or "")
+        or (task.source_title or "")
+    ).strip()
+
+
+def _build_publication_content(account_description: str | None, task: models.VideoTask | None = None) -> str:
+    template = (account_description or "").strip()
+    if task and task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
+        base_description = _get_instagram_post_5s_description(task)
+        return "\n\n".join(part for part in [base_description, template] if part)
+    return template
 
 
 def _normalize_post_at(value: datetime.datetime | None, force_now: bool) -> datetime.datetime:
@@ -544,7 +561,7 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
             logger.info(f"Task {task_id} is not completed yet, skipping publication sync")
             return
 
-        if task.type in AVATAR_TASK_TYPES:
+        if task.type in AVATAR_TASK_TYPES and task.type not in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
             task.postmypost_id = None
             task.postmypost_file_id = None
             task.preview_url = None
@@ -564,7 +581,7 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
         account_ids = _get_task_account_ids(db, task, user.id)
         account_descriptions = _get_account_descriptions(db, user.id)
         content_by_account = {
-            account_id: _build_publication_content(account_descriptions.get(account_id))
+            account_id: _build_publication_content(account_descriptions.get(account_id), task)
             for account_id in account_ids
         }
         logger.info(
@@ -595,13 +612,17 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
         # Determine publication type (1: Post, 4: Reels/Shorts/Clips)
         # We use 4 for YouTube, Instagram, and TikTok for these clipping tasks.
         pub_type = 1
-        if target_platform in {"youtube", "instagram", "tiktok"}:
+        if task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
+            pub_type = 1
+        elif target_platform in {"youtube", "instagram", "tiktok"}:
             pub_type = 4
 
         account_platform_map = _get_account_platform_map(account_ids)
         for account_id in account_ids:
             acc_platform = account_platform_map.get(account_id, "universal")
-            if acc_platform == "youtube" or target_platform == "youtube":
+            if task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
+                title_by_account[account_id] = (getattr(task, "source_title", None) or "").strip() or "Видео"
+            elif acc_platform == "youtube" or target_platform == "youtube":
                 title_by_account[account_id] = (getattr(task, "source_title", None) or "").strip() or "Видео"
 
         file_id = task.postmypost_file_id

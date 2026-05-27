@@ -57,6 +57,15 @@ def _validate_instagram_post_5s_overlay(file: UploadFile) -> str:
     return safe_name
 
 
+def _validate_instagram_post_5s_audio(file: UploadFile) -> str:
+    safe_name = _build_safe_upload_filename(file.filename, fallback_extension=".mp3")
+    extension = os.path.splitext(safe_name)[1].lower()
+    allowed_extensions = {".mp3", ".m4a", ".aac", ".wav", ".ogg", ".opus", ".flac", ".mp4", ".mov", ".m4v"}
+    if extension not in allowed_extensions:
+        raise HTTPException(status_code=400, detail="Unsupported audio type. Use MP3, M4A, AAC, WAV, OGG, OPUS, FLAC, MP4, or MOV.")
+    return safe_name
+
+
 def _instagram_post_5s_settings_response(user: models.User, db: Session) -> schemas.InstagramPost5sSettingsOut:
     tracks = (
         db.query(models.InstagramPost5sAudioTrack)
@@ -259,6 +268,45 @@ def refresh_instagram_post_5s_audio_profile(
     return _instagram_post_5s_settings_response(user, db)
 
 
+@router.post("/upload/instagram-post-5s-audio/{telegram_id}", response_model=schemas.InstagramPost5sSettingsOut)
+async def upload_instagram_post_5s_audio(
+    telegram_id: str,
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    if not files:
+        raise HTTPException(status_code=400, detail="Audio files are required")
+    assets_dir = _instagram_post_5s_assets_dir()
+    audio_dir = os.path.join(assets_dir, "audio")
+    os.makedirs(audio_dir, exist_ok=True)
+    created: list[models.InstagramPost5sAudioTrack] = []
+    for file in files:
+        safe_name = _validate_instagram_post_5s_audio(file)
+        unique_name = f"audio_{telegram_id}_{datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}_{safe_name}"
+        file_path = os.path.join(audio_dir, unique_name)
+        with open(file_path, "wb") as target:
+            target.write(await file.read())
+        item = models.InstagramPost5sAudioTrack(
+            user_id=user.id,
+            source_profile="upload",
+            source_url=file.filename or safe_name,
+            source_code=os.path.splitext(safe_name)[0],
+            file_path=file_path,
+        )
+        db.add(item)
+        created.append(item)
+    user.instagram_post_5s_audio_status = "ready"
+    user.instagram_post_5s_audio_error = None
+    user.instagram_post_5s_audio_refreshed_at = datetime.datetime.utcnow()
+    db.commit()
+    for item in created:
+        db.refresh(item)
+    db.refresh(user)
+    return _instagram_post_5s_settings_response(user, db)
+
+
 @router.post("/upload/instagram-post-5s-overlay/{telegram_id}", response_model=schemas.InstagramPost5sSettingsOut)
 async def upload_instagram_post_5s_overlay(
     telegram_id: str,
@@ -281,6 +329,32 @@ async def upload_instagram_post_5s_overlay(
             os.remove(previous_path)
         except OSError:
             logging.warning("Failed to remove previous Instagram post 5s overlay: %s", previous_path)
+    db.refresh(user)
+    return _instagram_post_5s_settings_response(user, db)
+
+
+@router.delete("/instagram-post-5s-audio/{telegram_id}/{track_id}", response_model=schemas.InstagramPost5sSettingsOut)
+def delete_instagram_post_5s_audio(telegram_id: str, track_id: int, db: Session = Depends(get_db)):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    track = (
+        db.query(models.InstagramPost5sAudioTrack)
+        .filter(
+            models.InstagramPost5sAudioTrack.id == track_id,
+            models.InstagramPost5sAudioTrack.user_id == user.id,
+        )
+        .first()
+    )
+    if not track:
+        raise HTTPException(status_code=404, detail="Audio track not found")
+    file_path = track.file_path
+    db.delete(track)
+    db.commit()
+    if file_path and os.path.isfile(file_path):
+        try:
+            os.remove(file_path)
+        except OSError:
+            logging.warning("Failed to remove Instagram post 5s audio: %s", file_path)
     db.refresh(user)
     return _instagram_post_5s_settings_response(user, db)
 
