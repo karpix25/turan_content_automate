@@ -11,7 +11,10 @@ from .database import SessionLocal
 from . import models
 from .integrations.postmypost import PostMyPostClient
 from .publish_planner import get_min_publish_lead_delta, plan_next_publish_times
-from .telegram_progress import update_task_status_message
+from .telegram_progress import (
+    send_publication_batch_report_message,
+    update_task_status_message,
+)
 from .utils.platform_utils import _get_account_platform_map
 from .worker import celery_app
 
@@ -442,6 +445,80 @@ def _is_postmypost_missing_publication_status_error(exc: Exception) -> bool:
     return "publication_status" in normalized and "required property" in normalized
 
 
+def _get_publication_batch_meta(task: models.VideoTask) -> dict:
+    meta = dict(getattr(task, "script_meta", None) or {})
+    batch_meta = meta.get("publication_batch_report")
+    return dict(batch_meta or {}) if isinstance(batch_meta, dict) else {}
+
+
+def _is_publication_batch_terminal(task: models.VideoTask) -> bool:
+    status = (getattr(task, "publishing_status", None) or "").strip()
+    if status in {"scheduled", "in_progress", "published", "failed"}:
+        return True
+    return bool(getattr(task, "postmypost_id", None))
+
+
+def _publication_batch_sort_key(task: models.VideoTask) -> tuple:
+    return (
+        getattr(task, "publish_at", None) or datetime.datetime.max,
+        getattr(task, "target_account_id", None) or 0,
+        getattr(task, "id", 0) or 0,
+    )
+
+
+def _maybe_send_publication_batch_report(db, task: models.VideoTask) -> None:
+    batch_meta = _get_publication_batch_meta(task)
+    batch_id = (batch_meta.get("batch_id") or "").strip()
+    if not batch_id or batch_meta.get("sent_at"):
+        return
+
+    expected_publications = int(batch_meta.get("expected_publications") or 0)
+    if expected_publications < 1:
+        return
+
+    query = db.query(models.VideoTask).filter(
+        models.VideoTask.user_id == task.user_id,
+        models.VideoTask.telegram_status_message_id == task.telegram_status_message_id,
+    )
+    if task.vizard_project_id:
+        query = query.filter(models.VideoTask.vizard_project_id == task.vizard_project_id)
+
+    batch_tasks = []
+    already_sent = False
+    for candidate in query.all():
+        candidate_batch_meta = _get_publication_batch_meta(candidate)
+        if (candidate_batch_meta.get("batch_id") or "").strip() != batch_id:
+            continue
+        if candidate_batch_meta.get("sent_at"):
+            already_sent = True
+            break
+        if (getattr(candidate, "publishing_status", None) or "").strip() != "not_published":
+            batch_tasks.append(candidate)
+
+    if already_sent:
+        return
+    if len(batch_tasks) < expected_publications:
+        return
+    if not all(_is_publication_batch_terminal(item) for item in batch_tasks):
+        return
+
+    batch_tasks = sorted(batch_tasks, key=_publication_batch_sort_key)
+    if not send_publication_batch_report_message(batch_tasks, batch_meta):
+        return
+
+    sent_at = datetime.datetime.utcnow().isoformat()
+    for item in batch_tasks:
+        item_meta = dict(item.script_meta or {})
+        item_batch_meta = dict(item_meta.get("publication_batch_report") or {})
+        if (item_batch_meta.get("batch_id") or "").strip() != batch_id:
+            continue
+        item_batch_meta["sent_at"] = sent_at
+        item_batch_meta["sent_by_task_id"] = task.id
+        item_meta["publication_batch_report"] = item_batch_meta
+        item.script_meta = item_meta
+    db.commit()
+
+
 def _complete_vizard_parent_with_existing_outputs(db, task: models.VideoTask, now: datetime.datetime) -> bool:
     if not task.vizard_project_id:
         return False
@@ -708,6 +785,7 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
                 detail="Ролик отправлен в PostMyPost.",
                 ok=True,
             )
+        _maybe_send_publication_batch_report(db, task)
         logger.info(f"Task {task_id} synced to PostMyPost publication {task.postmypost_id}")
     except Exception as e:
         logger.error(f"Failed to sync publication for task {task_id}: {e}")
@@ -730,6 +808,7 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
                 detail=f"Не удалось синхронизировать публикацию: {str(e)[:300]}",
                 failed=True,
             )
+            _maybe_send_publication_batch_report(db, task)
     finally:
         db.close()
 

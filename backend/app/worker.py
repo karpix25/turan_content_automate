@@ -4891,6 +4891,22 @@ def process_content_task(self, task_id: int):
         )
         should_sync_outputs = bool(target_account_ids) or task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES
         base_source = _get_base_source_label(task.source_url)
+        if should_sync_outputs and output_platforms:
+            current_meta = dict(task.script_meta or {})
+            batch_meta = dict(current_meta.get("publication_batch_report") or {})
+            batch_meta.update(
+                {
+                    "batch_id": batch_meta.get("batch_id") or f"task-{task.id}-{uuid.uuid4().hex[:8]}",
+                    "expected_clips": len(source_items),
+                    "expected_publications": len(output_platforms),
+                    "expected_accounts": len(target_account_ids),
+                    "source_label": base_source,
+                    "started_at": batch_meta.get("started_at") or datetime.datetime.utcnow().isoformat(),
+                }
+            )
+            current_meta["publication_batch_report"] = batch_meta
+            task.script_meta = current_meta
+            db.commit()
         rendered_outputs: List[dict] = []
         vertical_thumbnail_intro_meta: List[dict] = []
         publish_index = 0

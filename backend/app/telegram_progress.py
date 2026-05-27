@@ -188,6 +188,125 @@ def _format_publish_time(value) -> str | None:
     return text or None
 
 
+def _format_publish_date(value) -> str | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        value = value.astimezone(timezone.utc)
+        return value.strftime("%d.%m.%Y")
+    text = str(value).strip()
+    return text[:10] if text else None
+
+
+def _extract_clip_key(task) -> str:
+    source_url = getattr(task, "source_url", None) or ""
+    match = re.search(r"\[clip\s+(\d+)\]", source_url)
+    if match:
+        return f"clip:{match.group(1)}"
+    base_source = re.sub(r"\s+\[(slot|account|variant)\s+[^\]]+\]", "", source_url).strip()
+    if base_source:
+        return f"source:{base_source}"
+    return f"task:{getattr(task, 'id', '-')}"
+
+
+def _date_sort_key(value: str):
+    try:
+        return datetime.strptime(value, "%d.%m.%Y")
+    except ValueError:
+        return datetime.max
+
+
+def _publication_task_done(task) -> bool:
+    publishing_status = (getattr(task, "publishing_status", None) or "").strip()
+    if publishing_status in {"scheduled", "in_progress", "published", "failed"}:
+        return True
+    return bool(getattr(task, "postmypost_id", None))
+
+
+def send_publication_batch_report_message(tasks: list, batch_meta: dict | None = None) -> bool:
+    batch_meta = dict(batch_meta or {})
+    first_task = next((item for item in tasks if getattr(item, "telegram_chat_id", None)), None)
+    if not first_task:
+        return False
+
+    token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+    chat_id = (getattr(first_task, "telegram_chat_id", None) or "").strip()
+    if not token or not chat_id:
+        return False
+
+    expected_clips = int(batch_meta.get("expected_clips") or 0)
+    expected_publications = int(batch_meta.get("expected_publications") or 0)
+    source_label = _short_text(batch_meta.get("source_label") or getattr(first_task, "source_url", None), 120)
+
+    done_tasks = [task for task in tasks if _publication_task_done(task)]
+    failed_tasks = [
+        task for task in done_tasks
+        if (getattr(task, "publishing_status", None) or "").strip() == "failed"
+    ]
+    scheduled_tasks = [
+        task for task in done_tasks
+        if (getattr(task, "publishing_status", None) or "").strip() in {"scheduled", "in_progress", "published"}
+    ]
+
+    clip_keys = {_extract_clip_key(task) for task in done_tasks}
+    account_ids = {
+        getattr(task, "target_account_id", None)
+        for task in done_tasks
+        if getattr(task, "target_account_id", None)
+    }
+
+    by_date: dict[str, dict[str, set | int]] = {}
+    for task in scheduled_tasks:
+        date_label = _format_publish_date(getattr(task, "publish_at", None)) or "Без даты"
+        bucket = by_date.setdefault(date_label, {"clips": set(), "publications": 0})
+        bucket["clips"].add(_extract_clip_key(task))
+        bucket["publications"] = int(bucket["publications"]) + 1
+
+    lines = ["Все, Turan 🫶🏻"]
+    if failed_tasks:
+        lines.append("Задача частично выполнена.")
+    else:
+        lines.append("Задача выполнена.")
+    lines.append("")
+    if source_label:
+        lines.append(f"Источник: {source_label}")
+    clips_count = expected_clips or len(clip_keys)
+    lines.append(f"Видео: {len(clip_keys)}/{clips_count}")
+    publications_count = len(scheduled_tasks)
+    total_publications = expected_publications or len(done_tasks)
+    lines.append(f"Запланировано в PostMyPost: {publications_count}/{total_publications}")
+    if account_ids:
+        lines.append(f"Аккаунтов/платформ: {len(account_ids)}")
+
+    if by_date:
+        lines.append("")
+        lines.append("План:")
+        for date_label in sorted(by_date, key=_date_sort_key):
+            bucket = by_date[date_label]
+            lines.append(
+                f"{date_label}: {len(bucket['clips'])} видео, {int(bucket['publications'])} публикаций"
+            )
+
+    lines.append("")
+    if failed_tasks:
+        lines.append(f"Ошибки: {len(failed_tasks)} публикаций")
+        for task in failed_tasks[:5]:
+            lines.append(f"#{getattr(task, 'id', '-')}: публикация не синхронизировалась")
+        if len(failed_tasks) > 5:
+            lines.append(f"Еще ошибок: {len(failed_tasks) - 5}")
+    else:
+        lines.append("Ошибки: нет")
+
+    return _send_telegram_message(
+        token,
+        chat_id,
+        "\n".join(lines),
+        reply_to_message_id=_reply_message_id(first_task),
+    )
+
+
 def send_postmypost_ready_message(task, *, publication_id: str | None, post_at=None, status: str | None = None) -> bool:
     token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
     chat_id = (getattr(task, "telegram_chat_id", None) or "").strip()
