@@ -35,6 +35,7 @@ export const apiClient = {
       thumbnail_face_path: string | null;
       vertical_thumbnail_face_path: string | null;
       avatar_script_duration_minutes: number;
+      avatar_vertical_duration_seconds: number;
       avatar_insert_start_percent: number;
       avatar_insert_end_percent: number;
       avatar_insert_clips_count: number;

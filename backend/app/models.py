@@ -35,6 +35,7 @@ class User(Base):
     thumbnail_face_path = Column(String, nullable=True)
     vertical_thumbnail_face_path = Column(String, nullable=True)
     avatar_script_duration_minutes = Column(Integer, default=5, nullable=False)
+    avatar_vertical_duration_seconds = Column(Integer, default=0, nullable=False)
     avatar_insert_start_percent = Column(Integer, default=50, nullable=False)
     avatar_insert_end_percent = Column(Integer, default=95, nullable=False)
     avatar_insert_clips_count = Column(Integer, default=2, nullable=False)

@@ -69,6 +69,7 @@ export const SettingsTab: React.FC = () => {
   const [avatarInsertClipsCount, setAvatarInsertClipsCount] = useState<number>(2);
   const [youtubeDescriptionTemplate, setYoutubeDescriptionTemplate] = useState<string>('');
   const [avatarScriptDurationMinutes, setAvatarScriptDurationMinutes] = useState<number>(5);
+  const [avatarVerticalDurationSeconds, setAvatarVerticalDurationSeconds] = useState<number>(0);
   const [fiveSecondSettings, setFiveSecondSettings] = useState<InstagramPost5sSettings | null>(null);
   const [uploadingFiveSecondAudio, setUploadingFiveSecondAudio] = useState(false);
   const [deletingFiveSecondAudioId, setDeletingFiveSecondAudioId] = useState<number | null>(null);
@@ -101,6 +102,7 @@ export const SettingsTab: React.FC = () => {
         setThumbnailFacePath(data.thumbnail_face_path || data.vertical_thumbnail_face_path || '');
         setVerticalThumbnailFacePath(data.vertical_thumbnail_face_path || data.thumbnail_face_path || '');
         setAvatarScriptDurationMinutes(data.avatar_script_duration_minutes ?? 5);
+        setAvatarVerticalDurationSeconds(data.avatar_vertical_duration_seconds ?? 0);
         setAvatarInsertStartPercent(data.avatar_insert_start_percent ?? 50);
         setAvatarInsertEndPercent(data.avatar_insert_end_percent ?? 95);
         setAvatarInsertClipsCount(data.avatar_insert_clips_count ?? 2);
@@ -241,6 +243,7 @@ export const SettingsTab: React.FC = () => {
         avatar_insert_end_percent: avatarInsertEndPercent,
         avatar_insert_clips_count: avatarInsertClipsCount,
         avatar_script_duration_minutes: avatarScriptDurationMinutes,
+        avatar_vertical_duration_seconds: avatarVerticalDurationSeconds,
         youtube_description_template: youtubeDescriptionTemplate,
       });
       setSavedSettings(true);
@@ -1150,6 +1153,53 @@ export const SettingsTab: React.FC = () => {
         </div>
         <p className="text-[11px] text-slate-500 mt-2">
           Минуты переводятся в символы по скорости выбранного голоса ElevenLabs.
+        </p>
+        </div>
+      </details>
+
+      <details className="tg-card p-4 settings-section">
+        <summary className="list-none">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Film size={18} className="text-[#24a1de]" />
+            <h3 className="text-[15px] font-bold text-slate-900">Длина вертикального AI-аватара</h3>
+          </div>
+          <span className="text-sm font-black text-slate-900 whitespace-nowrap">
+            {avatarVerticalDurationSeconds > 0 ? `${avatarVerticalDurationSeconds} сек` : 'по оригиналу'}
+          </span>
+        </div>
+        </summary>
+        <div className="mt-3">
+        <div className="grid grid-cols-[1fr_84px] gap-3 items-center">
+          <input
+            type="range"
+            min="0"
+            max="300"
+            step="5"
+            value={avatarVerticalDurationSeconds}
+            onChange={(e) => setAvatarVerticalDurationSeconds(Math.max(0, Math.min(300, parseInt(e.target.value) || 0)))}
+            className="w-full"
+          />
+          <input
+            type="number"
+            min={0}
+            max={300}
+            step={5}
+            value={avatarVerticalDurationSeconds}
+            onChange={(e) => {
+              const value = parseInt(e.target.value) || 0;
+              const normalized = value > 0 && value < 5 ? 5 : value;
+              setAvatarVerticalDurationSeconds(Math.max(0, Math.min(300, normalized)));
+            }}
+            className="input-field h-10 text-sm font-bold text-center"
+          />
+        </div>
+        <div className="flex justify-between text-[10px] font-bold text-slate-400 mt-1">
+          <span>по оригиналу</span>
+          <span>5 мин</span>
+        </div>
+        <p className="text-[11px] text-slate-500 mt-2">
+          Если поставить 0, Reels/Shorts переписывается примерно в длину оригинала. Если указать секунды, сценарий сжимается под выбранную длительность перед HeyGen.
         </p>
         </div>
       </details>

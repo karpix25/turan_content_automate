@@ -64,6 +64,7 @@ def init_database() -> None:
         add_column_if_missing("users", "thumbnail_face_path", "TEXT")
         add_column_if_missing("users", "vertical_thumbnail_face_path", "TEXT")
         add_column_if_missing("users", "avatar_script_duration_minutes", "INTEGER DEFAULT 5")
+        add_column_if_missing("users", "avatar_vertical_duration_seconds", "INTEGER DEFAULT 0")
         add_column_if_missing("users", "avatar_insert_start_percent", "INTEGER DEFAULT 50")
         add_column_if_missing("users", "avatar_insert_end_percent", "INTEGER DEFAULT 95")
         add_column_if_missing("users", "avatar_insert_clips_count", "INTEGER DEFAULT 2")
@@ -147,6 +148,12 @@ def init_database() -> None:
         )
         conn.execute(
             text("UPDATE users SET avatar_script_duration_minutes = 30 WHERE avatar_script_duration_minutes > 30")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_vertical_duration_seconds = 0 WHERE avatar_vertical_duration_seconds IS NULL OR avatar_vertical_duration_seconds < 0")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_vertical_duration_seconds = 300 WHERE avatar_vertical_duration_seconds > 300")
         )
         conn.execute(
             text("UPDATE users SET avatar_insert_start_percent = 0 WHERE avatar_insert_start_percent < 0")

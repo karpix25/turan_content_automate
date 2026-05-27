@@ -29,7 +29,6 @@ from .publish_planner import plan_next_publish_times
 from .telegram_progress import (
     build_task_context_text,
     update_task_status_message,
-    send_avatar_audio_to_telegram,
     send_avatar_video_to_telegram,
     send_thumbnail_to_telegram,
     send_thumbnail_prompt_review_to_telegram,
@@ -4171,6 +4170,9 @@ def process_content_task(self, task_id: int):
             max_words = AVATAR_SCRIPT_MAX_MINUTES * AVATAR_SCRIPT_WPM
             target_duration_minutes = int(getattr(user, "avatar_script_duration_minutes", 5) or 5)
             target_duration_minutes = max(1, min(30, target_duration_minutes))
+            avatar_vertical_duration_seconds = int(getattr(user, "avatar_vertical_duration_seconds", 0) or 0)
+            if avatar_vertical_duration_seconds < 5 or avatar_vertical_duration_seconds > 300:
+                avatar_vertical_duration_seconds = 0
 
             if task.type in SHORT_AVATAR_TASK_TYPES:
                 if task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
@@ -4178,6 +4180,13 @@ def process_content_task(self, task_id: int):
                     target_chars = int(round(chars_per_second * target_duration_seconds)) if chars_per_second > 0 else 70
                     target_chars = max(45, min(120, target_chars))
                     min_chars = max(35, int(round(target_chars * 0.9)))
+                    max_chars = max(min_chars + 10, int(round(target_chars * 1.1)))
+                elif avatar_vertical_duration_seconds > 0:
+                    target_duration_seconds = float(avatar_vertical_duration_seconds)
+                    fallback_chars_per_second = max(6.0, (AVATAR_SCRIPT_WPM * 6.0) / 60.0)
+                    effective_chars_per_second = chars_per_second if chars_per_second > 0 else fallback_chars_per_second
+                    target_chars = max(80, int(round(effective_chars_per_second * target_duration_seconds)))
+                    min_chars = max(60, int(round(target_chars * 0.9)))
                     max_chars = max(min_chars + 10, int(round(target_chars * 1.1)))
                 else:
                     original_char_count = count_script_chars(cleaned_reels_transcript)
@@ -4196,7 +4205,11 @@ def process_content_task(self, task_id: int):
                     detail=(
                         "Сжимаю пост в сценарий на 5 секунд и усиливаю хук."
                         if task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES
-                        else "Подгоняю сценарий под длительность озвучки и усиливаю хук."
+                        else (
+                            f"Сжимаю сценарий под {avatar_vertical_duration_seconds} сек. и усиливаю хук."
+                            if avatar_vertical_duration_seconds > 0
+                            else "Подгоняю сценарий под длительность озвучки и усиливаю хук."
+                        )
                     ),
                 )
                 script = llm.rewrite_reels_avatar_script(
@@ -4425,6 +4438,7 @@ def process_content_task(self, task_id: int):
                         "cleaned_transcript": cleaned_reels_transcript,
                         "cleaned_transcript_char_count": count_script_chars(cleaned_reels_transcript),
                         "target_duration_seconds_by_voice_speed": target_duration_seconds,
+                        "configured_target_duration_seconds": avatar_vertical_duration_seconds or None,
                     }
                 }
             task.script_text = script
@@ -4494,9 +4508,6 @@ def process_content_task(self, task_id: int):
                 task.script_meta = current_meta
                 db.commit()
 
-            update_task_status_message(db, task, stage="Telegram", detail="Отправляю готовое аудио в Telegram.")
-            send_avatar_audio_to_telegram(task, audio_output_path, estimated_minutes=estimated_minutes)
-            
             # --- HeyGen Video Generation ---
             avatar_id = (
                 (

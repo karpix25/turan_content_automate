@@ -125,6 +125,15 @@ def update_settings(telegram_id: str, settings: schemas.UserSettingsUpdate, db: 
             raise HTTPException(status_code=400, detail="avatar_script_duration_minutes must be between 1 and 30")
         update_data["avatar_script_duration_minutes"] = duration_value
 
+    if "avatar_vertical_duration_seconds" in update_data:
+        try:
+            vertical_duration_value = int(update_data.get("avatar_vertical_duration_seconds") or 0)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="avatar_vertical_duration_seconds must be an integer")
+        if vertical_duration_value != 0 and (vertical_duration_value < 5 or vertical_duration_value > 300):
+            raise HTTPException(status_code=400, detail="avatar_vertical_duration_seconds must be 0 or between 5 and 300")
+        update_data["avatar_vertical_duration_seconds"] = vertical_duration_value
+
     if "heygen_avatar_engine" in update_data:
         engine = (update_data.get("heygen_avatar_engine") or "avatar_iv").strip().lower()
         if engine not in {"avatar_iv", "avatar_v"}:
@@ -158,6 +167,7 @@ async def get_style_settings(telegram_id: str, db: Session = Depends(get_db)):
         "thumbnail_face_path": user.thumbnail_face_path,
         "vertical_thumbnail_face_path": user.vertical_thumbnail_face_path,
         "avatar_script_duration_minutes": user.avatar_script_duration_minutes,
+        "avatar_vertical_duration_seconds": getattr(user, "avatar_vertical_duration_seconds", 0) or 0,
         "avatar_insert_start_percent": user.avatar_insert_start_percent,
         "avatar_insert_end_percent": user.avatar_insert_end_percent,
         "avatar_insert_clips_count": user.avatar_insert_clips_count,

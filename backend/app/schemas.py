@@ -21,6 +21,7 @@ class UserSettingsUpdate(BaseModel):
     thumbnail_face_path: Optional[str] = None
     vertical_thumbnail_face_path: Optional[str] = None
     avatar_script_duration_minutes: Optional[int] = None
+    avatar_vertical_duration_seconds: Optional[int] = None
     avatar_insert_start_percent: Optional[int] = None
     avatar_insert_end_percent: Optional[int] = None
     avatar_insert_clips_count: Optional[int] = None
@@ -216,6 +217,7 @@ class UserSettings(BaseModel):
     thumbnail_face_path: Optional[str] = None
     vertical_thumbnail_face_path: Optional[str] = None
     avatar_script_duration_minutes: int
+    avatar_vertical_duration_seconds: int = 0
     avatar_insert_start_percent: int
     avatar_insert_end_percent: int
     avatar_insert_clips_count: int
