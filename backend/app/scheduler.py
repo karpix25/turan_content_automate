@@ -694,13 +694,7 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
         content = ""
         title_by_account: dict[int, str] = {}
 
-        # Determine publication type (1: Post, 4: Reels/Shorts/Clips)
-        # We use 4 for YouTube, Instagram, and TikTok for these clipping tasks.
-        pub_type = 1
-        if task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
-            pub_type = 1
-        elif target_platform in {"youtube", "instagram", "tiktok"}:
-            pub_type = 4
+        pub_type = 4
 
         account_platform_map = _get_account_platform_map(account_ids)
         for account_id in account_ids:
