@@ -81,8 +81,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.worker
-    deploy:
-      replicas: ${WORKER_REPLICAS:-1}
     working_dir: /app/backend
     restart: unless-stopped
     init: true
