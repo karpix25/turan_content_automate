@@ -474,7 +474,7 @@ async def handle_link(message: types.Message):
                 "inline_keyboard": [
                     [
                         {
-                            "text": "5 секунд (только посты)",
+                            "text": "Пост в → REELS",
                             "callback_data": f"five:igp:{instagram_shortcode_value}",
                             "style": "danger",
                         }
