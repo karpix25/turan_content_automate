@@ -9,12 +9,14 @@ from dotenv import load_dotenv
 
 from .database import SessionLocal
 from . import models
+from .integrations.llm import _format_social_description_paragraphs
 from .integrations.postmypost import PostMyPostClient
 from .publish_planner import get_min_publish_lead_delta, plan_next_publish_times
 from .telegram_progress import (
     send_publication_batch_report_message,
     update_task_status_message,
 )
+from .utils.task_utils import _should_publish_immediately
 from .utils.platform_utils import _get_account_platform_map
 from .worker import celery_app
 
@@ -155,7 +157,7 @@ def _get_instagram_post_5s_description(task: models.VideoTask) -> str:
 def _build_publication_content(account_description: str | None, task: models.VideoTask | None = None) -> str:
     template = (account_description or "").strip()
     if task and task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
-        base_description = _get_instagram_post_5s_description(task)
+        base_description = _format_social_description_paragraphs(_get_instagram_post_5s_description(task))
         return "\n\n".join(part for part in [base_description, template] if part)
     return template
 
@@ -180,6 +182,9 @@ def _normalize_post_at(value: datetime.datetime | None, force_now: bool) -> date
 
 
 def _resolve_publication_post_at(db, user: models.User, task: models.VideoTask, force_now: bool) -> datetime.datetime:
+    if _should_publish_immediately(task):
+        return datetime.datetime.now(datetime.timezone.utc)
+
     post_at = _normalize_post_at(task.publish_at, force_now)
     if (
         force_now

@@ -81,12 +81,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.worker
+    deploy:
+      replicas: ${WORKER_REPLICAS:-1}
     working_dir: /app/backend
     restart: unless-stopped
     init: true
     shm_size: "1gb"
     stop_grace_period: 120s
-    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=1 --prefetch-multiplier=1 --max-tasks-per-child=5 --soft-time-limit=21600 --time-limit=25200 -Ofair
+    command: celery -A app.worker.celery_app worker --loglevel=${CELERY_LOG_LEVEL:-info} --concurrency=${WORKER_CONCURRENCY:-1} --prefetch-multiplier=${WORKER_PREFETCH_MULTIPLIER:-1} --max-tasks-per-child=${WORKER_MAX_TASKS_PER_CHILD:-5} --soft-time-limit=${WORKER_SOFT_TIME_LIMIT:-21600} --time-limit=${WORKER_TIME_LIMIT:-25200} -Ofair
     volumes:
       - media_data:/app/database/media
     environment:

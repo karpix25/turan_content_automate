@@ -67,6 +67,7 @@ from .utils.task_utils import (
     _build_source_label,
     _upsert_processed_task,
     _resolve_publishing_status,
+    _should_publish_immediately,
 )
 from .utils.media_utils import (
     _estimate_script_minutes,
@@ -4882,13 +4883,22 @@ def process_content_task(self, task_id: int):
             for _clip_index, _video_path, _clip_title, _clip_context in source_items:
                 output_platforms.append(_normalize_platform_code(task.type))
                 output_group_keys.append(_clip_index)
-        publish_times = _plan_publish_times_for_outputs(
-            db=db,
-            user=user,
-            output_platforms=output_platforms,
-            manual_publish_at=None if process_all_clips else task.publish_at,
-            output_group_keys=output_group_keys,
-        )
+        if _should_publish_immediately(task):
+            publish_times = [None] * len(output_platforms)
+            logging.info(
+                "Task %s: immediate PostMyPost publication bypasses schedule limits for task_type=%s outputs=%s",
+                task_id,
+                task.type,
+                len(output_platforms),
+            )
+        else:
+            publish_times = _plan_publish_times_for_outputs(
+                db=db,
+                user=user,
+                output_platforms=output_platforms,
+                manual_publish_at=None if process_all_clips else task.publish_at,
+                output_group_keys=output_group_keys,
+            )
         should_sync_outputs = bool(target_account_ids) or task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES
         base_source = _get_base_source_label(task.source_url)
         if should_sync_outputs and output_platforms:

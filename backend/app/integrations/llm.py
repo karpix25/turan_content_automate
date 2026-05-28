@@ -7,6 +7,33 @@ from typing import Any, List, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+
+def _format_social_description_paragraphs(text: str | None, *, max_length: int = 900) -> str | None:
+    content = (text or "").strip()
+    if not content:
+        return None
+
+    content = re.sub(r"^[\"'«“]+|[\"'»”]+$", "", content)
+    content = re.sub(r"https?://\S+|www\.\S+", "", content)
+    content = re.sub(r"[#@]\S+", "", content)
+    content = re.sub(r"[ \t\r\f\v]+", " ", content)
+    content = re.sub(r"\n{3,}", "\n\n", content).strip()
+    if len(content) > max_length:
+        content = content[:max_length].rsplit(" ", 1)[0].strip()
+
+    paragraphs = [re.sub(r"\s+", " ", part).strip() for part in re.split(r"\n{2,}", content) if part.strip()]
+    if len(paragraphs) <= 1:
+        sentences = [item.strip() for item in re.split(r"(?<=[.!?…])\s+", content) if item.strip()]
+        if len(sentences) >= 3:
+            paragraphs = [sentences[0], " ".join(sentences[1:])]
+        elif len(sentences) == 2:
+            paragraphs = sentences
+        else:
+            paragraphs = [content]
+
+    return "\n\n".join(part for part in paragraphs if part).strip() or None
+
+
 class LLMClient:
     """
     Client for OpenRouter API to access Gemini 2.5 Pro and other models.
@@ -232,6 +259,7 @@ class LLMClient:
                     "- сохранить фактический смысл новости;\n"
                     "- убрать ссылки, хэштеги, упоминания, рекламу и CTA;\n"
                     "- не использовать эмодзи;\n"
+                    "- разделить текст на 2 коротких абзаца, если получается больше одного предложения;\n"
                     "- вернуть только финальное описание.\n\n"
                     f"Заголовок нашего ролика:\n{clean_title or 'нет'}\n\n"
                     f"Оригинальное описание Instagram:\n{clean_caption[:2500] or 'нет'}"
@@ -241,13 +269,7 @@ class LLMClient:
         description = self._complete(messages, temperature=0.45)
         if not description:
             return None
-        description = re.sub(r"^[\"'«“]+|[\"'»”]+$", "", description.strip())
-        description = re.sub(r"https?://\S+|www\.\S+", "", description)
-        description = re.sub(r"[#@]\S+", "", description)
-        description = re.sub(r"\s+", " ", description).strip()
-        if len(description) > 900:
-            description = description[:900].rsplit(" ", 1)[0].strip()
-        return description or None
+        return _format_social_description_paragraphs(description, max_length=900)
 
     @staticmethod
     def estimate_word_count(text: str | None) -> int:

@@ -3,6 +3,17 @@ from typing import List
 from .. import models
 from ..publish_planner import plan_next_publish_times
 
+IMMEDIATE_POSTMYPUBLISH_TASK_TYPES = {
+    "avatar_instagram_post_5s",
+    "instagram",
+    "youtube",
+}
+
+
+def _should_publish_immediately(task_or_type) -> bool:
+    task_type = getattr(task_or_type, "type", task_or_type)
+    return task_type in IMMEDIATE_POSTMYPUBLISH_TASK_TYPES
+
 
 def _plan_publish_times_for_outputs(
     db,
