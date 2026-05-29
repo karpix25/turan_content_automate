@@ -109,8 +109,19 @@ THUMBNAIL_GENERATION_LOCK_TTL_SECONDS = max(
     300,
     int(os.getenv("THUMBNAIL_GENERATION_LOCK_TTL_SECONDS", "7200")),
 )
+CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS = max(
+    PROCESS_TASK_HARD_LIMIT_SECONDS + 3600,
+    int(os.getenv("CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS", "28800")),
+)
 celery_app.conf.update(
     broker_connection_retry_on_startup=True,
+    broker_transport_options={
+        "visibility_timeout": CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS,
+    },
+    result_backend_transport_options={
+        "visibility_timeout": CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS,
+    },
+    visibility_timeout=CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS,
     task_track_started=True,
     worker_prefetch_multiplier=1,
     task_annotations={
@@ -4100,14 +4111,17 @@ def process_content_task(self, task_id: int):
                     reference_paths.append(resolved)
                 elif item.file_path:
                     reference_paths.append(item.file_path)
-            face_paths = [user.vertical_thumbnail_face_path] if user.vertical_thumbnail_face_path else []
+            active_infographic_face_path = user.vertical_thumbnail_face_path or user.thumbnail_face_path
+            face_paths = [active_infographic_face_path] if active_infographic_face_path else []
+            if not active_infographic_face_path:
+                logging.warning("Task %s: infographic image generation has no active face reference", task_id)
             max_refs = int(os.getenv("VERTICAL_THUMBNAIL_MAX_STYLE_REFERENCES", "4"))
 
             update_task_status_message(db, task, stage="Инфографика", detail="Генерирую финальную карточку в нашем стиле.")
             infographic_image_path = os.path.join(output_dir, f"infographic_reels_{task_id}.png")
             infographic_image = thumbnail_generator.generate_thumbnail(
                 prompt=card_payload["image_prompt"],
-                face_path=user.vertical_thumbnail_face_path,
+                face_path=active_infographic_face_path,
                 face_paths=face_paths,
                 reference_paths=reference_paths,
                 output_path=infographic_image_path,
@@ -4170,7 +4184,7 @@ def process_content_task(self, task_id: int):
                 "selected_audio_path": selected_audio_path,
                 "render": infographic_render_meta,
                 "used_reference_count": len(reference_paths[:max_refs]),
-                "face_path": user.vertical_thumbnail_face_path,
+                "face_path": active_infographic_face_path,
             }
             task.script_meta = current_meta
             db.commit()

@@ -9,6 +9,15 @@ load_dotenv()
 
 # Celery Client
 celery_client = Celery("api_client", broker=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+_celery_visibility_timeout = max(
+    int(os.getenv("WORKER_TIME_LIMIT", "25200")) + 3600,
+    int(os.getenv("CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS", "28800")),
+)
+celery_client.conf.update(
+    broker_transport_options={"visibility_timeout": _celery_visibility_timeout},
+    result_backend_transport_options={"visibility_timeout": _celery_visibility_timeout},
+    visibility_timeout=_celery_visibility_timeout,
+)
 
 # Integration Clients
 pmp_client = PostMyPostClient(api_key=os.getenv("POSTMYPOST_API_KEY", ""))
