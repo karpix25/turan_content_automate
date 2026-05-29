@@ -18,4 +18,6 @@ COPY . .
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 
+EXPOSE 8000
+
 # Command is specified in docker-compose

@@ -38,6 +38,8 @@ services:
     init: true
     stop_grace_period: 30s
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=* --workers 2 --timeout-keep-alive 30
+    expose:
+      - "8000"
     # No code volume in production! It overwrites the built image.
     volumes:
       - media_data:/app/database/media
@@ -172,6 +174,8 @@ services:
     restart: unless-stopped
     init: true
     stop_grace_period: 15s
+    expose:
+      - "80"
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
       interval: 10s
