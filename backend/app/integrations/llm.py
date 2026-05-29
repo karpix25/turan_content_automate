@@ -317,6 +317,8 @@ class LLMClient:
                     "- ниже один большой off-white/молочный блок с мягкими скруглениями и основным текстом;\n"
                     "- внизу отдельное off-white CTA-окно;\n"
                     "- CTA точный текст: «У меня про тендеры и бизнес» и «ПОДПИШИСЬ ↓»;\n"
+                    "- шрифт строго Montserrat / Montserrat-like geometric sans-serif: заголовок ExtraBold/Black, основной текст SemiBold, CTA ExtraBold;\n"
+                    "- не использовать serif, handwritten, condensed, decorative, Arial-like или Instagram UI fonts;\n"
                     "- добавить realistic cutout sticker автора: мужчина с темными волосами, густой темной бородой, выразительными бровями, "
                     "эмоция удивление/уверенность/вовлеченность, показывает пальцем на основной блок или CTA, 18-22% высоты кадра;\n"
                     "- автор не закрывает важный текст;\n"
@@ -370,7 +372,7 @@ class LLMClient:
             image_prompt = (
                 "Создай вертикальную Instagram/Reels инфографику 9:16 в минималистичном стиле. "
                 "Фон теплый желто-песочный #EAC86F, большой off-white блок, нижнее CTA-окно, "
-                "Montserrat, черный текст, realistic cutout sticker автора с темными волосами и густой бородой. "
+                "строго Montserrat / Montserrat-like geometric sans-serif, черный текст, realistic cutout sticker автора с темными волосами и густой бородой. "
                 f"Заголовок: {title}. Пункты: {'; '.join(items)}. Финальная мысль: {final_thought}. "
                 "CTA: «У меня про тендеры и бизнес» «ПОДПИШИСЬ ↓»."
             )
