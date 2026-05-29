@@ -1936,11 +1936,20 @@ def _run_hyperframes_pipeline(
                 render_quality,
             )
             render_quality = "high"
+        try:
+            render_workers = max(1, int((os.getenv("HYPERFRAMES_RENDER_WORKERS") or "1").strip() or "1"))
+        except ValueError:
+            logging.warning(
+                "Task %s: invalid HYPERFRAMES_RENDER_WORKERS=%r; using 1.",
+                task_id,
+                os.getenv("HYPERFRAMES_RENDER_WORKERS"),
+            )
+            render_workers = 1
         cmd = [
             "npm", "run", "render", "--",
             "--output", output_path,
             "--quality", render_quality,
-            "--workers", "1",
+            "--workers", str(render_workers),
             *(extra_args or []),
         ]
         logging.info("Task %s: %s: %s", task_id, label, " ".join(cmd))
