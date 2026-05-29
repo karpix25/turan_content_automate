@@ -22,6 +22,10 @@ class Downloader:
     def _pick_extension(self, resolved_url: str, content_type: str) -> str:
         content_type_main = (content_type or "").split(";", 1)[0].strip().lower()
         by_type = {
+            "image/jpeg": ".jpg",
+            "image/jpg": ".jpg",
+            "image/png": ".png",
+            "image/webp": ".webp",
             "video/mp4": ".mp4",
             "video/quicktime": ".mov",
             "video/webm": ".webm",
@@ -36,7 +40,7 @@ class Downloader:
 
         parsed = urlparse(resolved_url)
         ext = os.path.splitext(parsed.path)[1].lower()
-        if ext in {".mp4", ".mov", ".webm", ".mkv", ".mpeg", ".m4v", ".m4a", ".weba", ".mp3"}:
+        if ext in {".jpg", ".jpeg", ".png", ".webp", ".mp4", ".mov", ".webm", ".mkv", ".mpeg", ".m4v", ".m4a", ".weba", ".mp3"}:
             return ext
         return ".mp4"
 

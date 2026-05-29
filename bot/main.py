@@ -428,6 +428,13 @@ async def handle_link(message: types.Message):
                         "callback_data": f"avatar:yt:{video_id}",
                         "style": "success"
                     }
+                ],
+                [
+                    {
+                        "text": "🟨 Инфографика → REELS",
+                        "callback_data": f"info:yt:{video_id}",
+                        "style": "primary"
+                    }
                 ]
             ]
         }
@@ -448,6 +455,13 @@ async def handle_link(message: types.Message):
                             "text": "👤 ИИ аватар",
                             "callback_data": f"avatar:shorts:{video_id}",
                             "style": "success",
+                        }
+                    ],
+                    [
+                        {
+                            "text": "🟨 Инфографика → REELS",
+                            "callback_data": f"info:shorts:{video_id}",
+                            "style": "primary",
                         }
                     ],
                     [
@@ -477,6 +491,13 @@ async def handle_link(message: types.Message):
                             "text": "Пост в → REELS",
                             "callback_data": f"five:igp:{instagram_shortcode_value}",
                             "style": "danger",
+                        }
+                    ],
+                    [
+                        {
+                            "text": "🟨 Инфографика → REELS",
+                            "callback_data": f"info:igp:{instagram_shortcode_value}",
+                            "style": "primary",
                         }
                     ],
                     [
@@ -514,6 +535,13 @@ async def handle_link(message: types.Message):
                 ],
                 [
                     {
+                        "text": "🟨 Инфографика → REELS",
+                        "callback_data": f"info:ig:{instagram_shortcode_value}",
+                        "style": "primary",
+                    }
+                ],
+                [
+                    {
                         "text": "📌 Чужое видео + плашка",
                         "callback_data": f"publish:ig:{instagram_shortcode_value}",
                         "style": "primary",
@@ -535,19 +563,50 @@ async def handle_link(message: types.Message):
 
 
 
-@dp.callback_query_handler(lambda c: c.data and c.data.startswith(('vizard:', 'avatar:', 'publish:', 'five:')))
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith(('vizard:', 'avatar:', 'publish:', 'five:', 'info:')))
 async def process_choice(callback_query: types.CallbackQuery):
     data = callback_query.data
     parts = data.split(":")
     if len(parts) < 3:
         return
-    
+
     service, platform, identifier = parts[0], parts[1], parts[2]
     original_message_id = (
         callback_query.message.reply_to_message.message_id
         if callback_query.message and callback_query.message.reply_to_message
         else None
     )
+
+    if service == "info":
+        if platform == "igp":
+            url = f"https://www.instagram.com/p/{identifier}/"
+        elif platform == "ig":
+            url = f"https://www.instagram.com/reel/{identifier}/"
+        elif platform == "shorts":
+            url = f"https://www.youtube.com/shorts/{identifier}"
+        elif platform == "yt":
+            url = f"https://www.youtube.com/watch?v={identifier}"
+        else:
+            return
+        await callback_query.answer("Запускаю инфографику...")
+        status_message = await bot.send_message(
+            callback_query.message.chat.id,
+            "⏳ Выбрана инфографика → REELS\nЭтап: создаю задачу.",
+            reply_to_message_id=original_message_id,
+            allow_sending_without_reply=True,
+        )
+        await create_task_in_backend(
+            str(callback_query.from_user.id),
+            url,
+            "infographic_reels",
+            status_message,
+            reply_message_id=original_message_id,
+        )
+        try:
+            await callback_query.message.delete()
+        except Exception:
+            pass
+        return
 
     if service == "five":
         if platform != "igp":

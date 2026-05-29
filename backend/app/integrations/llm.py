@@ -271,6 +271,107 @@ class LLMClient:
             return None
         return _format_social_description_paragraphs(description, max_length=900)
 
+    def generate_infographic_reels_card(
+        self,
+        *,
+        image_url: str | None,
+        caption: str | None = None,
+        source_title: str | None = None,
+        style_profile: str | None = None,
+    ) -> Optional[Dict[str, Any]]:
+        clean_caption = re.sub(r"[ \t\r\f\v]+", " ", (caption or "")).strip()
+        clean_title = re.sub(r"\s+", " ", (source_title or "")).strip()
+        clean_image_url = (image_url or "").strip()
+        if not clean_caption and not clean_title and not clean_image_url:
+            return None
+
+        content: list[dict[str, Any]] = [
+            {
+                "type": "text",
+                "text": (
+                    "Сделай контент для вертикальной Instagram/Reels инфографики 9:16. "
+                    "Сначала прочитай текст на изображении/кадре. Затем используй caption/описание только как фактический контекст. "
+                    "Удали рекламу, ссылки, упоминания людей/аккаунтов, просьбы подписаться/лайкнуть/перейти, промо и водяные знаки. "
+                    "Не выдумывай факты. Перепиши смысл в деловом, резком, понятном стиле автора.\n\n"
+                    "Верни строго JSON без markdown с полями:\n"
+                    "{\n"
+                    '  "title": "крупный триггерный заголовок, 3-8 слов, caps не обязателен",\n'
+                    '  "items": ["3-7 коротких пунктов основного блока"],\n'
+                    '  "final_thought": "короткая финальная мысль или вывод",\n'
+                    '  "description": "описание публикации без рекламы и упоминаний, 2 коротких абзаца",\n'
+                    '  "image_prompt": "полный промт для генератора изображения"\n'
+                    "}\n\n"
+                    "image_prompt должен описывать готовую русскую карточку в таком стиле:\n"
+                    "- вертикальный кадр 9:16;\n"
+                    "- однотонный теплый желто-песочный фон #EAC86F / pale golden beige;\n"
+                    "- минималистичная дорогая бизнес-инфографика, без логотипов, градиентов, лишних цветов и декора;\n"
+                    "- вверху крупный черный заголовок Montserrat ExtraBold прямо на фоне;\n"
+                    "- ниже один большой off-white/молочный блок с мягкими скруглениями и основным текстом;\n"
+                    "- внизу отдельное off-white CTA-окно;\n"
+                    "- CTA точный текст: «У меня про тендеры и бизнес» и «ПОДПИШИСЬ ↓»;\n"
+                    "- добавить realistic cutout sticker автора: мужчина с темными волосами, густой темной бородой, выразительными бровями, "
+                    "эмоция удивление/уверенность/вовлеченность, показывает пальцем на основной блок или CTA, 18-22% высоты кадра;\n"
+                    "- автор не закрывает важный текст;\n"
+                    "- текст на русском, аккуратный, крупный, читаемый, не перегружать экран.\n\n"
+                    f"Профиль стиля автора:\n{(style_profile or 'деловой, жесткий, понятный, без воды')[:1500]}\n\n"
+                    f"Заголовок источника:\n{clean_title or 'нет'}\n\n"
+                    f"Caption/описание источника:\n{clean_caption[:2500] or 'нет'}"
+                ),
+            }
+        ]
+        if clean_image_url:
+            content.append({"type": "image_url", "image_url": {"url": clean_image_url}})
+
+        messages: list[dict[str, Any]] = [
+            {
+                "role": "system",
+                "content": (
+                    "Ты редактор бизнес-инфографики и умеешь читать текст на изображениях. "
+                    "Отвечай только валидным JSON."
+                ),
+            },
+            {"role": "user", "content": content},
+        ]
+        result = self._complete(messages, temperature=0.45)
+        if not result:
+            return None
+        try:
+            start = result.find("{")
+            end = result.rfind("}") + 1
+            payload = json.loads(result[start:end])
+        except Exception:
+            logger.warning("Failed to parse infographic reels JSON: %s", result[:500])
+            return None
+        if not isinstance(payload, dict):
+            return None
+
+        title = re.sub(r"\s+", " ", str(payload.get("title") or clean_title or "Главная мысль").strip())
+        raw_items = payload.get("items") or []
+        items = [
+            re.sub(r"\s+", " ", str(item).strip())
+            for item in raw_items
+            if str(item).strip()
+        ][:7]
+        final_thought = re.sub(r"\s+", " ", str(payload.get("final_thought") or "").strip())
+        description = _format_social_description_paragraphs(str(payload.get("description") or clean_caption or title), max_length=900)
+        image_prompt = str(payload.get("image_prompt") or "").strip()
+        if not image_prompt:
+            image_prompt = (
+                "Создай вертикальную Instagram/Reels инфографику 9:16 в минималистичном стиле. "
+                "Фон теплый желто-песочный #EAC86F, большой off-white блок, нижнее CTA-окно, "
+                "Montserrat, черный текст, realistic cutout sticker автора с темными волосами и густой бородой. "
+                f"Заголовок: {title}. Пункты: {'; '.join(items)}. Финальная мысль: {final_thought}. "
+                "CTA: «У меня про тендеры и бизнес» «ПОДПИШИСЬ ↓»."
+            )
+
+        return {
+            "title": title[:140],
+            "items": items,
+            "final_thought": final_thought[:220],
+            "description": description or title,
+            "image_prompt": image_prompt,
+        }
+
     @staticmethod
     def estimate_word_count(text: str | None) -> int:
         content = (text or "").strip()

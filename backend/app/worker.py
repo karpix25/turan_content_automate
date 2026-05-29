@@ -2,6 +2,7 @@ import os
 import asyncio
 import random
 import logging
+import json
 import re
 import shutil
 import datetime
@@ -572,6 +573,8 @@ rapidapi_yt = RapidAPIYoutubeClient(
 downloader = Downloader(output_dir=(os.getenv("OUTPUT_DIR") or "./output").strip())
 processor = VideoProcessor()
 INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES = {"avatar_instagram_post_5s"}
+INFOGRAPHIC_REELS_TASK_TYPES = {"infographic_reels"}
+READY_TO_PUBLISH_VIDEO_TASK_TYPES = {*INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES, *INFOGRAPHIC_REELS_TASK_TYPES}
 AVATAR_VERTICAL_TASK_TYPES = {"avatar_vertical", "avatar_instagram", "avatar_shorts", *INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES}
 AVATAR_HORIZONTAL_TASK_TYPES = {"avatar_horizontal", "avatar_youtube"}
 AVATAR_READY_HEYGEN_TASK_TYPES = {"avatar_heygen", *AVATAR_VERTICAL_TASK_TYPES, *AVATAR_HORIZONTAL_TASK_TYPES}
@@ -3574,6 +3577,125 @@ def process_content_task(self, task_id: int):
         meta["file"] = file_meta
         return output_path, meta
 
+    def _extract_frame_at_second(video_path: str, output_path: str, *, second: float = 1.0) -> tuple[str | None, dict]:
+        meta = {
+            "status": "skipped",
+            "video_path": video_path,
+            "output_path": output_path,
+            "second": second,
+            "reason": None,
+        }
+        if not video_path or not os.path.isfile(video_path):
+            meta["status"] = "failed"
+            meta["reason"] = "video_missing"
+            return None, meta
+        os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-ss",
+            f"{max(0.0, second):.3f}",
+            "-i",
+            video_path,
+            "-frames:v",
+            "1",
+            "-q:v",
+            "2",
+            output_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+        if result.returncode != 0 or not os.path.isfile(output_path):
+            meta["status"] = "failed"
+            meta["reason"] = f"ffmpeg_exit_{result.returncode}"
+            meta["stderr"] = (result.stderr or "")[-2000:]
+            return None, meta
+        meta["status"] = "ready"
+        return output_path, meta
+
+    def _render_five_second_image_video(
+        *,
+        image_path: str,
+        output_path: str,
+        audio_path: str | None = None,
+        duration_seconds: float = 5.0,
+    ) -> tuple[str | None, dict]:
+        meta = {
+            "status": "skipped",
+            "image_path": image_path,
+            "audio_path": audio_path if audio_path and os.path.isfile(audio_path) else None,
+            "output_path": output_path,
+            "duration_seconds": duration_seconds,
+            "reason": None,
+        }
+        if not image_path or not os.path.isfile(image_path):
+            meta["status"] = "failed"
+            meta["reason"] = "image_missing"
+            return None, meta
+        os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+        temp_path = f"{output_path}.tmp.mp4"
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-loop",
+            "1",
+            "-t",
+            f"{duration_seconds:.3f}",
+            "-i",
+            image_path,
+        ]
+        if meta["audio_path"]:
+            cmd.extend(["-stream_loop", "-1", "-i", meta["audio_path"]])
+        else:
+            cmd.extend(["-f", "lavfi", "-t", f"{duration_seconds:.3f}", "-i", "anullsrc=r=48000:cl=stereo"])
+        cmd.extend([
+            "-t",
+            f"{duration_seconds:.3f}",
+            "-filter_complex",
+            "[0:v:0]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1[v]",
+            "-map",
+            "[v]",
+            "-map",
+            "1:a:0",
+            "-r",
+            "30",
+            "-c:v",
+            "libx264",
+            "-preset",
+            os.getenv("FFMPEG_X264_PRESET", "veryfast"),
+            "-crf",
+            os.getenv("FFMPEG_X264_CRF", "18"),
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-shortest",
+            "-movflags",
+            "+faststart",
+            temp_path,
+        ])
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=240)
+        if result.returncode != 0 or not os.path.isfile(temp_path):
+            meta["status"] = "failed"
+            meta["reason"] = f"ffmpeg_exit_{result.returncode}"
+            meta["stderr"] = (result.stderr or "")[-3000:]
+            return None, meta
+        os.replace(temp_path, output_path)
+        file_meta = _probe_video_file_meta(
+            output_path,
+            min_size_bytes=24 * 1024,
+            min_duration_seconds=max(0.5, duration_seconds - 1.0),
+        )
+        if not file_meta.get("valid"):
+            meta["status"] = "failed"
+            meta["reason"] = "output_invalid"
+            meta["file"] = file_meta
+            return None, meta
+        meta["status"] = "ready"
+        meta["file"] = file_meta
+        return output_path, meta
+
     try:
         source_url_raw = (task.source_url or "").strip()
         if not source_url_raw:
@@ -3877,6 +3999,176 @@ def process_content_task(self, task_id: int):
             input_videos.append(local_avatar_video)
             input_video_titles.append(task.source_title or f"Avatar Video {task_id}")
             input_video_contexts.append(thumbnail_script or task.source_title or f"Avatar Video {task_id}")
+
+        elif task.type in INFOGRAPHIC_REELS_TASK_TYPES:
+            update_task_status_message(db, task, stage="Инфографика", detail="Получаю исходный кадр и описание.")
+            output_dir = os.getenv("OUTPUT_DIR", "./output").strip()
+            os.makedirs(output_dir, exist_ok=True)
+            caption = ""
+            creator = ""
+            source_title = (task.source_title or "").strip()
+            source_frame_path = None
+            source_media_path = None
+            source_direct_image_url = None
+            source_kind = "unknown"
+            details = None
+
+            if "instagram.com" in source_url:
+                details = scraper.get_instagram_details(source_url)
+                caption = ((details or {}).get("caption") or "").strip()
+                creator = ((details or {}).get("creator") or "").strip()
+                image_urls = [
+                    url for url in ((details or {}).get("image_urls") or [])
+                    if isinstance(url, str) and url.startswith(("http://", "https://"))
+                ]
+                if image_urls:
+                    source_kind = "instagram_image"
+                    source_direct_image_url = image_urls[0]
+                    source_frame_path = downloader.download_media(image_urls[0], f"infographic_source_{task_id}")
+                else:
+                    download_url = _normalize_external_url(((details or {}).get("download_url") or "").strip())
+                    if not download_url:
+                        raise Exception("Failed to retrieve image or video URL for infographic format")
+                    source_kind = "instagram_video"
+                    source_media_path = downloader.download_video(download_url, f"infographic_source_video_{task_id}")
+                    frame_output = os.path.join(output_dir, f"infographic_frame_{task_id}.jpg")
+                    source_frame_path, frame_meta = _extract_frame_at_second(source_media_path, frame_output, second=1.0)
+                    if not source_frame_path:
+                        raise Exception(f"Failed to extract infographic source frame: {frame_meta.get('reason')}")
+                if not source_title:
+                    source_title = f"Instagram @{creator}" if creator else "Instagram"
+            elif "youtube.com" in source_url or "youtu.be" in source_url:
+                details = scraper.get_youtube_details(source_url)
+                source_title = source_title or ((details or {}).get("title") or "").strip()
+                transcript_value = (
+                    ((details or {}).get("transcript_only_text") or "")
+                    or ((details or {}).get("transcript") or "")
+                    or source_title
+                )
+                caption = re.sub(r"\s+", " ", transcript_value if isinstance(transcript_value, str) else json.dumps(transcript_value, ensure_ascii=False)).strip()
+                download_url = _normalize_external_url(((details or {}).get("download_url") or "").strip())
+                if not download_url:
+                    raise Exception("Failed to retrieve YouTube video URL for infographic format")
+                source_kind = "youtube_video"
+                source_media_path = downloader.download_video(download_url, f"infographic_source_video_{task_id}")
+                frame_output = os.path.join(output_dir, f"infographic_frame_{task_id}.jpg")
+                source_frame_path, frame_meta = _extract_frame_at_second(source_media_path, frame_output, second=1.0)
+                if not source_frame_path:
+                    raise Exception(f"Failed to extract infographic source frame: {frame_meta.get('reason')}")
+            else:
+                raise Exception("Infographic format supports Instagram posts/reels and YouTube Shorts")
+
+            if not source_frame_path or not os.path.isfile(source_frame_path):
+                raise Exception("Infographic source frame was not created")
+
+            public_frame_url = None
+            try:
+                public_frame_url = thumbnail_generator._ensure_public_url(source_frame_path, prefix=f"infographic_frame_{task_id}")
+            except Exception as public_url_error:
+                logging.warning("Task %s: failed to make infographic frame public: %s", task_id, public_url_error)
+            public_frame_url = public_frame_url or source_direct_image_url
+
+            update_task_status_message(db, task, stage="Инфографика", detail="Читаю текст на кадре и собираю карточку.")
+            card_payload = llm.generate_infographic_reels_card(
+                image_url=public_frame_url,
+                caption=caption,
+                source_title=source_title,
+                style_profile=user.author_style_profile,
+            )
+            if not card_payload:
+                raise Exception("Failed to generate infographic card payload")
+
+            references = (
+                db.query(models.ThumbnailReference)
+                .filter(models.ThumbnailReference.user_id == user.id, models.ThumbnailReference.kind.in_(["vertical", "both"]))
+                .order_by(models.ThumbnailReference.created_at.desc(), models.ThumbnailReference.id.desc())
+                .all()
+            )
+            reference_paths = []
+            for item in references:
+                resolved = _resolve_media_file_path(item.file_path, media_kind="thumbnails")
+                if resolved:
+                    reference_paths.append(resolved)
+                elif item.file_path:
+                    reference_paths.append(item.file_path)
+            face_paths = [user.vertical_thumbnail_face_path] if user.vertical_thumbnail_face_path else []
+            max_refs = int(os.getenv("VERTICAL_THUMBNAIL_MAX_STYLE_REFERENCES", "4"))
+
+            update_task_status_message(db, task, stage="Инфографика", detail="Генерирую финальную карточку в нашем стиле.")
+            infographic_image_path = os.path.join(output_dir, f"infographic_reels_{task_id}.png")
+            infographic_image = thumbnail_generator.generate_thumbnail(
+                prompt=card_payload["image_prompt"],
+                face_path=user.vertical_thumbnail_face_path,
+                face_paths=face_paths,
+                reference_paths=reference_paths,
+                output_path=infographic_image_path,
+                aspect_ratio="9:16",
+                resolution="1K",
+                max_style_references=max_refs,
+            )
+            if not infographic_image:
+                raise Exception("Failed to generate infographic image")
+
+            audio_tracks = (
+                db.query(models.InstagramPost5sAudioTrack)
+                .filter(models.InstagramPost5sAudioTrack.user_id == user.id)
+                .all()
+            )
+            usable_audio_tracks = [
+                track for track in audio_tracks
+                if track.file_path and os.path.isfile(track.file_path)
+            ]
+            selected_audio_track = random.choice(usable_audio_tracks) if usable_audio_tracks else None
+            selected_audio_path = selected_audio_track.file_path if selected_audio_track else None
+
+            update_task_status_message(db, task, stage="Монтаж", detail="Собираю 5-секундную инфографику с музыкой.")
+            infographic_video_path = os.path.join(output_dir, f"infographic_reels_{task_id}.mp4")
+            final_infographic_video, infographic_render_meta = _render_five_second_image_video(
+                image_path=infographic_image,
+                output_path=infographic_video_path,
+                audio_path=selected_audio_path,
+                duration_seconds=5.0,
+            )
+            if not final_infographic_video:
+                raise Exception(
+                    "Failed to render infographic video: "
+                    f"{infographic_render_meta.get('reason')} file={infographic_render_meta.get('file')}"
+                )
+
+            description_txt_path = _write_publication_description_file(
+                task_id,
+                card_payload.get("description") or card_payload.get("title") or "",
+                prefix="infographic_reels_description",
+            )
+            final_title = _clean_plate_title(card_payload.get("title"), fallback=source_title or "Инфографика")
+            task.source_title = final_title
+            task.script_text = card_payload.get("description") or final_title
+            current_meta = dict(task.script_meta or {})
+            current_meta["infographic_reels"] = {
+                "status": "ready",
+                "source_kind": source_kind,
+                "source_media_path": source_media_path,
+                "source_frame_path": source_frame_path,
+                "source_direct_image_url": source_direct_image_url,
+                "public_frame_url": public_frame_url,
+                "source_title": source_title,
+                "caption": caption,
+                "creator": creator,
+                "card": card_payload,
+                "description_txt_path": description_txt_path,
+                "image_path": infographic_image,
+                "selected_audio_track_id": selected_audio_track.id if selected_audio_track else None,
+                "selected_audio_path": selected_audio_path,
+                "render": infographic_render_meta,
+                "used_reference_count": len(reference_paths[:max_refs]),
+                "face_path": user.vertical_thumbnail_face_path,
+            }
+            task.script_meta = current_meta
+            db.commit()
+
+            input_videos.append(final_infographic_video)
+            input_video_titles.append(final_title)
+            input_video_contexts.append(card_payload.get("description") or final_title)
 
         elif task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
             update_task_status_message(db, task, stage="Instagram Post", detail="Получаю картинку и подпись поста.")
@@ -4829,7 +5121,7 @@ def process_content_task(self, task_id: int):
         subtitles_enabled = False
         ass_path = None
         target_account_ids = [] if task.type == "local_upload" else _get_target_account_ids(db, user.id)
-        if task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
+        if task.type in READY_TO_PUBLISH_VIDEO_TASK_TYPES:
             if not target_account_ids:
                 raise Exception(
                     "No PostMyPost accounts configured/enabled for this user. "
@@ -4899,7 +5191,7 @@ def process_content_task(self, task_id: int):
                 manual_publish_at=None if process_all_clips else task.publish_at,
                 output_group_keys=output_group_keys,
             )
-        should_sync_outputs = bool(target_account_ids) or task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES
+        should_sync_outputs = bool(target_account_ids) or task.type in READY_TO_PUBLISH_VIDEO_TASK_TYPES
         base_source = _get_base_source_label(task.source_url)
         if should_sync_outputs and output_platforms:
             current_meta = dict(task.script_meta or {})
@@ -5016,9 +5308,9 @@ def process_content_task(self, task_id: int):
                     )
                     account_output = f"{video_root}_final_s{slot_idx}_a{account_id}.mp4"
 
-                    if task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
+                    if task.type in READY_TO_PUBLISH_VIDEO_TASK_TYPES:
                         logging.info(
-                            "Task %s: clip=%s account=%s platform=%s slot=%s using 5s post output (no extra plate/CTA overlay)",
+                            "Task %s: clip=%s account=%s platform=%s slot=%s using ready-to-publish output (no extra plate/CTA overlay)",
                             task_id,
                             clip_index,
                             account_id,
@@ -5147,6 +5439,24 @@ def process_content_task(self, task_id: int):
                     _sync_rendered_output_now(rendered_output)
             else:
                 base_output = f"{video_root}_final.mp4"
+                if task.type in READY_TO_PUBLISH_VIDEO_TASK_TYPES:
+                    shutil.copy2(video_path, base_output)
+                    publish_at = publish_times[publish_index] if len(publish_times) > publish_index else None
+                    publish_index += 1
+                    rendered_outputs.append(
+                        {
+                            "output_path": base_output,
+                            "publish_at": publish_at,
+                            "target_account_id": None,
+                            "target_platform": "instagram",
+                            "source_title": clip_title,
+                            "source_label": _build_source_label(
+                                base_source,
+                                clip_index=clip_index if process_all_clips else None,
+                            ),
+                        }
+                    )
+                    continue
                 if task.type in AVATAR_TASK_TYPES:
                     shutil.copy2(video_path, base_output)
                     rendered_outputs.append(

@@ -33,6 +33,7 @@ AVATAR_TASK_TYPES = {
     "avatar_shorts",
 }
 INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES = {"avatar_instagram_post_5s"}
+INFOGRAPHIC_REELS_TASK_TYPES = {"infographic_reels"}
 pmp_client = PostMyPostClient(api_key=os.getenv("POSTMYPOST_API_KEY", ""))
 
 PMP_PENDING_PUBLICATION_STATUS = 5
@@ -154,10 +155,28 @@ def _get_instagram_post_5s_description(task: models.VideoTask) -> str:
     ).strip()
 
 
+def _get_infographic_reels_description(task: models.VideoTask) -> str:
+    try:
+        info_meta = dict((task.script_meta or {}).get("infographic_reels") or {})
+        card = dict(info_meta.get("card") or {})
+    except Exception:
+        info_meta = {}
+        card = {}
+    return (
+        (card.get("description") or "")
+        or (task.script_text or "")
+        or (card.get("title") or "")
+        or (task.source_title or "")
+    ).strip()
+
+
 def _build_publication_content(account_description: str | None, task: models.VideoTask | None = None) -> str:
     template = (account_description or "").strip()
     if task and task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
         base_description = _format_social_description_paragraphs(_get_instagram_post_5s_description(task))
+        return "\n\n".join(part for part in [base_description, template] if part)
+    if task and task.type in INFOGRAPHIC_REELS_TASK_TYPES:
+        base_description = _format_social_description_paragraphs(_get_infographic_reels_description(task))
         return "\n\n".join(part for part in [base_description, template] if part)
     return template
 
