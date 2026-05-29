@@ -431,7 +431,7 @@ async def handle_link(message: types.Message):
                 ],
                 [
                     {
-                        "text": "🟨 Инфографика → REELS",
+                        "text": "📌 Золотой фон (5 сек.)",
                         "callback_data": f"info:yt:{video_id}",
                         "style": "primary"
                     }
@@ -459,7 +459,7 @@ async def handle_link(message: types.Message):
                     ],
                     [
                         {
-                            "text": "🟨 Инфографика → REELS",
+                            "text": "📌 Золотой фон (5 сек.)",
                             "callback_data": f"info:shorts:{video_id}",
                             "style": "primary",
                         }
@@ -495,7 +495,7 @@ async def handle_link(message: types.Message):
                     ],
                     [
                         {
-                            "text": "🟨 Инфографика → REELS",
+                            "text": "📌 Золотой фон (5 сек.)",
                             "callback_data": f"info:igp:{instagram_shortcode_value}",
                             "style": "primary",
                         }
@@ -535,7 +535,7 @@ async def handle_link(message: types.Message):
                 ],
                 [
                     {
-                        "text": "🟨 Инфографика → REELS",
+                        "text": "📌 Золотой фон (5 сек.)",
                         "callback_data": f"info:ig:{instagram_shortcode_value}",
                         "style": "primary",
                     }
