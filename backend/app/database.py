@@ -79,6 +79,7 @@ def init_database() -> None:
         add_column_if_missing("users", "instagram_post_5s_audio_error", "TEXT")
         add_column_if_missing("users", "instagram_post_5s_audio_refreshed_at", "TIMESTAMP WITHOUT TIME ZONE")
         add_column_if_missing("users", "instagram_post_5s_overlay_path", "TEXT")
+        add_column_if_missing("users", "instagram_post_5s_cta_text", "TEXT")
         conn.execute(
             text("UPDATE users SET auto_schedule_enabled = FALSE WHERE auto_schedule_enabled IS NULL")
         )

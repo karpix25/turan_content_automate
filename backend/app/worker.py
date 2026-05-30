@@ -3392,6 +3392,7 @@ def process_content_task(self, task_id: int):
         output_path: str,
         audio_path: str | None = None,
         overlay_path: str | None = None,
+        cta_text: str | None = None,
         duration_seconds: float = 5.0,
     ) -> tuple[str | None, dict]:
         output_dir = os.path.dirname(output_path) or "."
@@ -3465,6 +3466,53 @@ def process_content_task(self, task_id: int):
                 x = int((1080 - text_width) / 2)
                 y = int(first_line_y + index * line_gap - text_height / 2)
                 draw.text((x, y), text, font=font, fill=(43, 47, 51, 255))
+
+            clean_cta_text = " ".join((cta_text or "").split())
+            if clean_cta_text:
+                cta_lines = _wrap_plate_title(clean_cta_text[:180], max_chars=24)
+                cta_font = None
+                cta_font_size = 48
+                cta_line_gap = 58
+                cta_max_width = 900
+                cta_max_height = 210
+                for candidate_size in range(48, 27, -2):
+                    candidate_font = ImageFont.truetype(selected_font_path, candidate_size)
+                    candidate_gap = max(int(candidate_size * 1.16), candidate_size + 7)
+                    too_wide = False
+                    for line in cta_lines:
+                        bbox = draw.textbbox((0, 0), line, font=candidate_font)
+                        if (bbox[2] - bbox[0]) > cta_max_width:
+                            too_wide = True
+                            break
+                    total_height = (len(cta_lines) - 1) * candidate_gap + candidate_size
+                    if not too_wide and total_height <= cta_max_height:
+                        cta_font = candidate_font
+                        cta_font_size = candidate_size
+                        cta_line_gap = candidate_gap
+                        break
+                if cta_font is None:
+                    cta_font_size = 28
+                    cta_font = ImageFont.truetype(selected_font_path, cta_font_size)
+                    cta_line_gap = 35
+
+                cta_text_height = (len(cta_lines) - 1) * cta_line_gap + cta_font_size
+                cta_box_height = max(128, min(270, cta_text_height + 58))
+                cta_y2 = 1854
+                cta_y1 = int(cta_y2 - cta_box_height)
+                draw.rounded_rectangle(
+                    (70, cta_y1, 1010, cta_y2),
+                    radius=34,
+                    fill=(255, 255, 255, 242),
+                )
+                cta_center_y = (cta_y1 + cta_y2) / 2
+                cta_first_y = cta_center_y - ((len(cta_lines) - 1) * cta_line_gap / 2)
+                for index, line in enumerate(cta_lines):
+                    bbox = draw.textbbox((0, 0), line, font=cta_font)
+                    text_width = bbox[2] - bbox[0]
+                    text_height = bbox[3] - bbox[1]
+                    x = int((1080 - text_width) / 2)
+                    y = int(cta_first_y + index * cta_line_gap - text_height / 2)
+                    draw.text((x, y), line, font=cta_font, fill=(31, 41, 55, 255))
             plate.save(plate_png_path)
         except Exception as plate_error:
             logging.exception("Task %s: failed to render 5s title plate PNG: %s", task_id, plate_error)
@@ -3555,6 +3603,7 @@ def process_content_task(self, task_id: int):
             "status": "skipped",
             "image_path": image_path,
             "title": title,
+            "cta_text": " ".join((cta_text or "").split()) or None,
             "audio_path": use_audio_path,
             "overlay_path": use_overlay_path,
             "overlay_start_seconds": 2.0 if use_overlay_path else None,
@@ -4310,6 +4359,7 @@ def process_content_task(self, task_id: int):
                 if user.instagram_post_5s_overlay_path and os.path.isfile(user.instagram_post_5s_overlay_path)
                 else None
             )
+            five_second_cta_text = " ".join((getattr(user, "instagram_post_5s_cta_text", None) or "").split()) or None
 
             update_task_status_message(db, task, stage="Монтаж", detail="Собираю 5-секундное видео с плашкой.")
             five_second_output = os.path.join(output_dir, f"instagram_post_5s_{task_id}.mp4")
@@ -4319,6 +4369,7 @@ def process_content_task(self, task_id: int):
                 output_path=five_second_output,
                 audio_path=selected_audio_path,
                 overlay_path=overlay_path,
+                cta_text=five_second_cta_text,
                 duration_seconds=5.0,
             )
             if not final_post_video:
@@ -4341,6 +4392,7 @@ def process_content_task(self, task_id: int):
                 "selected_audio_track_id": selected_audio_track.id if selected_audio_track else None,
                 "selected_audio_path": selected_audio_path,
                 "overlay_path": overlay_path,
+                "cta_text": five_second_cta_text,
                 "creator": creator,
                 "render": five_second_meta,
             }

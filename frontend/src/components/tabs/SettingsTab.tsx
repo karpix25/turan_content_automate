@@ -71,6 +71,7 @@ export const SettingsTab: React.FC = () => {
   const [avatarScriptDurationMinutes, setAvatarScriptDurationMinutes] = useState<number>(5);
   const [avatarVerticalDurationSeconds, setAvatarVerticalDurationSeconds] = useState<number>(0);
   const [fiveSecondSettings, setFiveSecondSettings] = useState<InstagramPost5sSettings | null>(null);
+  const [fiveSecondCtaText, setFiveSecondCtaText] = useState<string>('');
   const [uploadingFiveSecondAudio, setUploadingFiveSecondAudio] = useState(false);
   const [deletingFiveSecondAudioId, setDeletingFiveSecondAudioId] = useState<number | null>(null);
   const [uploadingFiveSecondOverlay, setUploadingFiveSecondOverlay] = useState(false);
@@ -82,6 +83,7 @@ export const SettingsTab: React.FC = () => {
     try {
       const data = await apiClient.getInstagramPost5sSettings(telegramId);
       setFiveSecondSettings(data);
+      setFiveSecondCtaText(data.cta_text || '');
     } catch (error) {
     }
   };
@@ -107,6 +109,7 @@ export const SettingsTab: React.FC = () => {
         setAvatarInsertEndPercent(data.avatar_insert_end_percent ?? 95);
         setAvatarInsertClipsCount(data.avatar_insert_clips_count ?? 2);
         setYoutubeDescriptionTemplate(data.youtube_description_template || '');
+        setFiveSecondCtaText(data.instagram_post_5s_cta_text || '');
       } catch (error) {
       } finally {
         setLoadingStyle(false);
@@ -245,6 +248,7 @@ export const SettingsTab: React.FC = () => {
         avatar_script_duration_minutes: avatarScriptDurationMinutes,
         avatar_vertical_duration_seconds: avatarVerticalDurationSeconds,
         youtube_description_template: youtubeDescriptionTemplate,
+        instagram_post_5s_cta_text: fiveSecondCtaText,
       });
       setSavedSettings(true);
       setTimeout(() => setSavedSettings(false), 2000);
@@ -642,7 +646,24 @@ export const SettingsTab: React.FC = () => {
         </div>
         </summary>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+        <div className="mt-3 bg-slate-50 rounded-xl p-3 border border-slate-100">
+          <label className="text-xs font-bold text-[#707579] uppercase tracking-wider mb-2 block">
+            CTA в нижнем белом фрейме
+          </label>
+          <input
+            value={fiveSecondCtaText}
+            onChange={(e) => setFiveSecondCtaText(e.target.value.slice(0, 180))}
+            maxLength={180}
+            placeholder="Например: Подпишись, чтобы не пропустить главное"
+            className="w-full h-11 px-3 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[#24a1de]"
+          />
+          <div className="mt-1 flex items-center justify-between gap-2">
+            <p className="text-[11px] text-slate-400">Появится в нижней белой плашке при рендере 5 секунд.</p>
+            <span className="text-[10px] text-slate-400 tabular-nums">{fiveSecondCtaText.length}/180</span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
           <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
             <div className="flex items-center justify-between mb-3">
               <label className="text-xs font-bold text-[#707579] uppercase tracking-wider">Аудиобиблиотека</label>

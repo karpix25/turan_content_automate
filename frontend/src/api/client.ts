@@ -45,6 +45,7 @@ export const apiClient = {
       reels_broll_clips_count: number;
       reels_broll_coverage_percent: number;
       youtube_description_template: string | null;
+      instagram_post_5s_cta_text: string | null;
     }>(`${API_BASE}/settings/style/${telegramId}`);
     return res.data;
   },

@@ -79,6 +79,7 @@ def _instagram_post_5s_settings_response(user: models.User, db: Session) -> sche
         audio_error=user.instagram_post_5s_audio_error,
         audio_refreshed_at=user.instagram_post_5s_audio_refreshed_at,
         overlay_path=user.instagram_post_5s_overlay_path,
+        cta_text=getattr(user, "instagram_post_5s_cta_text", None),
         audio_tracks=tracks,
     )
 

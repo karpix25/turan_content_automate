@@ -35,6 +35,7 @@ export type UserSettings = {
   instagram_post_5s_audio_error?: string | null;
   instagram_post_5s_audio_refreshed_at?: string | null;
   instagram_post_5s_overlay_path?: string | null;
+  instagram_post_5s_cta_text?: string | null;
 };
 
 export type VideoTaskItem = {
@@ -121,6 +122,7 @@ export type InstagramPost5sSettings = {
   audio_error?: string | null;
   audio_refreshed_at?: string | null;
   overlay_path?: string | null;
+  cta_text?: string | null;
   audio_tracks: InstagramPost5sAudioTrack[];
 };
 
