@@ -117,6 +117,8 @@ def normalize_source_url(value: str, task_type: str | None = None) -> str:
         raise HTTPException(status_code=400, detail="source_url is empty")
     
     t_type = (task_type or "").strip().lower()
+    if url.startswith("notebooklm-script://"):
+        return url
     if t_type in {"avatar_heygen", "avatar_horizontal", "avatar_vertical", "avatar_youtube"}:
         # Allow reusing already generated HeyGen videos by id without forcing URL normalization.
         # Supported forms:
