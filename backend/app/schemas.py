@@ -51,9 +51,6 @@ class VideoTaskCreate(BaseModel):
     source_url: str
     type: str
     source_title: Optional[str] = None
-    factual_outline: Optional[str] = None
-    script_text: Optional[str] = None
-    script_meta: Optional[dict] = None
     publish_at: Optional[datetime.datetime] = None
     telegram_chat_id: Optional[str] = None
     telegram_status_message_id: Optional[str] = None

@@ -3769,30 +3769,8 @@ def process_content_task(self, task_id: int):
         source_url_raw = (task.source_url or "").strip()
         if not source_url_raw:
             raise Exception("Source URL is empty")
-        task_script_meta = dict(task.script_meta or {})
-        text_source_script = (task.script_text or "").strip()
-        is_notebooklm_text_source = bool(
-            text_source_script and source_url_raw.startswith("notebooklm-script://")
-        )
-        if is_notebooklm_text_source:
-            task_script_meta["text_source"] = {
-                **dict(task_script_meta.get("text_source") or {}),
-                "source": "notebooklm",
-                "source_url": source_url_raw,
-                "script_char_count": count_script_chars(text_source_script),
-            }
-            task.script_meta = task_script_meta
-            db.commit()
 
-        if is_notebooklm_text_source:
-            source_url = source_url_raw
-            update_task_status_message(
-                db,
-                task,
-                stage="NotebookLM",
-                detail="Использую одобренный текст сценария как источник.",
-            )
-        elif task.type == "local_upload":
+        if task.type == "local_upload":
             local_input = _resolve_local_input_video_path(source_url_raw)
             if not local_input:
                 raise Exception("Uploaded local video file was not found on disk")
@@ -4092,10 +4070,10 @@ def process_content_task(self, task_id: int):
             input_video_contexts.append(thumbnail_script or task.source_title or f"Avatar Video {task_id}")
 
         elif task.type in INFOGRAPHIC_REELS_TASK_TYPES:
-            update_task_status_message(db, task, stage="Инфографика", detail="Готовлю источник для карточки.")
+            update_task_status_message(db, task, stage="Инфографика", detail="Получаю исходный кадр и описание.")
             output_dir = os.getenv("OUTPUT_DIR", "./output").strip()
             os.makedirs(output_dir, exist_ok=True)
-            caption = text_source_script if is_notebooklm_text_source else ""
+            caption = ""
             creator = ""
             source_title = (task.source_title or "").strip()
             source_frame_path = None
@@ -4104,10 +4082,7 @@ def process_content_task(self, task_id: int):
             source_kind = "unknown"
             details = None
 
-            if is_notebooklm_text_source:
-                source_kind = "notebooklm_script"
-                source_title = source_title or "NotebookLM сценарий"
-            elif "instagram.com" in source_url:
+            if "instagram.com" in source_url:
                 details = scraper.get_instagram_details(source_url)
                 caption = ((details or {}).get("caption") or "").strip()
                 creator = ((details or {}).get("creator") or "").strip()
@@ -4152,26 +4127,23 @@ def process_content_task(self, task_id: int):
             else:
                 raise Exception("Infographic format supports Instagram posts/reels and YouTube Shorts")
 
-            if not is_notebooklm_text_source and (not source_frame_path or not os.path.isfile(source_frame_path)):
+            if not source_frame_path or not os.path.isfile(source_frame_path):
                 raise Exception("Infographic source frame was not created")
 
             public_frame_url = None
-            if source_frame_path:
-                try:
-                    public_frame_url = thumbnail_generator._ensure_public_url(source_frame_path, prefix=f"infographic_frame_{task_id}")
-                except Exception as public_url_error:
-                    logging.warning("Task %s: failed to make infographic frame public: %s", task_id, public_url_error)
-                public_frame_url = public_frame_url or source_direct_image_url
+            try:
+                public_frame_url = thumbnail_generator._ensure_public_url(source_frame_path, prefix=f"infographic_frame_{task_id}")
+            except Exception as public_url_error:
+                logging.warning("Task %s: failed to make infographic frame public: %s", task_id, public_url_error)
+            public_frame_url = public_frame_url or source_direct_image_url
 
-            update_task_status_message(db, task, stage="Инфографика", detail="Собираю карточку из текста сценария." if is_notebooklm_text_source else "Читаю текст на кадре и собираю карточку.")
-            card_payload = dict(((task.script_meta or {}).get("infographic_reels") or {}).get("card") or {})
-            if not card_payload:
-                card_payload = llm.generate_infographic_reels_card(
-                    image_url=public_frame_url,
-                    caption=caption,
-                    source_title=source_title,
-                    style_profile=user.author_style_profile,
-                )
+            update_task_status_message(db, task, stage="Инфографика", detail="Читаю текст на кадре и собираю карточку.")
+            card_payload = llm.generate_infographic_reels_card(
+                image_url=public_frame_url,
+                caption=caption,
+                source_title=source_title,
+                style_profile=user.author_style_profile,
+            )
             if not card_payload:
                 raise Exception("Failed to generate infographic card payload")
 
@@ -4272,155 +4244,104 @@ def process_content_task(self, task_id: int):
 
         elif task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
             update_task_status_message(db, task, stage="Instagram Post", detail="Получаю картинку и подпись поста.")
+            details = scraper.get_instagram_details(source_url)
+            caption = ((details or {}).get("caption") or "").strip()
+            creator = ((details or {}).get("creator") or "").strip()
+            image_urls = [
+                url for url in ((details or {}).get("image_urls") or [])
+                if isinstance(url, str) and url.startswith(("http://", "https://"))
+            ]
+            if not image_urls:
+                raise Exception("Failed to retrieve image URL for Instagram post 5s format")
+
             output_dir = os.getenv("OUTPUT_DIR", "./output").strip()
             os.makedirs(output_dir, exist_ok=True)
-            source_image_url = None
+            source_image_url = image_urls[0]
+            update_task_status_message(db, task, stage="Instagram Post", detail="Скачиваю изображение поста.")
+            local_post_image = downloader.download_media(source_image_url, f"instagram_post_{task_id}")
+            if not local_post_image:
+                raise Exception("Failed to download Instagram post image")
+
             public_image_url = None
-            local_post_image = None
-            creator = ""
-            if is_notebooklm_text_source:
-                caption = text_source_script
-                text_source_meta = dict((task.script_meta or {}).get("instagram_post_5s") or {})
-                rewritten_title = (
-                    text_source_meta.get("title")
-                    or ((task.script_meta or {}).get("trigger") if isinstance(task.script_meta, dict) else None)
-                    or llm.generate_youtube_publication_title(caption)
-                )
-                final_title = _clean_plate_title(
-                    rewritten_title,
-                    fallback=(task.source_title or "Главный тезис"),
-                )
-                rewritten_description = (
-                    text_source_meta.get("description")
-                    or text_source_meta.get("rewritten_description")
-                    or caption
-                    or final_title
-                )
-                description_txt_path = _write_publication_description_file(
-                    task_id,
-                    rewritten_description,
-                    prefix="instagram_post_5s_description",
-                )
-                task.source_title = final_title
-                task.script_text = rewritten_description or final_title
+            try:
+                public_image_url = thumbnail_generator._ensure_public_url(local_post_image, prefix=f"igpost{task_id}")
+            except Exception as public_url_error:
+                logging.warning("Task %s: failed to make Instagram post image public: %s", task_id, public_url_error)
+            public_image_url = public_image_url or source_image_url
+
+            update_task_status_message(db, task, stage="Заголовок", detail="Анализирую текст на картинке и переписываю заголовок.")
+            rewritten_title = llm.generate_instagram_post_5s_title(
+                image_url=public_image_url,
+                caption=caption,
+            )
+            if not rewritten_title:
+                rewritten_title = llm.generate_youtube_publication_title(caption) if caption else None
+            final_title = _clean_plate_title(
+                rewritten_title,
+                fallback=(task.source_title or (f"Пост @{creator}" if creator else "Главный тезис")),
+            )
+            update_task_status_message(db, task, stage="Описание", detail="Переписываю описание поста под наш ролик.")
+            rewritten_description = llm.generate_instagram_post_5s_description(
+                caption=caption,
+                title=final_title,
+            )
+            if not rewritten_description:
+                rewritten_description = final_title
+            description_txt_path = _write_publication_description_file(
+                task_id,
+                rewritten_description,
+                prefix="instagram_post_5s_description",
+            )
+            task.source_title = final_title
+            task.script_text = rewritten_description or final_title
+            db.commit()
+
+            update_task_status_message(db, task, stage="Изображение", detail="Очищаю картинку от текста через image-to-image.")
+            clean_image_prompt = (
+                "Use the provided Instagram post image as the main reference. "
+                "Create a clean 9:16 vertical background image from it while keeping the original visual composition "
+                "and camera distance as close as possible. Do not zoom out, shrink the person, or turn the source "
+                "into a small centered poster. The main subject should stay large and prominent, close to the "
+                "reference crop, with natural outpainting only where 9:16 needs extra space. Preserve the scene, "
+                "colors, lighting and mood, but remove all readable text, captions, headlines, numbers, logos, "
+                "UI elements, stickers, watermarks and overlay graphics. Do not add any new text, borders, sidebars "
+                "or poster frame. The output must be only the visual first layer/background, ready for a separate "
+                "title plate."
+            )
+            clean_image_path = os.path.join(output_dir, f"instagram_post_clean_{task_id}.png")
+            generated_clean_image = thumbnail_generator.generate_image_from_references(
+                prompt=clean_image_prompt,
+                reference_paths=[local_post_image],
+                output_path=clean_image_path,
+                aspect_ratio="9:16",
+                resolution="1K",
+            )
+            if not generated_clean_image:
+                current_meta = dict(task.script_meta or {})
+                current_meta["instagram_post_5s"] = {
+                    **dict(current_meta.get("instagram_post_5s") or {}),
+                    "status": "failed",
+                    "reason": "image_cleanup_failed",
+                    "source_image_url": source_image_url,
+                    "public_image_url": public_image_url,
+                    "source_image_path": local_post_image,
+                    "clean_image_path": clean_image_path,
+                    "title": final_title,
+                    "caption": caption,
+                    "rewritten_description": rewritten_description,
+                    "description_txt_path": description_txt_path,
+                    "creator": creator,
+                }
+                task.script_meta = current_meta
                 db.commit()
-
-                update_task_status_message(db, task, stage="Изображение", detail="Генерирую фон карточки из текста сценария.")
-                clean_image_prompt = (
-                    "Create a clean premium vertical 9:16 business background for a short Russian social post. "
-                    "Warm golden #EBC97C mood, minimal expensive composition, no readable text, no logos, "
-                    "no UI, no watermark. Leave visual space for a large title plate in the lower third. "
-                    f"Topic and mood: {final_title}. Context: {rewritten_description[:1200]}"
-                )
-                clean_image_path = os.path.join(output_dir, f"instagram_post_clean_{task_id}.png")
-                generated_clean_image = thumbnail_generator.generate_thumbnail(
-                    prompt=clean_image_prompt,
-                    face_path=user.vertical_thumbnail_face_path or user.thumbnail_face_path,
-                    face_paths=[path for path in [user.vertical_thumbnail_face_path or user.thumbnail_face_path] if path],
-                    reference_paths=[],
-                    output_path=clean_image_path,
-                    aspect_ratio="9:16",
-                    resolution="1K",
-                    max_style_references=0,
-                )
-                if not generated_clean_image:
-                    raise Exception("Failed to generate NotebookLM text-source image for Instagram post 5s format")
-            else:
-                details = scraper.get_instagram_details(source_url)
-                caption = ((details or {}).get("caption") or "").strip()
-                creator = ((details or {}).get("creator") or "").strip()
-                image_urls = [
-                    url for url in ((details or {}).get("image_urls") or [])
-                    if isinstance(url, str) and url.startswith(("http://", "https://"))
-                ]
-                if not image_urls:
-                    raise Exception("Failed to retrieve image URL for Instagram post 5s format")
-
-                source_image_url = image_urls[0]
-                update_task_status_message(db, task, stage="Instagram Post", detail="Скачиваю изображение поста.")
-                local_post_image = downloader.download_media(source_image_url, f"instagram_post_{task_id}")
-                if not local_post_image:
-                    raise Exception("Failed to download Instagram post image")
-
-                try:
-                    public_image_url = thumbnail_generator._ensure_public_url(local_post_image, prefix=f"igpost{task_id}")
-                except Exception as public_url_error:
-                    logging.warning("Task %s: failed to make Instagram post image public: %s", task_id, public_url_error)
-                public_image_url = public_image_url or source_image_url
-
-                update_task_status_message(db, task, stage="Заголовок", detail="Анализирую текст на картинке и переписываю заголовок.")
-                rewritten_title = llm.generate_instagram_post_5s_title(
-                    image_url=public_image_url,
-                    caption=caption,
-                )
-                if not rewritten_title:
-                    rewritten_title = llm.generate_youtube_publication_title(caption) if caption else None
-                final_title = _clean_plate_title(
-                    rewritten_title,
-                    fallback=(task.source_title or (f"Пост @{creator}" if creator else "Главный тезис")),
-                )
-                update_task_status_message(db, task, stage="Описание", detail="Переписываю описание поста под наш ролик.")
-                rewritten_description = llm.generate_instagram_post_5s_description(
-                    caption=caption,
-                    title=final_title,
-                )
-                if not rewritten_description:
-                    rewritten_description = final_title
-                description_txt_path = _write_publication_description_file(
-                    task_id,
-                    rewritten_description,
-                    prefix="instagram_post_5s_description",
-                )
-                task.source_title = final_title
-                task.script_text = rewritten_description or final_title
-                db.commit()
-
-                update_task_status_message(db, task, stage="Изображение", detail="Очищаю картинку от текста через image-to-image.")
-                clean_image_prompt = (
-                    "Use the provided Instagram post image as the main reference. "
-                    "Create a clean 9:16 vertical background image from it while keeping the original visual composition "
-                    "and camera distance as close as possible. Do not zoom out, shrink the person, or turn the source "
-                    "into a small centered poster. The main subject should stay large and prominent, close to the "
-                    "reference crop, with natural outpainting only where 9:16 needs extra space. Preserve the scene, "
-                    "colors, lighting and mood, but remove all readable text, captions, headlines, numbers, logos, "
-                    "UI elements, stickers, watermarks and overlay graphics. Do not add any new text, borders, sidebars "
-                    "or poster frame. The output must be only the visual first layer/background, ready for a separate "
-                    "title plate."
-                )
-                clean_image_path = os.path.join(output_dir, f"instagram_post_clean_{task_id}.png")
-                generated_clean_image = thumbnail_generator.generate_image_from_references(
-                    prompt=clean_image_prompt,
-                    reference_paths=[local_post_image],
-                    output_path=clean_image_path,
-                    aspect_ratio="9:16",
-                    resolution="1K",
-                )
-                if not generated_clean_image:
-                    current_meta = dict(task.script_meta or {})
-                    current_meta["instagram_post_5s"] = {
-                        **dict(current_meta.get("instagram_post_5s") or {}),
-                        "status": "failed",
-                        "reason": "image_cleanup_failed",
-                        "source_image_url": source_image_url,
-                        "public_image_url": public_image_url,
-                        "source_image_path": local_post_image,
-                        "clean_image_path": clean_image_path,
-                        "title": final_title,
-                        "caption": caption,
-                        "rewritten_description": rewritten_description,
-                        "description_txt_path": description_txt_path,
-                        "creator": creator,
-                    }
-                    task.script_meta = current_meta
-                    db.commit()
-                    if (os.getenv("INSTAGRAM_POST_5S_ALLOW_ORIGINAL_IMAGE_FALLBACK") or "0").strip() in {"1", "true", "True"}:
-                        logging.warning("Task %s: image cleanup failed; using original post image as fallback.", task_id)
-                        generated_clean_image = local_post_image
-                    else:
-                        raise Exception(
-                            "KIE image cleanup failed for Instagram post 5s format; "
-                            "refusing to render with the original uncleaned image"
-                        )
+                if (os.getenv("INSTAGRAM_POST_5S_ALLOW_ORIGINAL_IMAGE_FALLBACK") or "0").strip() in {"1", "true", "True"}:
+                    logging.warning("Task %s: image cleanup failed; using original post image as fallback.", task_id)
+                    generated_clean_image = local_post_image
+                else:
+                    raise Exception(
+                        "KIE image cleanup failed for Instagram post 5s format; "
+                        "refusing to render with the original uncleaned image"
+                    )
 
             audio_tracks = (
                 db.query(models.InstagramPost5sAudioTrack)
@@ -4485,13 +4406,7 @@ def process_content_task(self, task_id: int):
         elif task.type in AVATAR_TASK_TYPES:
             cleaned_reels_transcript = ""
             local_reel_source = None
-            if is_notebooklm_text_source:
-                source_title = (task.source_title or "").strip() or "NotebookLM сценарий"
-                task.source_title = source_title
-                cleaned_reels_transcript = text_source_script
-                transcript = text_source_script
-                db.commit()
-            elif task.type in {"avatar_instagram", *INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES}:
+            if task.type in {"avatar_instagram", *INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES}:
                 is_instagram_post_5s = task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES
                 instagram_content_label = "Instagram Post" if is_instagram_post_5s else "Instagram Reels"
                 update_task_status_message(db, task, stage="Сценарий", detail=f"Получаю данные {instagram_content_label}.")
@@ -4586,27 +4501,25 @@ def process_content_task(self, task_id: int):
                     raise Exception("Failed to retrieve transcript for Avatar task")
             
             # factual outline
-            outline = (task.factual_outline or "").strip()
+            update_task_status_message(db, task, stage="Сценарий", detail="Выделяю ключевые факты (Gemini 2.5 Pro).")
+            outline = llm.generate_factual_outline(transcript)
             if not outline:
-                update_task_status_message(db, task, stage="Сценарий", detail="Выделяю ключевые факты (Gemini 2.5 Pro).")
+                logging.warning(
+                    "Task %s: factual outline generation returned empty; retrying once. transcript_chars=%s",
+                    task_id,
+                    count_script_chars(transcript),
+                )
                 outline = llm.generate_factual_outline(transcript)
-                if not outline:
-                    logging.warning(
-                        "Task %s: factual outline generation returned empty; retrying once. transcript_chars=%s",
-                        task_id,
-                        count_script_chars(transcript),
-                    )
-                    outline = llm.generate_factual_outline(transcript)
-                if not outline:
-                    logging.warning(
-                        "Task %s: factual outline generation failed twice; using transcript fallback outline.",
-                        task_id,
-                    )
-                    outline = (
-                        "FACTUAL OUTLINE FALLBACK\n"
-                        "OpenRouter/Gemini did not return an outline. Use this cleaned transcript as the factual source:\n"
-                        f"{transcript}"
-                    )
+            if not outline:
+                logging.warning(
+                    "Task %s: factual outline generation failed twice; using transcript fallback outline.",
+                    task_id,
+                )
+                outline = (
+                    "FACTUAL OUTLINE FALLBACK\n"
+                    "OpenRouter/Gemini did not return an outline. Use this cleaned transcript as the factual source:\n"
+                    f"{transcript}"
+                )
             task.factual_outline = outline
             db.commit()
             
@@ -4630,19 +4543,7 @@ def process_content_task(self, task_id: int):
                 avatar_vertical_duration_seconds = 0
 
             if task.type in SHORT_AVATAR_TASK_TYPES:
-                if is_notebooklm_text_source:
-                    script = text_source_script
-                    word_count = llm.estimate_word_count(script)
-                    char_count = count_script_chars(script)
-                    target_duration_seconds = (
-                        round(char_count / chars_per_second, 2)
-                        if chars_per_second > 0
-                        else None
-                    )
-                    target_chars = char_count
-                    min_chars = None
-                    max_chars = None
-                elif task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
+                if task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
                     target_duration_seconds = 5.0
                     target_chars = int(round(chars_per_second * target_duration_seconds)) if chars_per_second > 0 else 70
                     target_chars = max(45, min(120, target_chars))
@@ -4665,20 +4566,38 @@ def process_content_task(self, task_id: int):
                         if chars_per_second > 0
                         else None
                     )
-                if not is_notebooklm_text_source:
-                    update_task_status_message(
-                        db,
-                        task,
-                        stage="Сценарий",
-                        detail=(
-                            "Сжимаю пост в сценарий на 5 секунд и усиливаю хук."
-                            if task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES
-                            else (
-                                f"Сжимаю сценарий под {avatar_vertical_duration_seconds} сек. и усиливаю хук."
-                                if avatar_vertical_duration_seconds > 0
-                                else "Подгоняю сценарий под длительность озвучки и усиливаю хук."
-                            )
-                        ),
+                update_task_status_message(
+                    db,
+                    task,
+                    stage="Сценарий",
+                    detail=(
+                        "Сжимаю пост в сценарий на 5 секунд и усиливаю хук."
+                        if task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES
+                        else (
+                            f"Сжимаю сценарий под {avatar_vertical_duration_seconds} сек. и усиливаю хук."
+                            if avatar_vertical_duration_seconds > 0
+                            else "Подгоняю сценарий под длительность озвучки и усиливаю хук."
+                        )
+                    ),
+                )
+                script = llm.rewrite_reels_avatar_script(
+                    cleaned_transcript=cleaned_reels_transcript,
+                    style_profile=style_profile,
+                    target_chars=target_chars,
+                    min_chars=min_chars,
+                    max_chars=max_chars,
+                    voice_chars_per_second=chars_per_second or None,
+                    target_duration_seconds=target_duration_seconds,
+                )
+                if not script:
+                    logging.warning(
+                        "Task %s: short Avatar script rewrite returned empty; retrying once. "
+                        "cleaned_chars=%s target=%s range=%s-%s",
+                        task_id,
+                        count_script_chars(cleaned_reels_transcript),
+                        target_chars,
+                        min_chars,
+                        max_chars,
                     )
                     script = llm.rewrite_reels_avatar_script(
                         cleaned_transcript=cleaned_reels_transcript,
@@ -4689,72 +4608,60 @@ def process_content_task(self, task_id: int):
                         voice_chars_per_second=chars_per_second or None,
                         target_duration_seconds=target_duration_seconds,
                     )
-                    if not script:
-                        logging.warning(
-                            "Task %s: short Avatar script rewrite returned empty; retrying once. "
-                            "cleaned_chars=%s target=%s range=%s-%s",
-                            task_id,
-                            count_script_chars(cleaned_reels_transcript),
-                            target_chars,
-                            min_chars,
-                            max_chars,
-                        )
-                        script = llm.rewrite_reels_avatar_script(
-                            cleaned_transcript=cleaned_reels_transcript,
-                            style_profile=style_profile,
-                            target_chars=target_chars,
-                            min_chars=min_chars,
-                            max_chars=max_chars,
-                            voice_chars_per_second=chars_per_second or None,
-                            target_duration_seconds=target_duration_seconds,
-                        )
-                    if not script:
-                        logging.warning(
-                            "Task %s: short Avatar script rewrite failed twice; using cleaned transcript fallback.",
-                            task_id,
-                        )
-                        script = cleaned_reels_transcript
-                    word_count = llm.estimate_word_count(script)
-                    char_count = count_script_chars(script)
-                    if char_count < min_chars or char_count > max_chars:
-                        adjusted_script = _clamp_script_to_char_range(
-                            script=script,
-                            style_profile=style_profile,
-                            min_chars=min_chars,
-                            max_chars=max_chars,
-                        )
-                        if adjusted_script:
-                            script = adjusted_script
-                            word_count = llm.estimate_word_count(script)
-                            char_count = count_script_chars(script)
-            else:
-                if is_notebooklm_text_source:
-                    script = text_source_script
-                    word_count = llm.estimate_word_count(script)
-                    char_count = count_script_chars(script)
-                    target_chars = char_count
-                    min_chars = None
-                    max_chars = None
-                else:
-                    target_chars = int(round(chars_per_second * target_duration_minutes * 60)) if chars_per_second > 0 else None
-                    min_chars = int(round(target_chars * 0.92)) if target_chars else None
-                    max_chars = int(round(target_chars * 1.08)) if target_chars else None
-
-                    update_task_status_message(
-                        db,
-                        task,
-                        stage="Сценарий",
-                        detail=(
-                            f"Пишу сценарий в вашем стиле на {target_duration_minutes} мин."
-                            if target_chars
-                            else "Пишу сценарий в вашем стиле на 4-6 минут."
-                        ),
+                if not script:
+                    logging.warning(
+                        "Task %s: short Avatar script rewrite failed twice; using cleaned transcript fallback.",
+                        task_id,
                     )
-                    structured_source = (
-                        "FACTUAL OUTLINE (ключевые смыслы):\n"
-                        f"{outline}\n\n"
-                        "RAW TRANSCRIPT (оригинальный поток речи, может быть не по порядку):\n"
-                        f"{transcript}"
+                    script = cleaned_reels_transcript
+                word_count = llm.estimate_word_count(script)
+                char_count = count_script_chars(script)
+                if char_count < min_chars or char_count > max_chars:
+                    adjusted_script = _clamp_script_to_char_range(
+                        script=script,
+                        style_profile=style_profile,
+                        min_chars=min_chars,
+                        max_chars=max_chars,
+                    )
+                    if adjusted_script:
+                        script = adjusted_script
+                        word_count = llm.estimate_word_count(script)
+                        char_count = count_script_chars(script)
+            else:
+                target_chars = int(round(chars_per_second * target_duration_minutes * 60)) if chars_per_second > 0 else None
+                min_chars = int(round(target_chars * 0.92)) if target_chars else None
+                max_chars = int(round(target_chars * 1.08)) if target_chars else None
+
+                update_task_status_message(
+                    db,
+                    task,
+                    stage="Сценарий",
+                    detail=(
+                        f"Пишу сценарий в вашем стиле на {target_duration_minutes} мин."
+                        if target_chars
+                        else "Пишу сценарий в вашем стиле на 4-6 минут."
+                    ),
+                )
+                structured_source = (
+                    "FACTUAL OUTLINE (ключевые смыслы):\n"
+                    f"{outline}\n\n"
+                    "RAW TRANSCRIPT (оригинальный поток речи, может быть не по порядку):\n"
+                    f"{transcript}"
+                )
+                script = llm.rewrite_to_script(
+                    structured_source,
+                    style_profile,
+                    min_minutes=target_duration_minutes if target_chars else AVATAR_SCRIPT_MIN_MINUTES,
+                    max_minutes=target_duration_minutes if target_chars else AVATAR_SCRIPT_MAX_MINUTES,
+                    words_per_minute=AVATAR_SCRIPT_WPM,
+                    target_chars=target_chars,
+                    min_chars=min_chars,
+                    max_chars=max_chars,
+                )
+                if not script:
+                    logging.warning(
+                        "Task %s: styled Avatar script generation returned empty; retrying once.",
+                        task_id,
                     )
                     script = llm.rewrite_to_script(
                         structured_source,
@@ -4766,31 +4673,16 @@ def process_content_task(self, task_id: int):
                         min_chars=min_chars,
                         max_chars=max_chars,
                     )
-                    if not script:
-                        logging.warning(
-                            "Task %s: styled Avatar script generation returned empty; retrying once.",
-                            task_id,
-                        )
-                        script = llm.rewrite_to_script(
-                            structured_source,
-                            style_profile,
-                            min_minutes=target_duration_minutes if target_chars else AVATAR_SCRIPT_MIN_MINUTES,
-                            max_minutes=target_duration_minutes if target_chars else AVATAR_SCRIPT_MAX_MINUTES,
-                            words_per_minute=AVATAR_SCRIPT_WPM,
-                            target_chars=target_chars,
-                            min_chars=min_chars,
-                            max_chars=max_chars,
-                        )
-                    if not script:
-                        logging.warning(
-                            "Task %s: styled Avatar script generation failed twice; using structured source fallback.",
-                            task_id,
-                        )
-                        script = structured_source
+                if not script:
+                    logging.warning(
+                        "Task %s: styled Avatar script generation failed twice; using structured source fallback.",
+                        task_id,
+                    )
+                    script = structured_source
 
-                    word_count = llm.estimate_word_count(script)
-                    char_count = count_script_chars(script)
-                if (not is_notebooklm_text_source) and target_chars and min_chars and max_chars and (char_count < min_chars or char_count > max_chars):
+                word_count = llm.estimate_word_count(script)
+                char_count = count_script_chars(script)
+                if target_chars and min_chars and max_chars and (char_count < min_chars or char_count > max_chars):
                     update_task_status_message(
                         db,
                         task,
@@ -4807,7 +4699,7 @@ def process_content_task(self, task_id: int):
                         script = adjusted_script
                         word_count = llm.estimate_word_count(script)
                         char_count = count_script_chars(script)
-                elif (not is_notebooklm_text_source) and not target_chars and (word_count < min_words or word_count > max_words):
+                elif not target_chars and (word_count < min_words or word_count > max_words):
                     update_task_status_message(
                         db,
                         task,
@@ -4826,34 +4718,33 @@ def process_content_task(self, task_id: int):
                         char_count = count_script_chars(script)
 
                 # humanize pass (remove AI-like patterns and strengthen opening)
-                if not is_notebooklm_text_source:
-                    update_task_status_message(
-                        db,
-                        task,
-                        stage="Сценарий",
-                        detail="Очеловечиваю текст и усиливаю начало.",
+                update_task_status_message(
+                    db,
+                    task,
+                    stage="Сценарий",
+                    detail="Очеловечиваю текст и усиливаю начало.",
+                )
+                if target_chars and min_chars and max_chars:
+                    humanized_script = llm.humanize_russian_text_by_chars(
+                        script=script,
+                        style_profile=style_profile,
+                        min_chars=min_chars,
+                        max_chars=max_chars,
                     )
-                    if target_chars and min_chars and max_chars:
-                        humanized_script = llm.humanize_russian_text_by_chars(
-                            script=script,
-                            style_profile=style_profile,
-                            min_chars=min_chars,
-                            max_chars=max_chars,
-                        )
-                    else:
-                        humanized_script = llm.humanize_russian_text(
-                            script=script,
-                            style_profile=style_profile,
-                            min_words=min_words,
-                            max_words=max_words,
-                        )
-                    if humanized_script:
-                        script = humanized_script
-                        word_count = llm.estimate_word_count(script)
-                        char_count = count_script_chars(script)
+                else:
+                    humanized_script = llm.humanize_russian_text(
+                        script=script,
+                        style_profile=style_profile,
+                        min_words=min_words,
+                        max_words=max_words,
+                    )
+                if humanized_script:
+                    script = humanized_script
+                    word_count = llm.estimate_word_count(script)
+                    char_count = count_script_chars(script)
 
                 # final length guard after humanization
-                if (not is_notebooklm_text_source) and target_chars and min_chars and max_chars and (char_count < min_chars or char_count > max_chars):
+                if target_chars and min_chars and max_chars and (char_count < min_chars or char_count > max_chars):
                     update_task_status_message(
                         db,
                         task,
@@ -4870,7 +4761,7 @@ def process_content_task(self, task_id: int):
                         script = adjusted_script
                         word_count = llm.estimate_word_count(script)
                         char_count = count_script_chars(script)
-                elif (not is_notebooklm_text_source) and not target_chars and (word_count < min_words or word_count > max_words):
+                elif not target_chars and (word_count < min_words or word_count > max_words):
                     update_task_status_message(
                         db,
                         task,
@@ -4934,7 +4825,6 @@ def process_content_task(self, task_id: int):
                 "thumbnail_prompt": thumbnail_prompt,
                 "thumbnail_prompt_review": existing_script_meta.get("thumbnail_prompt_review"),
                 "thumbnail": thumbnail_meta,
-                "text_source": existing_script_meta.get("text_source"),
                 "youtube_description": {
                     "hook_text": hook_text,
                     "trigger_title": trigger_title,
