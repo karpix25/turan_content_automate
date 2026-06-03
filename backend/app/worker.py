@@ -3065,9 +3065,11 @@ def process_content_task(self, task_id: int):
                         "reason": "telegram_send_already_in_progress",
                     }
             else:
+                kie_error_detail = thumbnail_generator.get_last_error_message_ru()
                 thumbnail_meta = {
                     "status": "failed",
                     "reason": "generator_failed_or_unconfigured",
+                    "reason_detail": kie_error_detail,
                     "output_path": None,
                     "used_reference_count": len(reference_paths[:5]),
                     "face_path": active_face_path,
@@ -3080,9 +3082,16 @@ def process_content_task(self, task_id: int):
                     "status": "failed",
                     "completed_at": datetime.datetime.utcnow().isoformat() + "Z",
                     "reason": "generator_failed_or_unconfigured",
+                    "reason_detail": kie_error_detail,
                 }
                 task.script_meta = current_meta
                 db.commit()
+                update_task_status_message(
+                    db,
+                    task,
+                    stage="Обложка",
+                    detail=f"Не удалось сгенерировать картинку через KIE. {kie_error_detail}",
+                )
         return thumbnail_prompt, thumbnail_meta
 
     def _apply_vertical_thumbnail_intro(
@@ -3164,8 +3173,16 @@ def process_content_task(self, task_id: int):
         meta["prompt"] = prompt
         meta["used_reference_count"] = len(reference_paths[: int(os.getenv("VERTICAL_THUMBNAIL_MAX_STYLE_REFERENCES", "4"))])
         if not generated_image:
+            kie_error_detail = thumbnail_generator.get_last_error_message_ru()
             meta["status"] = "failed"
             meta["reason"] = "generator_failed_or_unconfigured"
+            meta["reason_detail"] = kie_error_detail
+            update_task_status_message(
+                db,
+                task,
+                stage="Обложка 9:16",
+                detail=f"Не удалось сгенерировать картинку через KIE. {kie_error_detail}",
+            )
             return source_video_path, meta
 
         intro_output_path = os.path.join(output_dir, f"vertical_intro_{task_id}_{clip_index}.mp4")
@@ -3269,8 +3286,16 @@ def process_content_task(self, task_id: int):
         meta["prompt"] = prompt
         meta["used_reference_count"] = len(reference_paths[:max_refs])
         if not generated_image:
+            kie_error_detail = thumbnail_generator.get_last_error_message_ru()
             meta["status"] = "failed"
             meta["reason"] = "generator_failed_or_unconfigured"
+            meta["reason_detail"] = kie_error_detail
+            update_task_status_message(
+                db,
+                task,
+                stage="Обложка 9:16",
+                detail=f"Не удалось сгенерировать картинку через KIE. {kie_error_detail}",
+            )
             return source_video_path, meta
 
         cover_output_path = os.path.join(output_dir, f"reels_vertical_cover_intro_{task_id}.mp4")
@@ -4179,7 +4204,10 @@ def process_content_task(self, task_id: int):
                 max_style_references=max_refs,
             )
             if not infographic_image:
-                raise Exception("Failed to generate infographic image")
+                raise Exception(
+                    "Не удалось сгенерировать картинку инфографики через KIE. "
+                    f"{thumbnail_generator.get_last_error_message_ru()}"
+                )
 
             audio_tracks = (
                 db.query(models.InstagramPost5sAudioTrack)
@@ -4317,11 +4345,13 @@ def process_content_task(self, task_id: int):
                 resolution="1K",
             )
             if not generated_clean_image:
+                kie_error_detail = thumbnail_generator.get_last_error_message_ru()
                 current_meta = dict(task.script_meta or {})
                 current_meta["instagram_post_5s"] = {
                     **dict(current_meta.get("instagram_post_5s") or {}),
                     "status": "failed",
                     "reason": "image_cleanup_failed",
+                    "reason_detail": kie_error_detail,
                     "source_image_url": source_image_url,
                     "public_image_url": public_image_url,
                     "source_image_path": local_post_image,
@@ -4339,8 +4369,8 @@ def process_content_task(self, task_id: int):
                     generated_clean_image = local_post_image
                 else:
                     raise Exception(
-                        "KIE image cleanup failed for Instagram post 5s format; "
-                        "refusing to render with the original uncleaned image"
+                        "Не удалось очистить картинку для формата 5 секунд через KIE. "
+                        f"{kie_error_detail}"
                     )
 
             audio_tracks = (
