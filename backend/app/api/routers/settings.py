@@ -117,8 +117,10 @@ def update_settings(telegram_id: str, settings: schemas.UserSettingsUpdate, db: 
         update_data["instagram_post_5s_overlay_path"] = overlay_path or None
 
     if "instagram_post_5s_cta_text" in update_data:
-        cta_text = " ".join((update_data.get("instagram_post_5s_cta_text") or "").split())
-        update_data["instagram_post_5s_cta_text"] = cta_text[:180] or None
+        raw_cta_text = str(update_data.get("instagram_post_5s_cta_text") or "")
+        cta_lines = [" ".join(line.split()) for line in raw_cta_text.replace("\r\n", "\n").split("\n")]
+        cta_text = "\n".join(line for line in cta_lines if line).strip()
+        update_data["instagram_post_5s_cta_text"] = cta_text[:220] or None
 
     if "avatar_script_duration_minutes" in update_data:
         try:

@@ -650,16 +650,17 @@ export const SettingsTab: React.FC = () => {
           <label className="text-xs font-bold text-[#707579] uppercase tracking-wider mb-2 block">
             CTA в нижнем белом фрейме
           </label>
-          <input
+          <textarea
             value={fiveSecondCtaText}
-            onChange={(e) => setFiveSecondCtaText(e.target.value.slice(0, 180))}
-            maxLength={180}
-            placeholder="Например: Подпишись, чтобы не пропустить главное"
-            className="w-full h-11 px-3 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[#24a1de]"
+            onChange={(e) => setFiveSecondCtaText(e.target.value.slice(0, 220))}
+            maxLength={220}
+            rows={2}
+            placeholder={'У меня про тендеры и бизнес\nПОДПИШИСЬ ↓'}
+            className="w-full min-h-[76px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[#24a1de] resize-none"
           />
           <div className="mt-1 flex items-center justify-between gap-2">
-            <p className="text-[11px] text-slate-400">Появится в нижней белой плашке при рендере 5 секунд.</p>
-            <span className="text-[10px] text-slate-400 tabular-nums">{fiveSecondCtaText.length}/180</span>
+            <p className="text-[11px] text-slate-400">1 строка маленькая, 2 строка крупная.</p>
+            <span className="text-[10px] text-slate-400 tabular-nums">{fiveSecondCtaText.length}/220</span>
           </div>
         </div>
 

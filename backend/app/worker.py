@@ -3492,24 +3492,33 @@ def process_content_task(self, task_id: int):
                 y = int(first_line_y + index * line_gap - text_height / 2)
                 draw.text((x, y), text, font=font, fill=(43, 47, 51, 255))
 
-            clean_cta_text = " ".join((cta_text or "").split())
+            clean_cta_text = "\n".join(
+                line
+                for line in (" ".join(raw_line.split()) for raw_line in (cta_text or "").replace("\r\n", "\n").split("\n"))
+                if line
+            ).strip()
             if clean_cta_text:
-                cta_lines = _wrap_plate_title(clean_cta_text[:180], max_chars=24)
+                raw_cta_lines = clean_cta_text[:220].split("\n")
+                eyebrow_text = raw_cta_lines[0] if len(raw_cta_lines) > 1 else ""
+                main_text = " ".join(raw_cta_lines[1:] if len(raw_cta_lines) > 1 else raw_cta_lines).strip()
+                main_lines = _wrap_plate_title(main_text, max_chars=18)
+                eyebrow_font = ImageFont.truetype(selected_font_path, 36)
                 cta_font = None
-                cta_font_size = 48
-                cta_line_gap = 58
+                cta_font_size = 76
+                cta_line_gap = 86
                 cta_max_width = 900
-                cta_max_height = 210
-                for candidate_size in range(48, 27, -2):
+                cta_max_height = 240
+                for candidate_size in range(76, 35, -2):
                     candidate_font = ImageFont.truetype(selected_font_path, candidate_size)
                     candidate_gap = max(int(candidate_size * 1.16), candidate_size + 7)
                     too_wide = False
-                    for line in cta_lines:
-                        bbox = draw.textbbox((0, 0), line, font=candidate_font)
+                    for line in main_lines:
+                        bbox = draw.textbbox((0, 0), line.upper(), font=candidate_font)
                         if (bbox[2] - bbox[0]) > cta_max_width:
                             too_wide = True
                             break
-                    total_height = (len(cta_lines) - 1) * candidate_gap + candidate_size
+                    eyebrow_height = 46 if eyebrow_text else 0
+                    total_height = eyebrow_height + (len(main_lines) - 1) * candidate_gap + candidate_size
                     if not too_wide and total_height <= cta_max_height:
                         cta_font = candidate_font
                         cta_font_size = candidate_size
@@ -3520,7 +3529,8 @@ def process_content_task(self, task_id: int):
                     cta_font = ImageFont.truetype(selected_font_path, cta_font_size)
                     cta_line_gap = 35
 
-                cta_text_height = (len(cta_lines) - 1) * cta_line_gap + cta_font_size
+                eyebrow_height = 46 if eyebrow_text else 0
+                cta_text_height = eyebrow_height + (len(main_lines) - 1) * cta_line_gap + cta_font_size
                 cta_box_height = max(128, min(270, cta_text_height + 58))
                 cta_y2 = 1854
                 cta_y1 = int(cta_y2 - cta_box_height)
@@ -3530,14 +3540,23 @@ def process_content_task(self, task_id: int):
                     fill=(255, 255, 255, 242),
                 )
                 cta_center_y = (cta_y1 + cta_y2) / 2
-                cta_first_y = cta_center_y - ((len(cta_lines) - 1) * cta_line_gap / 2)
-                for index, line in enumerate(cta_lines):
-                    bbox = draw.textbbox((0, 0), line, font=cta_font)
+                block_y = cta_center_y - cta_text_height / 2
+                if eyebrow_text:
+                    bbox = draw.textbbox((0, 0), eyebrow_text, font=eyebrow_font)
                     text_width = bbox[2] - bbox[0]
                     text_height = bbox[3] - bbox[1]
                     x = int((1080 - text_width) / 2)
-                    y = int(cta_first_y + index * cta_line_gap - text_height / 2)
-                    draw.text((x, y), line, font=cta_font, fill=(31, 41, 55, 255))
+                    y = int(block_y - text_height / 2 + 22)
+                    draw.text((x, y), eyebrow_text, font=eyebrow_font, fill=(31, 41, 55, 255))
+                    block_y += eyebrow_height
+                for index, line in enumerate(main_lines):
+                    text = line.upper()
+                    bbox = draw.textbbox((0, 0), text, font=cta_font)
+                    text_width = bbox[2] - bbox[0]
+                    text_height = bbox[3] - bbox[1]
+                    x = int((1080 - text_width) / 2)
+                    y = int(block_y + index * cta_line_gap - text_height / 2 + cta_font_size / 2)
+                    draw.text((x, y), text, font=cta_font, fill=(0, 0, 0, 255))
             plate.save(plate_png_path)
         except Exception as plate_error:
             logging.exception("Task %s: failed to render 5s title plate PNG: %s", task_id, plate_error)
@@ -3628,7 +3647,7 @@ def process_content_task(self, task_id: int):
             "status": "skipped",
             "image_path": image_path,
             "title": title,
-            "cta_text": " ".join((cta_text or "").split()) or None,
+            "cta_text": clean_cta_text or None,
             "audio_path": use_audio_path,
             "overlay_path": use_overlay_path,
             "overlay_start_seconds": 2.0 if use_overlay_path else None,
@@ -4389,7 +4408,14 @@ def process_content_task(self, task_id: int):
                 if user.instagram_post_5s_overlay_path and os.path.isfile(user.instagram_post_5s_overlay_path)
                 else None
             )
-            five_second_cta_text = " ".join((getattr(user, "instagram_post_5s_cta_text", None) or "").split()) or None
+            five_second_cta_text = "\n".join(
+                line
+                for line in (
+                    " ".join(raw_line.split())
+                    for raw_line in (getattr(user, "instagram_post_5s_cta_text", None) or "").replace("\r\n", "\n").split("\n")
+                )
+                if line
+            ).strip() or None
 
             update_task_status_message(db, task, stage="Монтаж", detail="Собираю 5-секундное видео с плашкой.")
             five_second_output = os.path.join(output_dir, f"instagram_post_5s_{task_id}.mp4")
