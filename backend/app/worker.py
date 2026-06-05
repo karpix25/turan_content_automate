@@ -17,6 +17,7 @@ from typing import List
 from urllib.parse import urlparse, parse_qs
 from billiard.exceptions import SoftTimeLimitExceeded
 from celery import Celery
+from celery.signals import worker_process_init
 import redis
 from .integrations.vizard import VizardClient
 from .integrations.scrape_creators import ScrapeCreatorsClient
@@ -25,7 +26,7 @@ from .integrations.rapidapi_youtube import RapidAPIYoutubeClient
 from .integrations.downloader import Downloader
 from .integrations.postmypost import PostMyPostClient
 from .processor import VideoProcessor
-from .database import SessionLocal, init_database
+from .database import SessionLocal, engine, init_database
 from .publish_planner import plan_next_publish_times
 from .telegram_progress import (
     build_task_context_text,
@@ -143,6 +144,11 @@ celery_app.conf.update(
         },
     },
 )
+
+
+@worker_process_init.connect
+def reset_database_pool_after_worker_fork(**_kwargs):
+    engine.dispose()
 
 # Initialize clients
 vizard = VizardClient(api_key=(os.getenv("VIZARD_API_KEY") or "").strip())

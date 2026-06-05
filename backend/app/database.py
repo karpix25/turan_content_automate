@@ -7,7 +7,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # engine = create_engine(os.getenv("DATABASE_URL", "sqlite:///./database.db"))
-engine = create_engine(os.getenv("DATABASE_URL", "postgresql://user:password@db:5432/postgres"))
+engine = create_engine(
+    os.getenv("DATABASE_URL", "postgresql://user:password@db:5432/postgres"),
+    pool_pre_ping=True,
+    pool_recycle=int(os.getenv("DATABASE_POOL_RECYCLE_SECONDS", "300")),
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
