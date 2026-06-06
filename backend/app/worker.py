@@ -3451,8 +3451,11 @@ def process_content_task(self, task_id: int):
             if not selected_font_path:
                 raise RuntimeError("No TrueType font found for Instagram post 5s title plate")
 
-            plate_x1 = 30
-            plate_x2 = 1050
+            safe_x1 = 56
+            safe_x2 = 900
+            safe_center_x = int((safe_x1 + safe_x2) / 2)
+            plate_x1 = safe_x1
+            plate_x2 = safe_x2
             max_text_width = plate_x2 - plate_x1 - 72
             font = None
             font_size = 78
@@ -3480,7 +3483,7 @@ def process_content_task(self, task_id: int):
 
             total_text_height = (len(title_lines) - 1) * line_gap + font_size
             plate_height = max(230, min(760, total_text_height + 118))
-            plate_y2 = 1505 if plate_height <= 520 else 1550
+            plate_y2 = 1110 if plate_height <= 520 else 1160
             plate_y1 = int(plate_y2 - plate_height)
             draw.rounded_rectangle(
                 (plate_x1, plate_y1, plate_x2, plate_y2),
@@ -3494,7 +3497,7 @@ def process_content_task(self, task_id: int):
                 bbox = draw.textbbox((0, 0), text, font=font)
                 text_width = bbox[2] - bbox[0]
                 text_height = bbox[3] - bbox[1]
-                x = int((1080 - text_width) / 2)
+                x = int(safe_center_x - text_width / 2)
                 y = int(first_line_y + index * line_gap - text_height / 2)
                 draw.text((x, y), text, font=font, fill=(43, 47, 51, 255))
 
@@ -3512,7 +3515,7 @@ def process_content_task(self, task_id: int):
                 cta_font = None
                 cta_font_size = 76
                 cta_line_gap = 86
-                cta_max_width = 900
+                cta_max_width = 760
                 cta_max_height = 240
                 for candidate_size in range(76, 35, -2):
                     candidate_font = ImageFont.truetype(selected_font_path, candidate_size)
@@ -3538,10 +3541,10 @@ def process_content_task(self, task_id: int):
                 eyebrow_height = 46 if eyebrow_text else 0
                 cta_text_height = eyebrow_height + (len(main_lines) - 1) * cta_line_gap + cta_font_size
                 cta_box_height = max(128, min(270, cta_text_height + 58))
-                cta_y2 = 1854
+                cta_y2 = min(1450, plate_y2 + 28 + cta_box_height)
                 cta_y1 = int(cta_y2 - cta_box_height)
                 draw.rounded_rectangle(
-                    (70, cta_y1, 1010, cta_y2),
+                    (safe_x1, cta_y1, safe_x2, cta_y2),
                     radius=34,
                     fill=(255, 255, 255, 242),
                 )
@@ -3551,7 +3554,7 @@ def process_content_task(self, task_id: int):
                     bbox = draw.textbbox((0, 0), eyebrow_text, font=eyebrow_font)
                     text_width = bbox[2] - bbox[0]
                     text_height = bbox[3] - bbox[1]
-                    x = int((1080 - text_width) / 2)
+                    x = int(safe_center_x - text_width / 2)
                     y = int(block_y - text_height / 2 + 22)
                     draw.text((x, y), eyebrow_text, font=eyebrow_font, fill=(31, 41, 55, 255))
                     block_y += eyebrow_height
@@ -3560,7 +3563,7 @@ def process_content_task(self, task_id: int):
                     bbox = draw.textbbox((0, 0), text, font=cta_font)
                     text_width = bbox[2] - bbox[0]
                     text_height = bbox[3] - bbox[1]
-                    x = int((1080 - text_width) / 2)
+                    x = int(safe_center_x - text_width / 2)
                     y = int(block_y + index * cta_line_gap - text_height / 2 + cta_font_size / 2)
                     draw.text((x, y), text, font=cta_font, fill=(0, 0, 0, 255))
             plate.save(plate_png_path)
