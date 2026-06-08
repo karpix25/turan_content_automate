@@ -8,6 +8,8 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
+from .postmypost_errors import PostMyPostApiError, format_postmypost_api_error
+
 logger = logging.getLogger(__name__)
 
 
@@ -138,10 +140,12 @@ class PostMyPostClient:
                             path,
                             body,
                         )
-                        response.raise_for_status()
+                        raise format_postmypost_api_error(response, method=method, path=path)
                     return response.json()
-            except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError) as exc:
+            except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError, PostMyPostApiError) as exc:
                 last_error = exc
+                if isinstance(exc, PostMyPostApiError):
+                    break
                 if (
                     isinstance(exc, httpx.HTTPStatusError)
                     and 400 <= exc.response.status_code < 500
@@ -168,6 +172,8 @@ class PostMyPostClient:
                 time.sleep(delay)
 
         assert last_error is not None
+        if isinstance(last_error, httpx.HTTPStatusError):
+            raise format_postmypost_api_error(last_error.response, method=method, path=path) from last_error
         raise last_error
 
     @classmethod
@@ -287,11 +293,19 @@ class PostMyPostClient:
         )
 
     def init_upload(self, project_id: int, file_name: str, file_size: int) -> Dict[str, Any]:
-        response = self._request(
-            "POST",
-            "/upload/init",
-            json={"project_id": project_id, "name": file_name, "size": file_size},
-        )
+        try:
+            response = self._request(
+                "POST",
+                "/upload/init",
+                json={"project_id": project_id, "name": file_name, "size": file_size},
+            )
+        except PostMyPostApiError as exc:
+            raise RuntimeError(
+                "PostMyPost отклонил старт загрузки "
+                f"(HTTP {exc.status_code}): "
+                f"project_id={project_id}, file={file_name}, size={file_size} байт. "
+                f"Причина: {exc}"
+            ) from exc
         return self._unwrap_data(response)
 
     def complete_upload(self, upload_id: int) -> Dict[str, Any]:

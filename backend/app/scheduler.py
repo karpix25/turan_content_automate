@@ -11,6 +11,7 @@ from .database import SessionLocal
 from . import models
 from .integrations.llm import _format_social_description_paragraphs
 from .integrations.postmypost import PostMyPostClient
+from .integrations.postmypost_errors import PostMyPostApiError
 from .publish_planner import get_min_publish_lead_delta, plan_next_publish_times
 from .telegram_progress import (
     send_publication_batch_report_message,
@@ -456,6 +457,12 @@ def _update_postmypost_sync_meta(task: models.VideoTask, status_summary: dict, s
 
 
 def _is_postmypost_missing_publication_status_error(exc: Exception) -> bool:
+    if isinstance(exc, PostMyPostApiError):
+        if exc.status_code != 422:
+            return False
+        normalized = (exc.response_text or "").lower()
+        return "publication_status" in normalized and "required property" in normalized
+
     if not isinstance(exc, httpx.HTTPStatusError):
         return False
     response = exc.response
