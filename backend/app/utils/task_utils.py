@@ -6,8 +6,6 @@ from ..publish_planner import plan_next_publish_times
 IMMEDIATE_POSTMYPUBLISH_TASK_TYPES = {
     "avatar_instagram_post_5s",
     "infographic_reels",
-    "instagram",
-    "youtube",
 }
 
 
