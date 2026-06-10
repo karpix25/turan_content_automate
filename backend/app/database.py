@@ -238,6 +238,13 @@ def init_database() -> None:
             text("UPDATE cta_clips SET platform = 'universal' WHERE platform IS NULL")
         )
         add_column_if_missing("user_publish_channels", "publication_description", "TEXT")
+        add_column_if_missing("user_publish_channels", "publish_limit_per_day", "INTEGER DEFAULT 3")
+        conn.execute(
+            text(
+                "UPDATE user_publish_channels SET publish_limit_per_day = 3 "
+                "WHERE publish_limit_per_day IS NULL OR publish_limit_per_day < 2"
+            )
+        )
         if not table_exists("avatar_insert_clips"):
             conn.execute(
                 text(

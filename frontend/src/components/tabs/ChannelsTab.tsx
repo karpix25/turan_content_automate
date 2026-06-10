@@ -9,6 +9,7 @@ export const ChannelsTab: React.FC = () => {
   const { telegramId } = useTelegram();
   const [publishAccounts, setPublishAccounts] = useState<PublishAccount[]>([]);
   const [channelDescriptions, setChannelDescriptions] = useState<Record<number, string>>({});
+  const [publishLimitByAccount, setPublishLimitByAccount] = useState<Record<number, number>>({});
   const [selectedPlateIdsByAccount, setSelectedPlateIdsByAccount] = useState<Record<number, number[]>>({});
   const [plateStartPercentByAccount, setPlateStartPercentByAccount] = useState<Record<number, number>>({});
   const [collapsedAccounts, setCollapsedAccounts] = useState<Record<number, boolean>>({});
@@ -49,14 +50,17 @@ export const ChannelsTab: React.FC = () => {
       const data = await apiClient.getChannels(telegramId);
       setPublishAccounts(data);
       const descMap: Record<number, string> = {};
+      const limitMap: Record<number, number> = {};
       const platesMap: Record<number, number[]> = {};
       const percentsMap: Record<number, number> = {};
       data.forEach(acc => {
         descMap[acc.account_id] = acc.description || '';
+        limitMap[acc.account_id] = acc.publish_limit_per_day || 3;
         platesMap[acc.account_id] = acc.selected_plate_ids || [];
         percentsMap[acc.account_id] = acc.plate_start_percent ?? 50;
       });
       setChannelDescriptions(descMap);
+      setPublishLimitByAccount(limitMap);
       setSelectedPlateIdsByAccount(platesMap);
       setPlateStartPercentByAccount(percentsMap);
       setCollapsedAccounts(prev => {
@@ -90,6 +94,7 @@ export const ChannelsTab: React.FC = () => {
   const buildChannelSettingsPayload = (plateIdsByAccount = selectedPlateIdsByAccount) => ({
     account_ids: publishAccounts.filter(a => a.enabled).map(a => a.account_id),
     descriptions: channelDescriptions,
+    publish_limits_per_day: publishLimitByAccount,
     selected_plate_ids: plateIdsByAccount,
     plate_start_percents: plateStartPercentByAccount,
   });
@@ -192,6 +197,7 @@ export const ChannelsTab: React.FC = () => {
   };
 
   const clampPercent = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
+  const clampPublishLimit = (value: number) => Math.max(2, Math.min(96, Math.round(value)));
 
   return (
     <motion.div key="channels" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4 pb-20">
@@ -300,6 +306,31 @@ export const ChannelsTab: React.FC = () => {
 
                   {account.enabled && !isCollapsed && (
                     <div className="mt-4 space-y-4 pt-4 border-t border-slate-100">
+                      <div>
+                        <label className="text-xs font-bold text-[#707579] uppercase tracking-wider mb-2 block">Лимит публикаций в день</label>
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="range"
+                            min="2"
+                            max="20"
+                            value={publishLimitByAccount[account.account_id] ?? 3}
+                            onChange={(e) => setPublishLimitByAccount(prev => ({ ...prev, [account.account_id]: clampPublishLimit(Number(e.target.value)) }))}
+                            className="flex-1 accent-[#24a1de]"
+                          />
+                          <input
+                            type="number"
+                            min="2"
+                            max="96"
+                            value={publishLimitByAccount[account.account_id] ?? 3}
+                            onChange={(e) => setPublishLimitByAccount(prev => ({ ...prev, [account.account_id]: clampPublishLimit(Number(e.target.value)) }))}
+                            className="input-field h-10 w-16 text-center text-sm font-bold"
+                          />
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+                          Vizard занимает до половины лимита, остальные слоты остаются для быстрых форматов.
+                        </p>
+                      </div>
+
                       <div>
                         <label className="text-xs font-bold text-[#707579] uppercase tracking-wider mb-2 block">Описание (шаблон поста)</label>
                         <textarea

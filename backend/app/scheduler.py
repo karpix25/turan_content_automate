@@ -12,12 +12,11 @@ from . import models
 from .integrations.llm import _format_social_description_paragraphs
 from .integrations.postmypost import PostMyPostClient
 from .integrations.postmypost_errors import PostMyPostApiError
-from .publish_planner import get_min_publish_lead_delta, plan_next_publish_times
+from .publish_planner import get_min_publish_lead_delta, plan_next_publish_times_for_account_outputs
 from .telegram_progress import (
     send_publication_batch_report_message,
     update_task_status_message,
 )
-from .utils.task_utils import _should_publish_immediately
 from .utils.platform_utils import _get_account_platform_map
 from .worker import celery_app
 
@@ -202,37 +201,41 @@ def _normalize_post_at(value: datetime.datetime | None, force_now: bool) -> date
 
 
 def _resolve_publication_post_at(db, user: models.User, task: models.VideoTask, force_now: bool) -> datetime.datetime:
-    if _should_publish_immediately(task):
+    if force_now:
         return datetime.datetime.now(datetime.timezone.utc)
 
     post_at = _normalize_post_at(task.publish_at, force_now)
-    if (
-        force_now
-        or task.type not in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES
-        or not bool(getattr(user, "auto_schedule_enabled", False))
-        or task.postmypost_id
-    ):
+    if task.publish_at or not bool(getattr(user, "auto_schedule_enabled", False)) or task.postmypost_id:
         return post_at
 
+    if task.target_account_id is None:
+        return post_at
+
+    lane = "vizard" if getattr(task, "vizard_project_id", None) else "instant"
     try:
-        planned = plan_next_publish_times(db, user, 1, exclude_task_ids={task.id})
+        planned = plan_next_publish_times_for_account_outputs(
+            db,
+            user,
+            [int(task.target_account_id)],
+            lane=lane,
+            exclude_task_ids={task.id},
+        )
     except Exception as error:
-        logger.warning("Task %s: failed to recheck 5s publish slot before PostMyPost sync: %s", task.id, error)
+        logger.warning("Task %s: failed to resolve PostMyPost publish slot before sync: %s", task.id, error)
         return post_at
 
     if not planned:
         return post_at
 
     candidate = _normalize_post_at(planned[0], force_now=False)
-    if task.publish_at is None or candidate < post_at - datetime.timedelta(minutes=1):
-        logger.info(
-            "Task %s: adjusted 5s PostMyPost schedule from %s to %s after final slot recheck",
-            task.id,
-            post_at,
-            candidate,
-        )
-        return candidate
-    return post_at
+    logger.info(
+        "Task %s: resolved PostMyPost schedule slot account=%s lane=%s post_at=%s",
+        task.id,
+        task.target_account_id,
+        lane,
+        candidate,
+    )
+    return candidate
 
 
 def _resolve_task_output_path(output_path: str | None) -> str | None:

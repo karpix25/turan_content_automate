@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from ... import models, schemas
 from ...core.config import pmp_client
+from ...publish_planner import DEFAULT_ACCOUNT_LIMIT_PER_DAY, validate_account_publish_limit
 from ..deps import get_db, ensure_admin_access, get_or_create_user
 from ..utils import normalize_percent
 
@@ -79,6 +80,9 @@ def build_postmypost_channels_response(
                 channel_name=channel_info.get("name") if channel_info else None,
                 enabled=bool(row.enabled) if row else False,
                 description=(row.publication_description if row else None),
+                publish_limit_per_day=validate_account_publish_limit(
+                    row.publish_limit_per_day if row else DEFAULT_ACCOUNT_LIMIT_PER_DAY
+                ),
                 selected_plate_id=selected_plate_id,
                 selected_plate_ids=selected_plate_ids,
                 plate_start_percent=plate_start_percent,
@@ -128,6 +132,7 @@ def update_postmypost_channels(
 
     # Normalize data from payload
     descriptions = payload.descriptions or {}
+    publish_limits = payload.publish_limits_per_day or {}
     plate_ids_map = payload.selected_plate_ids or {}
     percents_map = payload.plate_start_percents or {}
 
@@ -136,6 +141,8 @@ def update_postmypost_channels(
         row = existing_by_account.get(account_id)
         
         account_desc = (descriptions.get(str(account_id)) or "").strip() or None
+        raw_limit = publish_limits.get(str(account_id))
+        account_limit = validate_account_publish_limit(raw_limit) if raw_limit not in (None, "") else DEFAULT_ACCOUNT_LIMIT_PER_DAY
         
         raw_plate_ids = plate_ids_map.get(str(account_id), [])
         account_plate_ids = [int(p) for p in raw_plate_ids if str(p).isdigit()]
@@ -146,6 +153,7 @@ def update_postmypost_channels(
         if row:
             row.enabled = should_enable
             if str(account_id) in descriptions: row.publication_description = account_desc
+            if str(account_id) in publish_limits: row.publish_limit_per_day = account_limit
             if str(account_id) in plate_ids_map:
                 row.selected_plate_ids = account_plate_ids
                 row.selected_plate_id = account_plate_ids[0] if account_plate_ids else None
@@ -157,6 +165,7 @@ def update_postmypost_channels(
                     account_id=account_id,
                     enabled=should_enable,
                     publication_description=account_desc,
+                    publish_limit_per_day=account_limit,
                     selected_plate_ids=account_plate_ids,
                     selected_plate_id=account_plate_ids[0] if account_plate_ids else None,
                     plate_start_percent=account_percent,

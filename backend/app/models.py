@@ -150,6 +150,7 @@ class UserPublishChannel(Base):
     account_id = Column(Integer, index=True, nullable=False)
     enabled = Column(Boolean, default=True, nullable=False)
     publication_description = Column(String, nullable=True)
+    publish_limit_per_day = Column(Integer, default=3, nullable=False)
     selected_plate_ids = Column(JSON, nullable=True)
     selected_plate_id = Column(Integer, nullable=True)
     plate_start_percent = Column(Integer, nullable=True)

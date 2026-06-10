@@ -7,7 +7,6 @@ import { useTelegram } from '../../context/TelegramContext';
 export const PlanningTab: React.FC = () => {
   const { telegramId } = useTelegram();
   const [autoSchedule, setAutoSchedule] = useState(true);
-  const [postsPerDay, setPostsPerDay] = useState('3');
   const [timeStart, setTimeStart] = useState('09:00');
   const [timeEnd, setTimeEnd] = useState('21:00');
   const [loading, setLoading] = useState(false);
@@ -21,7 +20,6 @@ export const PlanningTab: React.FC = () => {
       try {
         const data = await apiClient.getSettings(telegramId);
         setAutoSchedule(data.auto_schedule_enabled);
-        setPostsPerDay(data.publish_limit_per_day.toString());
         setTimeStart(data.publish_window_start_msk);
         setTimeEnd(data.publish_window_end_msk);
       } catch (error) {
@@ -38,7 +36,6 @@ export const PlanningTab: React.FC = () => {
     try {
       await apiClient.updateSettings(telegramId, {
         auto_schedule_enabled: autoSchedule,
-        publish_limit_per_day: parseInt(postsPerDay) || 3,
         publish_window_start_msk: timeStart,
         publish_window_end_msk: timeEnd
       });
@@ -81,25 +78,6 @@ export const PlanningTab: React.FC = () => {
         </div>
 
         <div className={`p-4 space-y-5 transition-opacity ${!autoSchedule ? 'opacity-50 pointer-events-none' : ''}`}>
-          <div>
-            <label className="text-xs font-bold text-[#707579] uppercase tracking-wider mb-2 block">
-              Лимит видео в день на аккаунт
-            </label>
-            <div className="flex items-center gap-3">
-              <input
-                type="range"
-                min="1" max="10"
-                value={postsPerDay}
-                onChange={(e) => setPostsPerDay(e.target.value)}
-                className="flex-1 accent-[#24a1de]"
-              />
-              <span className="text-[17px] font-bold text-slate-900 w-8 text-center">{postsPerDay}</span>
-            </div>
-            <p className="text-[11px] text-slate-500 mt-2">
-              Система не опубликует больше {postsPerDay} видео в один аккаунт за сутки
-            </p>
-          </div>
-
           <div>
             <label className="text-xs font-bold text-[#707579] uppercase tracking-wider mb-2 block">
               Окно публикаций (МСК)

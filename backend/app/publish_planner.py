@@ -8,6 +8,8 @@ MSK_TZ = ZoneInfo("Europe/Moscow")
 UTC = datetime.timezone.utc
 
 DEFAULT_LIMIT_PER_DAY = 3
+DEFAULT_ACCOUNT_LIMIT_PER_DAY = 3
+MIN_ACCOUNT_LIMIT_PER_DAY = 2
 DEFAULT_START_MSK = "10:00:00"
 DEFAULT_END_MSK = "22:00:00"
 MINUTE_OFFSETS = (11, 17, 23, 29, 37, 41, 47, 53)
@@ -52,6 +54,13 @@ def validate_schedule_settings(limit_per_day: int | None, start_msk: str | None,
     return limit, start_t.strftime("%H:%M:%S"), end_t.strftime("%H:%M:%S")
 
 
+def validate_account_publish_limit(value: int | None) -> int:
+    limit = int(value) if value is not None else DEFAULT_ACCOUNT_LIMIT_PER_DAY
+    if limit < MIN_ACCOUNT_LIMIT_PER_DAY or limit > 96:
+        raise ValueError("publish_limit_per_day must be in range 2..96")
+    return limit
+
+
 def _to_utc_naive(dt_aware: datetime.datetime) -> datetime.datetime:
     return dt_aware.astimezone(UTC).replace(tzinfo=None, microsecond=0)
 
@@ -78,6 +87,144 @@ def _build_daily_slots(day_msk: datetime.date, limit_per_day: int, start_msk: da
             slot = end_dt - datetime.timedelta(minutes=1)
         slots.append(slot.replace(microsecond=0))
     return slots
+
+
+def _publication_lane_for_task(row: models.VideoTask) -> str:
+    return "vizard" if getattr(row, "vizard_project_id", None) else "instant"
+
+
+def _lane_limit(limit_per_day: int, lane: str) -> int:
+    vizard_limit = max(1, int(limit_per_day) // 2)
+    if lane == "vizard":
+        return vizard_limit
+    return max(1, int(limit_per_day) - vizard_limit)
+
+
+def _lane_slots(
+    day_msk: datetime.date,
+    *,
+    limit_per_day: int,
+    lane: str,
+    start_msk: datetime.time,
+    end_msk: datetime.time,
+) -> list[datetime.datetime]:
+    slots = _build_daily_slots(day_msk, limit_per_day, start_msk, end_msk)
+    vizard_limit = _lane_limit(limit_per_day, "vizard")
+    if lane == "vizard":
+        return slots[:vizard_limit]
+    return slots[vizard_limit:]
+
+
+def _get_account_limit_map(db, user: models.User, account_ids: list[int]) -> dict[int, int]:
+    rows = db.query(models.UserPublishChannel).filter(
+        models.UserPublishChannel.user_id == user.id,
+        models.UserPublishChannel.account_id.in_(account_ids),
+    ).all() if account_ids else []
+    row_map = {int(row.account_id): row for row in rows}
+    limits: dict[int, int] = {}
+    for account_id in account_ids:
+        row = row_map.get(int(account_id))
+        row_limit = getattr(row, "publish_limit_per_day", None) if row else None
+        limits[int(account_id)] = validate_account_publish_limit(row_limit)
+    return limits
+
+
+def _task_publish_day_msk(publish_at: datetime.datetime) -> datetime.date:
+    publish_utc = publish_at.replace(tzinfo=UTC) if publish_at.tzinfo is None else publish_at.astimezone(UTC)
+    return publish_utc.astimezone(MSK_TZ).date()
+
+
+def plan_next_publish_times_for_account_outputs(
+    db,
+    user: models.User,
+    account_ids: list[int | None],
+    *,
+    lane: str,
+    exclude_task_ids: set[int] | None = None,
+) -> list[datetime.datetime]:
+    if not account_ids:
+        return []
+
+    normalized_lane = "vizard" if lane == "vizard" else "instant"
+    concrete_account_ids = [int(item) for item in account_ids if item is not None]
+    if len(concrete_account_ids) != len(account_ids):
+        return plan_next_publish_times(db, user, len(account_ids), exclude_task_ids=exclude_task_ids)
+
+    _limit, start_raw, end_raw = validate_schedule_settings(
+        DEFAULT_LIMIT_PER_DAY,
+        getattr(user, "publish_window_start_msk", DEFAULT_START_MSK),
+        getattr(user, "publish_window_end_msk", DEFAULT_END_MSK),
+    )
+    start_time = parse_hhmmss(start_raw, DEFAULT_START_MSK)
+    end_time = parse_hhmmss(end_raw, DEFAULT_END_MSK)
+    account_limits = _get_account_limit_map(db, user, list(dict.fromkeys(concrete_account_ids)))
+
+    now_utc = datetime.datetime.now(UTC).replace(microsecond=0)
+    earliest_utc = now_utc + get_min_publish_lead_delta()
+    earliest_msk = earliest_utc.astimezone(MSK_TZ)
+
+    excluded_ids = {int(item) for item in (exclude_task_ids or set())}
+    occupied_rows = db.query(models.VideoTask).filter(
+        models.VideoTask.user_id == user.id,
+        models.VideoTask.target_account_id.in_(list(account_limits.keys())),
+        models.VideoTask.publish_at.isnot(None),
+        models.VideoTask.publishing_status.in_(["scheduled", "in_progress"]),
+    ).all()
+
+    reserved_slots: dict[tuple[int, str], set[datetime.datetime]] = {}
+    daily_counts: dict[tuple[int, str, datetime.date], int] = {}
+    for row in occupied_rows:
+        if row.id in excluded_ids or row.publish_at is None or row.target_account_id is None:
+            continue
+        row_lane = _publication_lane_for_task(row)
+        account_id = int(row.target_account_id)
+        publish_utc = row.publish_at.replace(tzinfo=UTC) if row.publish_at.tzinfo is None else row.publish_at.astimezone(UTC)
+        publish_utc_naive = publish_utc.replace(tzinfo=None, microsecond=0)
+        day_msk = _task_publish_day_msk(row.publish_at)
+        reserved_slots.setdefault((account_id, row_lane), set()).add(publish_utc_naive)
+        daily_key = (account_id, row_lane, day_msk)
+        daily_counts[daily_key] = daily_counts.get(daily_key, 0) + 1
+
+    planned: list[datetime.datetime] = []
+    for account_id in concrete_account_ids:
+        limit_per_day = account_limits[int(account_id)]
+        lane_limit = _lane_limit(limit_per_day, normalized_lane)
+        account_reserved = reserved_slots.setdefault((account_id, normalized_lane), set())
+        day_cursor = earliest_msk.date()
+        planned_for_output = False
+
+        for _ in range(0, 370):
+            daily_key = (account_id, normalized_lane, day_cursor)
+            if daily_counts.get(daily_key, 0) >= lane_limit:
+                day_cursor = day_cursor + datetime.timedelta(days=1)
+                continue
+
+            slots_msk = _lane_slots(
+                day_msk=day_cursor,
+                limit_per_day=limit_per_day,
+                lane=normalized_lane,
+                start_msk=start_time,
+                end_msk=end_time,
+            )
+            for slot_msk in slots_msk:
+                if slot_msk <= earliest_msk:
+                    continue
+                slot_utc_naive = _to_utc_naive(slot_msk)
+                if slot_utc_naive in account_reserved:
+                    continue
+                account_reserved.add(slot_utc_naive)
+                daily_counts[daily_key] = daily_counts.get(daily_key, 0) + 1
+                planned.append(slot_utc_naive)
+                planned_for_output = True
+                break
+
+            if planned_for_output:
+                break
+            day_cursor = day_cursor + datetime.timedelta(days=1)
+        else:
+            raise RuntimeError("Unable to plan publish times in configured per-account schedule window")
+
+    return planned
 
 
 def plan_next_publish_times(

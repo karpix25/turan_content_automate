@@ -1,7 +1,7 @@
 from typing import List
 
 from .. import models
-from ..publish_planner import plan_next_publish_times
+from ..publish_planner import plan_next_publish_times, plan_next_publish_times_for_account_outputs
 
 IMMEDIATE_POSTMYPUBLISH_TASK_TYPES = {
     "avatar_instagram_post_5s",
@@ -23,6 +23,8 @@ def _plan_publish_times_for_outputs(
     output_platforms: list[str],
     manual_publish_at,
     output_group_keys: list[str | int | None] | None = None,
+    output_account_ids: list[int | None] | None = None,
+    publication_lane: str = "instant",
 ):
     outputs_count = len(output_platforms)
     if outputs_count < 1:
@@ -31,6 +33,33 @@ def _plan_publish_times_for_outputs(
         return [manual_publish_at] * outputs_count
     if not bool(getattr(user, "auto_schedule_enabled", False)):
         return [None] * outputs_count
+
+    if output_account_ids and len(output_account_ids) == outputs_count:
+        if output_group_keys and len(output_group_keys) == outputs_count:
+            grouped_output_indices: dict[tuple[str | int | None, int | None], list[int]] = {}
+            for index, group_key in enumerate(output_group_keys):
+                grouped_output_indices.setdefault((group_key, output_account_ids[index]), []).append(index)
+
+            planned = [None] * outputs_count
+            group_account_ids = [account_id for (_group_key, account_id) in grouped_output_indices.keys()]
+            group_times = plan_next_publish_times_for_account_outputs(
+                db=db,
+                user=user,
+                account_ids=group_account_ids,
+                lane=publication_lane,
+            )
+            for indices, planned_time in zip(grouped_output_indices.values(), group_times):
+                for index in indices:
+                    planned[index] = planned_time
+            if all(item is not None for item in planned):
+                return planned
+
+        return plan_next_publish_times_for_account_outputs(
+            db=db,
+            user=user,
+            account_ids=output_account_ids,
+            lane=publication_lane,
+        )
 
     if output_group_keys and len(output_group_keys) == outputs_count:
         grouped_output_indices: dict[str | int | None, list[int]] = {}

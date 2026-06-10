@@ -68,6 +68,7 @@ export type PublishAccount = {
   channel_name?: string | null;
   enabled: boolean;
   description?: string | null;
+  publish_limit_per_day?: number;
   selected_plate_id?: number | null;
   selected_plate_ids?: number[];
   plate_start_percent?: number | null;

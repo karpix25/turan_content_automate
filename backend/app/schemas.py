@@ -92,6 +92,7 @@ class VideoTaskOut(BaseModel):
 class ChannelPreferenceUpdate(BaseModel):
     account_ids: list[int] = []
     descriptions: Optional[dict[str, str]] = None
+    publish_limits_per_day: Optional[dict[str, int]] = None
     selected_plate_ids: Optional[dict[str, list[int]]] = None
     plate_start_percents: Optional[dict[str, int | None]] = None
 
@@ -111,6 +112,7 @@ class PostMyPostAccountOut(BaseModel):
     channel_name: Optional[str]
     enabled: bool
     description: Optional[str]
+    publish_limit_per_day: int
     selected_plate_id: Optional[int]
     selected_plate_ids: list[int] = []
     plate_start_percent: Optional[int]

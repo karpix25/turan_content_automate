@@ -27,7 +27,6 @@ from .integrations.downloader import Downloader
 from .integrations.postmypost import PostMyPostClient
 from .processor import VideoProcessor
 from .database import SessionLocal, engine, init_database
-from .publish_planner import plan_next_publish_times
 from .telegram_progress import (
     build_task_context_text,
     update_task_status_message,
@@ -5271,7 +5270,6 @@ def process_content_task(self, task_id: int):
                     "No PostMyPost accounts configured/enabled for this user. "
                     "Enable channels in UI or set POSTMYPOST_CHANNEL_IDS."
                 )
-            target_account_ids = []
         elif task.type in AVATAR_TASK_TYPES:
             target_account_ids = []
         if task.type in {"instagram", "youtube"} and not target_account_ids and not process_all_clips:
@@ -5310,31 +5308,28 @@ def process_content_task(self, task_id: int):
         )
         output_platforms: list[str] = []
         output_group_keys: list[str | int | None] = []
+        output_account_ids: list[int | None] = []
         if target_account_ids:
             for _clip_index, _video_path, _clip_title, _clip_context in source_items:
                 for account_id in target_account_ids:
                     output_platforms.append(_normalize_platform_code(account_platform_map.get(account_id, "universal")))
                     output_group_keys.append(_clip_index)
+                    output_account_ids.append(account_id)
         else:
             for _clip_index, _video_path, _clip_title, _clip_context in source_items:
                 output_platforms.append(_normalize_platform_code(task.type))
                 output_group_keys.append(_clip_index)
-        if _should_publish_immediately(task):
-            publish_times = [None] * len(output_platforms)
-            logging.info(
-                "Task %s: immediate PostMyPost publication bypasses schedule limits for task_type=%s outputs=%s",
-                task_id,
-                task.type,
-                len(output_platforms),
-            )
-        else:
-            publish_times = _plan_publish_times_for_outputs(
-                db=db,
-                user=user,
-                output_platforms=output_platforms,
-                manual_publish_at=None if process_all_clips else task.publish_at,
-                output_group_keys=output_group_keys,
-            )
+                output_account_ids.append(None)
+        publication_lane = "vizard" if task.vizard_project_id else "instant"
+        publish_times = _plan_publish_times_for_outputs(
+            db=db,
+            user=user,
+            output_platforms=output_platforms,
+            manual_publish_at=None if process_all_clips or _should_publish_immediately(task) else task.publish_at,
+            output_group_keys=output_group_keys,
+            output_account_ids=output_account_ids,
+            publication_lane=publication_lane,
+        )
         should_sync_outputs = bool(target_account_ids) or task.type in READY_TO_PUBLISH_VIDEO_TASK_TYPES
         base_source = _get_base_source_label(task.source_url)
         if should_sync_outputs and output_platforms:
