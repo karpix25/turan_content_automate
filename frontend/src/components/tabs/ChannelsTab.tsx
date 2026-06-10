@@ -87,17 +87,18 @@ export const ChannelsTab: React.FC = () => {
     loadEndings();
   }, [telegramId]);
 
+  const buildChannelSettingsPayload = (plateIdsByAccount = selectedPlateIdsByAccount) => ({
+    account_ids: publishAccounts.filter(a => a.enabled).map(a => a.account_id),
+    descriptions: channelDescriptions,
+    selected_plate_ids: plateIdsByAccount,
+    plate_start_percents: plateStartPercentByAccount,
+  });
+
   const saveChannelSettings = async () => {
     if (!telegramId) return;
     setSavingChannelSettings(true);
     try {
-      const enabledIds = publishAccounts.filter(a => a.enabled).map(a => a.account_id);
-      await apiClient.updateChannels(telegramId, {
-        account_ids: enabledIds,
-        descriptions: channelDescriptions,
-        selected_plate_ids: selectedPlateIdsByAccount,
-        plate_start_percents: plateStartPercentByAccount,
-      });
+      await apiClient.updateChannels(telegramId, buildChannelSettingsPayload());
       flashSaved();
     } catch (error) {
     } finally {
@@ -150,11 +151,17 @@ export const ChannelsTab: React.FC = () => {
     setUploadingPlateAccountId(plateUploadTarget.account_id);
     try {
       const newPlate = await apiClient.uploadPlate(telegramId, file, plateUploadTarget.account_id);
+      const nextPlateIdsByAccount = {
+        ...selectedPlateIdsByAccount,
+        [plateUploadTarget.account_id]: [
+          ...(selectedPlateIdsByAccount[plateUploadTarget.account_id] || []),
+          newPlate.id,
+        ],
+      };
       
-      setSelectedPlateIdsByAccount(prev => ({
-        ...prev,
-        [plateUploadTarget.account_id]: [...(prev[plateUploadTarget.account_id] || []), newPlate.id]
-      }));
+      setSelectedPlateIdsByAccount(nextPlateIdsByAccount);
+      await apiClient.updateChannels(telegramId, buildChannelSettingsPayload(nextPlateIdsByAccount));
+      flashSaved();
       await loadChannels();
     } catch (error) {
       alert('Ошибка при загрузке плашки');
