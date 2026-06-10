@@ -71,7 +71,9 @@ def _get_base_source_label(source_url: str) -> str:
 def _resolve_publishing_status(publish_at, should_sync: bool) -> str:
     if publish_at:
         return "scheduled"
-    return "in_progress" if should_sync else "not_published"
+    # A task is only "in_progress" after sync_publication_task starts PostMyPost sync.
+    # Before enqueueing it must remain requeueable.
+    return "not_published"
 
 
 def _build_source_label(
