@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { ChevronDown, Globe2, Upload, Loader2, Trash2 } from 'lucide-react';
 import { apiClient } from '../../api/client';
 import { useTelegram } from '../../context/TelegramContext';
-import { PublishAccount, PlateAsset, EndingClip } from '../../types';
+import { PublishAccount, EndingClip } from '../../types';
 
 export const ChannelsTab: React.FC = () => {
   const { telegramId } = useTelegram();
@@ -149,13 +149,7 @@ export const ChannelsTab: React.FC = () => {
     if (!file || !telegramId || !plateUploadTarget) return;
     setUploadingPlateAccountId(plateUploadTarget.account_id);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('account_id', plateUploadTarget.account_id.toString());
-      const API_BASE = import.meta.env.VITE_API_BASE || '/api';
-      const response = await fetch(`${API_BASE}/plates/${telegramId}`, { method: 'POST', body: formData });
-      if (!response.ok) throw new Error('Ошибка загрузки');
-      const newPlate = await response.json();
+      const newPlate = await apiClient.uploadPlate(telegramId, file, plateUploadTarget.account_id);
       
       setSelectedPlateIdsByAccount(prev => ({
         ...prev,
@@ -176,13 +170,10 @@ export const ChannelsTab: React.FC = () => {
     if (!file || !telegramId || !endingUploadTarget) return;
     setUploadingEndingAccountId(endingUploadTarget.account_id);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('account_id', endingUploadTarget.account_id.toString());
-      formData.append('platform', 'universal');
-      const API_BASE = import.meta.env.VITE_API_BASE || '/api';
-      const response = await fetch(`${API_BASE}/endings/${telegramId}`, { method: 'POST', body: formData });
-      if (!response.ok) throw new Error('Ошибка загрузки');
+      await apiClient.uploadEnding(telegramId, file, {
+        accountId: endingUploadTarget.account_id,
+        platform: 'universal',
+      });
       await loadEndings();
     } catch (error) {
       alert('Ошибка при загрузке концовки');

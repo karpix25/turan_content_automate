@@ -3,6 +3,7 @@ import {
   UserSettings,
   VideoTaskItem,
   PublishAccount,
+  PlateAsset,
   EndingClip,
   ThumbnailReference,
   ThumbnailFaceReference,
@@ -110,6 +111,32 @@ export const apiClient = {
   // Endings & Plates
   getEndings: async (telegramId: string) => {
     const res = await axios.get<EndingClip[]>(`${API_BASE}/endings/${telegramId}`);
+    return res.data;
+  },
+  uploadPlate: async (telegramId: string, file: File, accountId?: number) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (accountId !== undefined) {
+      formData.append('account_id', accountId.toString());
+    }
+    const res = await axios.post<PlateAsset>(`${API_BASE}/upload/plate/${telegramId}`, formData);
+    return res.data;
+  },
+  uploadEnding: async (
+    telegramId: string,
+    file: File,
+    options: { accountId?: number; platform?: string; label?: string } = {}
+  ) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('platform', options.platform || 'universal');
+    if (options.accountId !== undefined) {
+      formData.append('account_id', options.accountId.toString());
+    }
+    if (options.label) {
+      formData.append('label', options.label);
+    }
+    const res = await axios.post<EndingClip>(`${API_BASE}/upload/ending/${telegramId}`, formData);
     return res.data;
   },
   deletePlate: async (telegramId: string, plateId: number) => {
