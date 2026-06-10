@@ -7,10 +7,13 @@ IMMEDIATE_POSTMYPUBLISH_TASK_TYPES = {
     "avatar_instagram_post_5s",
     "infographic_reels",
 }
+IMMEDIATE_EXTERNAL_VIDEO_TASK_TYPES = {"instagram", "youtube"}
 
 
 def _should_publish_immediately(task_or_type) -> bool:
     task_type = getattr(task_or_type, "type", task_or_type)
+    if task_type in IMMEDIATE_EXTERNAL_VIDEO_TASK_TYPES:
+        return not bool(getattr(task_or_type, "vizard_project_id", None))
     return task_type in IMMEDIATE_POSTMYPUBLISH_TASK_TYPES
 
 
