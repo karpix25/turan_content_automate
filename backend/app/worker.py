@@ -114,6 +114,7 @@ CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS = max(
     PROCESS_TASK_HARD_LIMIT_SECONDS + 3600,
     int(os.getenv("CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS", "28800")),
 )
+POSTMYPOST_PUBLICATION_RATE_LIMIT = (os.getenv("POSTMYPOST_PUBLICATION_RATE_LIMIT") or "4/m").strip() or "4/m"
 celery_app.conf.update(
     broker_connection_retry_on_startup=True,
     broker_transport_options={
@@ -131,6 +132,9 @@ celery_app.conf.update(
             "reject_on_worker_lost": True,
             "soft_time_limit": PROCESS_TASK_SOFT_LIMIT_SECONDS,
             "time_limit": PROCESS_TASK_HARD_LIMIT_SECONDS,
+        },
+        "sync_publication_task": {
+            "rate_limit": POSTMYPOST_PUBLICATION_RATE_LIMIT,
         },
     },
     beat_schedule={
