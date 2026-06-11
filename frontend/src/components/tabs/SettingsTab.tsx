@@ -72,6 +72,7 @@ export const SettingsTab: React.FC = () => {
   const [avatarVerticalDurationSeconds, setAvatarVerticalDurationSeconds] = useState<number>(0);
   const [fiveSecondSettings, setFiveSecondSettings] = useState<InstagramPost5sSettings | null>(null);
   const [fiveSecondCtaText, setFiveSecondCtaText] = useState<string>('');
+  const [fiveSecondImagePrompt, setFiveSecondImagePrompt] = useState<string>('');
   const [uploadingFiveSecondAudio, setUploadingFiveSecondAudio] = useState(false);
   const [deletingFiveSecondAudioId, setDeletingFiveSecondAudioId] = useState<number | null>(null);
   const [uploadingFiveSecondOverlay, setUploadingFiveSecondOverlay] = useState(false);
@@ -84,6 +85,7 @@ export const SettingsTab: React.FC = () => {
       const data = await apiClient.getInstagramPost5sSettings(telegramId);
       setFiveSecondSettings(data);
       setFiveSecondCtaText(data.cta_text || '');
+      setFiveSecondImagePrompt(data.image_prompt || '');
     } catch (error) {
     }
   };
@@ -110,6 +112,7 @@ export const SettingsTab: React.FC = () => {
         setAvatarInsertClipsCount(data.avatar_insert_clips_count ?? 2);
         setYoutubeDescriptionTemplate(data.youtube_description_template || '');
         setFiveSecondCtaText(data.instagram_post_5s_cta_text || '');
+        setFiveSecondImagePrompt(data.instagram_post_5s_image_prompt || '');
       } catch (error) {
       } finally {
         setLoadingStyle(false);
@@ -249,6 +252,7 @@ export const SettingsTab: React.FC = () => {
         avatar_vertical_duration_seconds: avatarVerticalDurationSeconds,
         youtube_description_template: youtubeDescriptionTemplate,
         instagram_post_5s_cta_text: fiveSecondCtaText,
+        instagram_post_5s_image_prompt: fiveSecondImagePrompt,
       });
       setSavedSettings(true);
       setTimeout(() => setSavedSettings(false), 2000);
@@ -661,6 +665,24 @@ export const SettingsTab: React.FC = () => {
           <div className="mt-1 flex items-center justify-between gap-2">
             <p className="text-[11px] text-slate-400">1 строка маленькая, 2 строка крупная.</p>
             <span className="text-[10px] text-slate-400 tabular-nums">{fiveSecondCtaText.length}/220</span>
+          </div>
+        </div>
+
+        <div className="mt-3 bg-slate-50 rounded-xl p-3 border border-slate-100">
+          <label className="text-xs font-bold text-[#707579] uppercase tracking-wider mb-2 block">
+            Промт для картинки
+          </label>
+          <textarea
+            value={fiveSecondImagePrompt}
+            onChange={(e) => setFiveSecondImagePrompt(e.target.value.slice(0, 1200))}
+            maxLength={1200}
+            rows={4}
+            placeholder="Например: сохранить желтый фон, сделать больше воздуха справа для лица, стиль финансового чеклиста, без лишних деталей"
+            className="w-full min-h-[112px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[#24a1de] resize-y"
+          />
+          <div className="mt-1 flex items-center justify-between gap-2">
+            <p className="text-[11px] text-slate-400">Добавляется к промту очистки/перерисовки изображения.</p>
+            <span className="text-[10px] text-slate-400 tabular-nums">{fiveSecondImagePrompt.length}/1200</span>
           </div>
         </div>
 

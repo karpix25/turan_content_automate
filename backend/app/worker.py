@@ -4367,6 +4367,14 @@ def process_content_task(self, task_id: int):
                 "or poster frame. The output must be only the visual first layer/background, ready for a separate "
                 "title plate."
             )
+            five_second_image_prompt = " ".join(
+                str(getattr(user, "instagram_post_5s_image_prompt", None) or "").split()
+            ).strip()
+            if five_second_image_prompt:
+                clean_image_prompt = (
+                    f"{clean_image_prompt} Additional creative direction from the user: "
+                    f"{five_second_image_prompt}"
+                )
             clean_image_path = os.path.join(output_dir, f"instagram_post_clean_{task_id}.png")
             generated_clean_image = thumbnail_generator.generate_image_from_references(
                 prompt=clean_image_prompt,
@@ -4392,6 +4400,7 @@ def process_content_task(self, task_id: int):
                     "rewritten_description": rewritten_description,
                     "description_txt_path": description_txt_path,
                     "creator": creator,
+                    "image_prompt": five_second_image_prompt or None,
                 }
                 task.script_meta = current_meta
                 db.commit()
@@ -4461,6 +4470,7 @@ def process_content_task(self, task_id: int):
                 "selected_audio_path": selected_audio_path,
                 "overlay_path": overlay_path,
                 "cta_text": five_second_cta_text,
+                "image_prompt": five_second_image_prompt or None,
                 "creator": creator,
                 "render": five_second_meta,
             }

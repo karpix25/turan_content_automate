@@ -122,6 +122,11 @@ def update_settings(telegram_id: str, settings: schemas.UserSettingsUpdate, db: 
         cta_text = "\n".join(line for line in cta_lines if line).strip()
         update_data["instagram_post_5s_cta_text"] = cta_text[:220] or None
 
+    if "instagram_post_5s_image_prompt" in update_data:
+        raw_image_prompt = str(update_data.get("instagram_post_5s_image_prompt") or "")
+        image_prompt = " ".join(raw_image_prompt.replace("\r\n", "\n").split()).strip()
+        update_data["instagram_post_5s_image_prompt"] = image_prompt[:1200] or None
+
     if "avatar_script_duration_minutes" in update_data:
         try:
             duration_value = int(update_data.get("avatar_script_duration_minutes"))
@@ -189,6 +194,7 @@ async def get_style_settings(telegram_id: str, db: Session = Depends(get_db)):
         "instagram_post_5s_audio_refreshed_at": user.instagram_post_5s_audio_refreshed_at,
         "instagram_post_5s_overlay_path": user.instagram_post_5s_overlay_path,
         "instagram_post_5s_cta_text": getattr(user, "instagram_post_5s_cta_text", None),
+        "instagram_post_5s_image_prompt": getattr(user, "instagram_post_5s_image_prompt", None),
     }
 
 @router.post("/train-style/{telegram_id}")

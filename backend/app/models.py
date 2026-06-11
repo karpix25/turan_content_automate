@@ -51,6 +51,7 @@ class User(Base):
     instagram_post_5s_audio_refreshed_at = Column(DateTime, nullable=True)
     instagram_post_5s_overlay_path = Column(String, nullable=True)
     instagram_post_5s_cta_text = Column(String, nullable=True)
+    instagram_post_5s_image_prompt = Column(String, nullable=True)
 
 class Plate(Base):
     __tablename__ = "plates"

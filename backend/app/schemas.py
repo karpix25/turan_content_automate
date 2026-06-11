@@ -34,6 +34,7 @@ class UserSettingsUpdate(BaseModel):
     instagram_post_5s_audio_profile: Optional[str] = None
     instagram_post_5s_overlay_path: Optional[str] = None
     instagram_post_5s_cta_text: Optional[str] = None
+    instagram_post_5s_image_prompt: Optional[str] = None
 
     telegram_chat_id: Optional[str] = None
     telegram_status_message_id: Optional[str] = None
@@ -195,6 +196,7 @@ class InstagramPost5sSettingsOut(BaseModel):
     audio_refreshed_at: Optional[datetime.datetime] = None
     overlay_path: Optional[str] = None
     cta_text: Optional[str] = None
+    image_prompt: Optional[str] = None
     audio_tracks: list[InstagramPost5sAudioTrackOut] = []
 
 class UserSettings(BaseModel):
@@ -237,6 +239,7 @@ class UserSettings(BaseModel):
     instagram_post_5s_audio_refreshed_at: Optional[datetime.datetime] = None
     instagram_post_5s_overlay_path: Optional[str] = None
     instagram_post_5s_cta_text: Optional[str] = None
+    instagram_post_5s_image_prompt: Optional[str] = None
 
     class Config:
         from_attributes = True
