@@ -7,13 +7,15 @@ from datetime import datetime, timezone
 
 import httpx
 
+from .utils.task_format_labels import get_task_format_label
+
 
 logger = logging.getLogger(__name__)
 MAX_TELEGRAM_TEXT_LEN = 3900
 TELEGRAM_UPLOAD_MAX_BYTES = 49 * 1024 * 1024
 
 
-def build_status_message(task_id: int, stage: str, detail: str | None = None, ok: bool = False, failed: bool = False) -> str:
+def build_status_message(task, stage: str, detail: str | None = None, ok: bool = False, failed: bool = False) -> str:
     if failed:
         icon = "❌"
     elif ok:
@@ -21,8 +23,9 @@ def build_status_message(task_id: int, stage: str, detail: str | None = None, ok
     else:
         icon = "⏳"
 
+    format_label = get_task_format_label(task)
     lines = [
-        f"{icon} Видео #{task_id}",
+        f"{icon} {format_label}",
         f"Этап: {stage}",
     ]
     if detail:
@@ -73,7 +76,7 @@ def update_task_status_message(db, task, stage: str, detail: str | None = None, 
     if not token or not chat_id or not message_id:
         return
 
-    text = build_status_message(task.id, stage=stage, detail=detail, ok=ok, failed=failed)
+    text = build_status_message(task, stage=stage, detail=detail, ok=ok, failed=failed)
     if getattr(task, "telegram_status_text", None) == text:
         return
 
@@ -683,16 +686,7 @@ def send_yandex_disk_links_to_telegram(task, uploads: list[dict]) -> None:
     if not uploads:
         return
 
-    task_type = (getattr(task, "type", None) or "").strip()
-    format_labels = {
-        "avatar_heygen": "ИИ-аватар",
-        "avatar_horizontal": "ИИ-аватар горизонтальный",
-        "avatar_vertical": "ИИ-аватар вертикальный",
-        "avatar_youtube": "ИИ-аватар YouTube",
-        "avatar_instagram": "ИИ-аватар Reels",
-        "avatar_shorts": "ИИ-аватар Shorts",
-    }
-    format_label = format_labels.get(task_type, task_type or "Видео")
+    format_label = get_task_format_label(task)
 
     lines = [
         "Все, Turan 🫶🏻",
