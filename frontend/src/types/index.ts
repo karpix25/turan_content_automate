@@ -58,6 +58,7 @@ export type VideoTaskItem = {
 export type PlateAsset = {
   id: number;
   file_path: string;
+  media_type?: 'image' | 'video';
 };
 
 export type PublishAccount = {

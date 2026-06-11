@@ -100,6 +100,7 @@ class ChannelPreferenceUpdate(BaseModel):
 class PlateAssetOut(BaseModel):
     id: int
     file_path: str
+    media_type: str = "image"
 
     class Config:
         from_attributes = True

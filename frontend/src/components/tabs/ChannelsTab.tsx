@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { ChevronDown, Globe2, Upload, Loader2, Trash2 } from 'lucide-react';
+import { ChevronDown, Film, Globe2, Upload, Loader2, Trash2 } from 'lucide-react';
 import { apiClient } from '../../api/client';
 import { useTelegram } from '../../context/TelegramContext';
 import { PublishAccount, EndingClip } from '../../types';
@@ -243,7 +243,7 @@ export const ChannelsTab: React.FC = () => {
         <div className="space-y-4">
           <input
             type="file"
-            accept="image/*"
+            accept="image/*,video/webm,video/quicktime,.webm,.mov"
             className="hidden"
             ref={plateInputRef}
             onChange={handlePlateUpload}
@@ -355,19 +355,36 @@ export const ChannelsTab: React.FC = () => {
                           </div>
                           
                           <div className="space-y-2 mb-3">
-                            {account.plate_assets?.map(plate => (
-                              <div key={plate.id} className="flex items-center gap-2 bg-white p-1.5 rounded-lg border border-slate-100">
-                                <img src={getMediaUrl(plate.file_path)} alt="Plate" className="w-8 h-8 object-cover rounded bg-slate-100" />
-                                <span className="text-[10px] text-slate-500 flex-1 truncate">{plate.file_path.split('/').pop()}</span>
-                                <button
-                                  onClick={() => deletePlate(plate.id)}
-                                  disabled={deletingPlateId === plate.id}
-                                  className="p-1.5 text-slate-400 hover:text-rose-500 rounded-md"
-                                >
-                                  {deletingPlateId === plate.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                                </button>
-                              </div>
-                            ))}
+                            {account.plate_assets?.map(plate => {
+                              const isVideoPlate = plate.media_type === 'video';
+                              return (
+                                <div key={plate.id} className="flex items-center gap-2 bg-white p-1.5 rounded-lg border border-slate-100">
+                                  {isVideoPlate ? (
+                                    <video
+                                      src={getMediaUrl(plate.file_path)}
+                                      muted
+                                      playsInline
+                                      className="w-8 h-8 object-cover rounded bg-slate-100"
+                                    />
+                                  ) : (
+                                    <img src={getMediaUrl(plate.file_path)} alt="Plate" className="w-8 h-8 object-cover rounded bg-slate-100" />
+                                  )}
+                                  <span className="text-[10px] text-slate-500 flex-1 truncate">{plate.file_path.split('/').pop()}</span>
+                                  {isVideoPlate && (
+                                    <span className="h-6 w-6 rounded-md bg-blue-50 text-[#24a1de] flex items-center justify-center" title="Видео-плашка">
+                                      <Film size={13} />
+                                    </span>
+                                  )}
+                                  <button
+                                    onClick={() => deletePlate(plate.id)}
+                                    disabled={deletingPlateId === plate.id}
+                                    className="p-1.5 text-slate-400 hover:text-rose-500 rounded-md"
+                                  >
+                                    {deletingPlateId === plate.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                                  </button>
+                                </div>
+                              );
+                            })}
                             {(!account.plate_assets || account.plate_assets.length === 0) && (
                               <p className="text-xs text-slate-400 italic">Нет загруженных плашек</p>
                             )}

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from ... import models, schemas
 from ...core.config import pmp_client
 from ...publish_planner import DEFAULT_ACCOUNT_LIMIT_PER_DAY, validate_account_publish_limit
+from ...utils.plate_media import get_plate_media_type
 from ..deps import get_db, ensure_admin_access, get_or_create_user
 from ..utils import normalize_percent
 
@@ -68,7 +69,13 @@ def build_postmypost_channels_response(
             plate = plate_map.get(int(plate_id))
             if not plate:
                 continue
-            plate_assets.append(schemas.PlateAssetOut(id=plate.id, file_path=plate.file_path))
+            plate_assets.append(
+                schemas.PlateAssetOut(
+                    id=plate.id,
+                    file_path=plate.file_path,
+                    media_type=get_plate_media_type(plate.file_path),
+                )
+            )
         plate_file_path = plate_assets[0].file_path if plate_assets else None
         result.append(
             schemas.PostMyPostAccountOut(

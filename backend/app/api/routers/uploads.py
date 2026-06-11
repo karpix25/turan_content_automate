@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from ... import models, schemas
 from ...core.config import celery_client
 from ...telegram_progress import update_task_status_message
+from ...utils.plate_media import PLATE_ALLOWED_EXTENSIONS, get_plate_media_type
 from ..deps import get_db, ensure_admin_access, get_or_create_user
 from ..utils import _build_safe_upload_filename, normalize_ending_platform, parse_optional_account_id
 
@@ -39,6 +40,17 @@ def _validate_thumbnail_file(file: UploadFile) -> str:
     allowed_extensions = {".jpg", ".jpeg", ".png", ".webp"}
     if extension not in allowed_extensions:
         raise HTTPException(status_code=400, detail="Unsupported image type. Use JPG, PNG, or WEBP.")
+    return safe_name
+
+
+def _validate_plate_file(file: UploadFile) -> str:
+    safe_name = _build_safe_upload_filename(file.filename, fallback_extension=".png")
+    extension = os.path.splitext(safe_name)[1].lower()
+    if extension not in PLATE_ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported plate type. Use JPG, PNG, WEBP, WEBM, or MOV with alpha.",
+        )
     return safe_name
 
 
@@ -224,7 +236,8 @@ async def upload_plate(telegram_id: str, file: UploadFile = File(...), db: Sessi
     user = get_or_create_user(db, telegram_id)
     plates_dir = os.getenv("PLATES_DIR", "/app/database/media/plates")
     os.makedirs(plates_dir, exist_ok=True)
-    file_name = f"{telegram_id}_{file.filename}"
+    safe_name = _validate_plate_file(file)
+    file_name = f"{telegram_id}_{datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}_{safe_name}"
     file_path = os.path.join(plates_dir, file_name)
     
     with open(file_path, "wb") as f:
@@ -234,7 +247,11 @@ async def upload_plate(telegram_id: str, file: UploadFile = File(...), db: Sessi
     db.add(new_plate)
     db.commit()
     db.refresh(new_plate)
-    return schemas.PlateAssetOut(id=new_plate.id, file_path=file_path)
+    return schemas.PlateAssetOut(
+        id=new_plate.id,
+        file_path=file_path,
+        media_type=get_plate_media_type(file_path),
+    )
 
 
 @router.get("/instagram-post-5s/settings/{telegram_id}", response_model=schemas.InstagramPost5sSettingsOut)

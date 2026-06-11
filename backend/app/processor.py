@@ -7,6 +7,8 @@ import subprocess
 import ffmpeg
 from typing import List, Dict, Optional, Tuple
 
+from .utils.plate_media import is_plate_video
+
 logger = logging.getLogger(__name__)
 
 class VideoProcessor:
@@ -629,9 +631,17 @@ class VideoProcessor:
             audio = audio.filter("atempo", profile["speed"])
 
         if plate_path:
+            normalized_plate_start_percent = self._normalize_percent(plate_start_percent)
+            processed_main_duration = main_duration / profile["speed"] if profile["speed"] else main_duration
+            plate_start_seconds = processed_main_duration * normalized_plate_start_percent / 100.0
+            remaining_duration = max(0.1, processed_main_duration - plate_start_seconds)
+            if is_plate_video(plate_path):
+                plate_input = ffmpeg.input(plate_path, t=remaining_duration)
+                plate = plate_input.video
+            else:
+                plate = ffmpeg.input(plate_path)
             plate = (
-                ffmpeg
-                .input(plate_path)
+                plate
                 .filter(
                     "scale",
                     target_width,
@@ -640,9 +650,8 @@ class VideoProcessor:
                 )
                 .filter("setsar", "1")
             )
-            normalized_plate_start_percent = self._normalize_percent(plate_start_percent)
-            processed_main_duration = main_duration / profile["speed"] if profile["speed"] else main_duration
-            plate_start_seconds = processed_main_duration * normalized_plate_start_percent / 100.0
+            if is_plate_video(plate_path) and target_fps:
+                plate = plate.filter("fps", fps=target_fps)
             if plate_start_seconds > 0:
                 video = ffmpeg.overlay(
                     video,
