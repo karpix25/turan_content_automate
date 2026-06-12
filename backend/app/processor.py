@@ -631,17 +631,19 @@ class VideoProcessor:
             audio = audio.filter("atempo", profile["speed"])
 
         if plate_path:
+            plate_is_video = is_plate_video(plate_path)
             normalized_plate_start_percent = self._normalize_percent(plate_start_percent)
             processed_main_duration = main_duration / profile["speed"] if profile["speed"] else main_duration
             plate_start_seconds = processed_main_duration * normalized_plate_start_percent / 100.0
             remaining_duration = max(0.1, processed_main_duration - plate_start_seconds)
-            if is_plate_video(plate_path):
+            if plate_is_video:
                 plate_input = ffmpeg.input(plate_path, t=remaining_duration)
                 plate = plate_input.video
             else:
                 plate = ffmpeg.input(plate_path)
             plate = (
                 plate
+                .filter("format", "rgba")
                 .filter(
                     "scale",
                     target_width,
@@ -649,24 +651,26 @@ class VideoProcessor:
                     force_original_aspect_ratio="decrease",
                 )
                 .filter("setsar", "1")
+                .filter("format", "rgba")
             )
-            if is_plate_video(plate_path) and target_fps:
+            if plate_is_video and target_fps:
                 plate = plate.filter("fps", fps=target_fps)
+            overlay_kwargs = {
+                "x": "(main_w-overlay_w)/2",
+                "y": "(main_h-overlay_h)/2",
+                "format": "auto",
+            }
+            if plate_is_video:
+                overlay_kwargs.update({"eof_action": "pass", "repeatlast": 0})
             if plate_start_seconds > 0:
                 video = ffmpeg.overlay(
                     video,
                     plate,
-                    x="(main_w-overlay_w)/2",
-                    y="(main_h-overlay_h)/2",
                     enable=f"gte(t,{plate_start_seconds:.3f})",
+                    **overlay_kwargs,
                 )
             else:
-                video = ffmpeg.overlay(
-                    video,
-                    plate,
-                    x="(main_w-overlay_w)/2",
-                    y="(main_h-overlay_h)/2",
-                )
+                video = ffmpeg.overlay(video, plate, **overlay_kwargs)
 
         if cta_path:
             cta_probe = self._probe_media(cta_path)
