@@ -43,33 +43,37 @@ export const ChannelsTab: React.FC = () => {
     setTimeout(() => setSaved(false), 2000);
   };
 
+  const applyChannelsData = (data: PublishAccount[]) => {
+    setPublishAccounts(data);
+    const descMap: Record<number, string> = {};
+    const limitMap: Record<number, number> = {};
+    const platesMap: Record<number, number[]> = {};
+    const percentsMap: Record<number, number> = {};
+    data.forEach(acc => {
+      descMap[acc.account_id] = acc.description || '';
+      limitMap[acc.account_id] = acc.publish_limit_per_day || 3;
+      platesMap[acc.account_id] = acc.selected_plate_ids || [];
+      percentsMap[acc.account_id] = acc.plate_start_percent ?? 50;
+    });
+    setChannelDescriptions(descMap);
+    setPublishLimitByAccount(limitMap);
+    setSelectedPlateIdsByAccount(platesMap);
+    setPlateStartPercentByAccount(percentsMap);
+    setCollapsedAccounts(prev => {
+      const next = { ...prev };
+      data.forEach(acc => {
+        if (next[acc.account_id] === undefined) next[acc.account_id] = true;
+      });
+      return next;
+    });
+  };
+
   const loadChannels = async () => {
     if (!telegramId) return;
     setChannelsLoading(true);
     try {
       const data = await apiClient.getChannels(telegramId);
-      setPublishAccounts(data);
-      const descMap: Record<number, string> = {};
-      const limitMap: Record<number, number> = {};
-      const platesMap: Record<number, number[]> = {};
-      const percentsMap: Record<number, number> = {};
-      data.forEach(acc => {
-        descMap[acc.account_id] = acc.description || '';
-        limitMap[acc.account_id] = acc.publish_limit_per_day || 3;
-        platesMap[acc.account_id] = acc.selected_plate_ids || [];
-        percentsMap[acc.account_id] = acc.plate_start_percent ?? 50;
-      });
-      setChannelDescriptions(descMap);
-      setPublishLimitByAccount(limitMap);
-      setSelectedPlateIdsByAccount(platesMap);
-      setPlateStartPercentByAccount(percentsMap);
-      setCollapsedAccounts(prev => {
-        const next = { ...prev };
-        data.forEach(acc => {
-          if (next[acc.account_id] === undefined) next[acc.account_id] = true;
-        });
-        return next;
-      });
+      applyChannelsData(data);
     } catch (error: any) {
       setChannelsError(error.response?.data?.detail || error.message || 'Ошибка загрузки каналов');
     } finally {
@@ -91,8 +95,11 @@ export const ChannelsTab: React.FC = () => {
     loadEndings();
   }, [telegramId]);
 
-  const buildChannelSettingsPayload = (plateIdsByAccount = selectedPlateIdsByAccount) => ({
-    account_ids: publishAccounts.filter(a => a.enabled).map(a => a.account_id),
+  const buildChannelSettingsPayload = (
+    plateIdsByAccount = selectedPlateIdsByAccount,
+    accounts = publishAccounts,
+  ) => ({
+    account_ids: accounts.filter(a => a.enabled).map(a => a.account_id),
     descriptions: channelDescriptions,
     publish_limits_per_day: publishLimitByAccount,
     selected_plate_ids: plateIdsByAccount,
@@ -103,18 +110,37 @@ export const ChannelsTab: React.FC = () => {
     if (!telegramId) return;
     setSavingChannelSettings(true);
     try {
-      await apiClient.updateChannels(telegramId, buildChannelSettingsPayload());
+      const data = await apiClient.updateChannels(telegramId, buildChannelSettingsPayload());
+      applyChannelsData(data);
       flashSaved();
-    } catch (error) {
+    } catch (error: any) {
+      alert(error.response?.data?.detail || error.message || 'Ошибка сохранения каналов');
     } finally {
       setSavingChannelSettings(false);
     }
   };
 
-  const handleAccountToggle = (accountId: number) => {
-    setPublishAccounts(prev => prev.map(acc => 
+  const handleAccountToggle = async (accountId: number) => {
+    if (!telegramId || savingChannelSettings) return;
+    const previousAccounts = publishAccounts;
+    const nextAccounts = publishAccounts.map(acc =>
       acc.account_id === accountId ? { ...acc, enabled: !acc.enabled } : acc
-    ));
+    );
+    setPublishAccounts(nextAccounts);
+    setSavingChannelSettings(true);
+    try {
+      const data = await apiClient.updateChannels(
+        telegramId,
+        buildChannelSettingsPayload(selectedPlateIdsByAccount, nextAccounts),
+      );
+      applyChannelsData(data);
+      flashSaved();
+    } catch (error: any) {
+      setPublishAccounts(previousAccounts);
+      alert(error.response?.data?.detail || error.message || 'Ошибка автосохранения канала');
+    } finally {
+      setSavingChannelSettings(false);
+    }
   };
 
   const toggleAccountCollapse = (accountId: number) => {
@@ -287,6 +313,7 @@ export const ChannelsTab: React.FC = () => {
                     </div>
                     <button
                       onClick={() => handleAccountToggle(account.account_id)}
+                      disabled={savingChannelSettings}
                       className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors shrink-0 ${account.enabled ? 'bg-[#34c759]' : 'bg-[#e9e9eb]'}`}
                     >
                       <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${account.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
