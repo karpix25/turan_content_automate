@@ -25,6 +25,7 @@ def _plan_publish_times_for_outputs(
     output_group_keys: list[str | int | None] | None = None,
     output_account_ids: list[int | None] | None = None,
     publication_lane: str = "instant",
+    publish_immediately_when_slot_available: bool = False,
 ):
     outputs_count = len(output_platforms)
     if outputs_count < 1:
@@ -47,11 +48,12 @@ def _plan_publish_times_for_outputs(
                 user=user,
                 account_ids=group_account_ids,
                 lane=publication_lane,
+                allow_immediate_if_today_slot_available=publish_immediately_when_slot_available,
             )
             for indices, planned_time in zip(grouped_output_indices.values(), group_times):
                 for index in indices:
                     planned[index] = planned_time
-            if all(item is not None for item in planned):
+            if len(group_times) == len(grouped_output_indices):
                 return planned
 
         return plan_next_publish_times_for_account_outputs(
@@ -59,6 +61,7 @@ def _plan_publish_times_for_outputs(
             user=user,
             account_ids=output_account_ids,
             lane=publication_lane,
+            allow_immediate_if_today_slot_available=publish_immediately_when_slot_available,
         )
 
     if output_group_keys and len(output_group_keys) == outputs_count:

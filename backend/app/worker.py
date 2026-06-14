@@ -5331,14 +5331,16 @@ def process_content_task(self, task_id: int):
                 output_group_keys.append(_clip_index)
                 output_account_ids.append(None)
         publication_lane = "vizard" if task.vizard_project_id else "instant"
+        publish_immediately_when_available = _should_publish_immediately(task)
         publish_times = _plan_publish_times_for_outputs(
             db=db,
             user=user,
             output_platforms=output_platforms,
-            manual_publish_at=None if process_all_clips or _should_publish_immediately(task) else task.publish_at,
+            manual_publish_at=None if process_all_clips or publish_immediately_when_available else task.publish_at,
             output_group_keys=output_group_keys,
             output_account_ids=output_account_ids,
             publication_lane=publication_lane,
+            publish_immediately_when_slot_available=publish_immediately_when_available,
         )
         should_sync_outputs = bool(target_account_ids) or task.type in READY_TO_PUBLISH_VIDEO_TASK_TYPES
         base_source = _get_base_source_label(task.source_url)
@@ -5793,7 +5795,8 @@ def process_content_task(self, task_id: int):
                 primary_output["target_account_id"],
                 primary_output["publish_at"],
             )
-            celery_app.send_task("sync_publication_task", args=[task.id])
+            force_now = bool(publish_immediately_when_available and primary_output["publish_at"] is None)
+            celery_app.send_task("sync_publication_task", args=[task.id], kwargs={"force_now": force_now})
 
         # Avatar tasks are not published through PostMyPost; files are saved to Yandex.Disk.
 
@@ -5817,7 +5820,8 @@ def process_content_task(self, task_id: int):
                         derived_output["target_account_id"],
                         derived_output["publish_at"],
                     )
-                    celery_app.send_task("sync_publication_task", args=[derived_task.id])
+                    force_now = bool(publish_immediately_when_available and derived_output["publish_at"] is None)
+                    celery_app.send_task("sync_publication_task", args=[derived_task.id], kwargs={"force_now": force_now})
 
     except Exception as e:
         logging.exception(f"Task {task_id} failed: {e}")

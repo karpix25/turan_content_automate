@@ -141,7 +141,8 @@ def plan_next_publish_times_for_account_outputs(
     *,
     lane: str,
     exclude_task_ids: set[int] | None = None,
-) -> list[datetime.datetime]:
+    allow_immediate_if_today_slot_available: bool = False,
+) -> list[datetime.datetime | None]:
     if not account_ids:
         return []
 
@@ -168,7 +169,7 @@ def plan_next_publish_times_for_account_outputs(
         models.VideoTask.user_id == user.id,
         models.VideoTask.target_account_id.in_(list(account_limits.keys())),
         models.VideoTask.publish_at.isnot(None),
-        models.VideoTask.publishing_status.in_(["scheduled", "in_progress"]),
+        models.VideoTask.publishing_status.in_(["scheduled", "in_progress", "published"]),
     ).all()
 
     reserved_slots: dict[tuple[int, str], set[datetime.datetime]] = {}
@@ -185,13 +186,20 @@ def plan_next_publish_times_for_account_outputs(
         daily_key = (account_id, row_lane, day_msk)
         daily_counts[daily_key] = daily_counts.get(daily_key, 0) + 1
 
-    planned: list[datetime.datetime] = []
+    planned: list[datetime.datetime | None] = []
     for account_id in concrete_account_ids:
         limit_per_day = account_limits[int(account_id)]
         lane_limit = _lane_limit(limit_per_day, normalized_lane)
         account_reserved = reserved_slots.setdefault((account_id, normalized_lane), set())
         day_cursor = earliest_msk.date()
         planned_for_output = False
+
+        if allow_immediate_if_today_slot_available and normalized_lane == "instant":
+            today_key = (account_id, normalized_lane, now_utc.astimezone(MSK_TZ).date())
+            if daily_counts.get(today_key, 0) < lane_limit:
+                daily_counts[today_key] = daily_counts.get(today_key, 0) + 1
+                planned.append(None)
+                continue
 
         for _ in range(0, 370):
             daily_key = (account_id, normalized_lane, day_cursor)
