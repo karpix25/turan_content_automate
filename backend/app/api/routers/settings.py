@@ -70,6 +70,23 @@ def update_settings(telegram_id: str, settings: schemas.UserSettingsUpdate, db: 
             raise HTTPException(status_code=400, detail="avatar_insert_clips_count must be between 0 and 20")
         update_data["avatar_insert_clips_count"] = clips_value
 
+    for field_name in (
+        "avatar_overlay_x_percent",
+        "avatar_overlay_y_percent",
+        "avatar_overlay_opacity_percent",
+    ):
+        if field_name in update_data:
+            update_data[field_name] = normalize_percent(update_data.get(field_name), field_name=field_name)
+
+    if "avatar_overlay_size_percent" in update_data:
+        try:
+            size_value = int(update_data.get("avatar_overlay_size_percent") or 61)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="avatar_overlay_size_percent must be an integer")
+        if size_value < 5 or size_value > 100:
+            raise HTTPException(status_code=400, detail="avatar_overlay_size_percent must be between 5 and 100")
+        update_data["avatar_overlay_size_percent"] = size_value
+
     broll_start_percent = update_data.get("reels_broll_start_percent", user.reels_broll_start_percent)
     broll_end_percent = update_data.get("reels_broll_end_percent", user.reels_broll_end_percent)
     broll_clips_count = update_data.get("reels_broll_clips_count", user.reels_broll_clips_count)
@@ -182,6 +199,10 @@ async def get_style_settings(telegram_id: str, db: Session = Depends(get_db)):
         "avatar_insert_start_percent": user.avatar_insert_start_percent,
         "avatar_insert_end_percent": user.avatar_insert_end_percent,
         "avatar_insert_clips_count": user.avatar_insert_clips_count,
+        "avatar_overlay_x_percent": getattr(user, "avatar_overlay_x_percent", 70),
+        "avatar_overlay_y_percent": getattr(user, "avatar_overlay_y_percent", 100),
+        "avatar_overlay_size_percent": getattr(user, "avatar_overlay_size_percent", 61),
+        "avatar_overlay_opacity_percent": getattr(user, "avatar_overlay_opacity_percent", 100),
         "reels_broll_yandex_dir": user.reels_broll_yandex_dir,
         "reels_broll_start_percent": user.reels_broll_start_percent,
         "reels_broll_end_percent": user.reels_broll_end_percent,

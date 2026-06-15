@@ -25,6 +25,10 @@ class UserSettingsUpdate(BaseModel):
     avatar_insert_start_percent: Optional[int] = None
     avatar_insert_end_percent: Optional[int] = None
     avatar_insert_clips_count: Optional[int] = None
+    avatar_overlay_x_percent: Optional[int] = None
+    avatar_overlay_y_percent: Optional[int] = None
+    avatar_overlay_size_percent: Optional[int] = None
+    avatar_overlay_opacity_percent: Optional[int] = None
     reels_broll_yandex_dir: Optional[str] = None
     reels_broll_start_percent: Optional[int] = None
     reels_broll_end_percent: Optional[int] = None
@@ -228,6 +232,10 @@ class UserSettings(BaseModel):
     avatar_insert_start_percent: int
     avatar_insert_end_percent: int
     avatar_insert_clips_count: int
+    avatar_overlay_x_percent: int = 70
+    avatar_overlay_y_percent: int = 100
+    avatar_overlay_size_percent: int = 61
+    avatar_overlay_opacity_percent: int = 100
     reels_broll_yandex_dir: str
     reels_broll_start_percent: int
     reels_broll_end_percent: int

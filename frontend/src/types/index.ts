@@ -24,6 +24,10 @@ export type UserSettings = {
   avatar_insert_start_percent?: number;
   avatar_insert_end_percent?: number;
   avatar_insert_clips_count?: number;
+  avatar_overlay_x_percent?: number;
+  avatar_overlay_y_percent?: number;
+  avatar_overlay_size_percent?: number;
+  avatar_overlay_opacity_percent?: number;
   reels_broll_yandex_dir?: string;
   reels_broll_start_percent?: number;
   reels_broll_end_percent?: number;

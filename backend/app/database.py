@@ -72,6 +72,10 @@ def init_database() -> None:
         add_column_if_missing("users", "avatar_insert_start_percent", "INTEGER DEFAULT 50")
         add_column_if_missing("users", "avatar_insert_end_percent", "INTEGER DEFAULT 95")
         add_column_if_missing("users", "avatar_insert_clips_count", "INTEGER DEFAULT 2")
+        add_column_if_missing("users", "avatar_overlay_x_percent", "INTEGER DEFAULT 70")
+        add_column_if_missing("users", "avatar_overlay_y_percent", "INTEGER DEFAULT 100")
+        add_column_if_missing("users", "avatar_overlay_size_percent", "INTEGER DEFAULT 61")
+        add_column_if_missing("users", "avatar_overlay_opacity_percent", "INTEGER DEFAULT 100")
         add_column_if_missing("users", "reels_broll_yandex_dir", "TEXT DEFAULT 'disk:/Видео для REELS'")
         add_column_if_missing("users", "reels_broll_start_percent", "INTEGER DEFAULT 15")
         add_column_if_missing("users", "reels_broll_end_percent", "INTEGER DEFAULT 85")
@@ -108,6 +112,18 @@ def init_database() -> None:
         )
         conn.execute(
             text("UPDATE users SET avatar_insert_clips_count = 2 WHERE avatar_insert_clips_count IS NULL")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_overlay_x_percent = 70 WHERE avatar_overlay_x_percent IS NULL")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_overlay_y_percent = 100 WHERE avatar_overlay_y_percent IS NULL")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_overlay_size_percent = 61 WHERE avatar_overlay_size_percent IS NULL")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_overlay_opacity_percent = 100 WHERE avatar_overlay_opacity_percent IS NULL")
         )
         conn.execute(
             text(
@@ -184,6 +200,30 @@ def init_database() -> None:
         )
         conn.execute(
             text("UPDATE users SET avatar_insert_clips_count = 20 WHERE avatar_insert_clips_count > 20")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_overlay_x_percent = 0 WHERE avatar_overlay_x_percent < 0")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_overlay_x_percent = 100 WHERE avatar_overlay_x_percent > 100")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_overlay_y_percent = 0 WHERE avatar_overlay_y_percent < 0")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_overlay_y_percent = 100 WHERE avatar_overlay_y_percent > 100")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_overlay_size_percent = 5 WHERE avatar_overlay_size_percent < 5")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_overlay_size_percent = 100 WHERE avatar_overlay_size_percent > 100")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_overlay_opacity_percent = 0 WHERE avatar_overlay_opacity_percent < 0")
+        )
+        conn.execute(
+            text("UPDATE users SET avatar_overlay_opacity_percent = 100 WHERE avatar_overlay_opacity_percent > 100")
         )
         conn.execute(
             text("UPDATE users SET reels_broll_start_percent = 0 WHERE reels_broll_start_percent < 0")

@@ -75,6 +75,7 @@ from .utils.media_utils import (
     _resolve_local_input_video_path,
     _resolve_media_file_path,
 )
+from .utils.avatar_overlay import apply_transparent_avatar_overlays
 from .utils.voice_calibration import (
     count_script_chars,
     get_audio_duration_seconds,
@@ -2569,13 +2570,17 @@ def process_content_task(self, task_id: int):
 
         max_insert_seconds = float(os.getenv("AVATAR_INSERT_CLIP_MAX_SECONDS", "0"))
         try:
-            inserted_path, insert_meta = processor.apply_avatar_insert_clips(
+            inserted_path, insert_meta = apply_transparent_avatar_overlays(
                 input_path=base_video_path,
-                insert_paths=insert_paths,
+                overlay_paths=insert_paths,
                 start_percent=start_percent,
                 end_percent=end_percent,
                 clips_count=clips_count,
                 output_path=montage_output,
+                x_percent=int(getattr(user, "avatar_overlay_x_percent", 70) or 70),
+                y_percent=int(getattr(user, "avatar_overlay_y_percent", 100) or 100),
+                size_percent=int(getattr(user, "avatar_overlay_size_percent", 61) or 61),
+                opacity_percent=int(getattr(user, "avatar_overlay_opacity_percent", 100) or 100),
                 seed=task_id,
                 max_insert_seconds=max_insert_seconds,
                 timeout_seconds=AVATAR_INSERT_MONTAGE_TIMEOUT_SECONDS,

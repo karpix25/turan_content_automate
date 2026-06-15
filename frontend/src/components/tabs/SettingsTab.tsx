@@ -4,6 +4,7 @@ import { Settings, Save, Loader2, Link2, BookOpen, User, Mic, Upload, Image as I
 import { apiClient } from '../../api/client';
 import { useTelegram } from '../../context/TelegramContext';
 import { ThumbnailReference, ThumbnailFaceReference, AvatarInsertClip, InstagramPost5sSettings } from '../../types';
+import { AvatarOverlayPositionControl } from '../ui/AvatarOverlayPositionControl';
 
 type VoiceSpeed = {
   chars_per_second?: number;
@@ -67,6 +68,10 @@ export const SettingsTab: React.FC = () => {
   const [avatarInsertStartPercent, setAvatarInsertStartPercent] = useState<number>(50);
   const [avatarInsertEndPercent, setAvatarInsertEndPercent] = useState<number>(95);
   const [avatarInsertClipsCount, setAvatarInsertClipsCount] = useState<number>(2);
+  const [avatarOverlayXPercent, setAvatarOverlayXPercent] = useState<number>(70);
+  const [avatarOverlayYPercent, setAvatarOverlayYPercent] = useState<number>(100);
+  const [avatarOverlaySizePercent, setAvatarOverlaySizePercent] = useState<number>(61);
+  const [avatarOverlayOpacityPercent, setAvatarOverlayOpacityPercent] = useState<number>(100);
   const [youtubeDescriptionTemplate, setYoutubeDescriptionTemplate] = useState<string>('');
   const [avatarScriptDurationMinutes, setAvatarScriptDurationMinutes] = useState<number>(5);
   const [avatarVerticalDurationSeconds, setAvatarVerticalDurationSeconds] = useState<number>(0);
@@ -110,6 +115,10 @@ export const SettingsTab: React.FC = () => {
         setAvatarInsertStartPercent(data.avatar_insert_start_percent ?? 50);
         setAvatarInsertEndPercent(data.avatar_insert_end_percent ?? 95);
         setAvatarInsertClipsCount(data.avatar_insert_clips_count ?? 2);
+        setAvatarOverlayXPercent(data.avatar_overlay_x_percent ?? 70);
+        setAvatarOverlayYPercent(data.avatar_overlay_y_percent ?? 100);
+        setAvatarOverlaySizePercent(data.avatar_overlay_size_percent ?? 61);
+        setAvatarOverlayOpacityPercent(data.avatar_overlay_opacity_percent ?? 100);
         setYoutubeDescriptionTemplate(data.youtube_description_template || '');
         setFiveSecondCtaText(data.instagram_post_5s_cta_text || '');
         setFiveSecondImagePrompt(data.instagram_post_5s_image_prompt || '');
@@ -248,6 +257,10 @@ export const SettingsTab: React.FC = () => {
         avatar_insert_start_percent: avatarInsertStartPercent,
         avatar_insert_end_percent: avatarInsertEndPercent,
         avatar_insert_clips_count: avatarInsertClipsCount,
+        avatar_overlay_x_percent: avatarOverlayXPercent,
+        avatar_overlay_y_percent: avatarOverlayYPercent,
+        avatar_overlay_size_percent: avatarOverlaySizePercent,
+        avatar_overlay_opacity_percent: avatarOverlayOpacityPercent,
         avatar_script_duration_minutes: avatarScriptDurationMinutes,
         avatar_vertical_duration_seconds: avatarVerticalDurationSeconds,
         youtube_description_template: youtubeDescriptionTemplate,
@@ -965,6 +978,18 @@ export const SettingsTab: React.FC = () => {
             />
           </div>
         </div>
+
+        <AvatarOverlayPositionControl
+          previewUrl={avatarInsertClips[0]?.file_path ? getMediaUrl(avatarInsertClips[0].file_path) : ''}
+          xPercent={avatarOverlayXPercent}
+          yPercent={avatarOverlayYPercent}
+          sizePercent={avatarOverlaySizePercent}
+          opacityPercent={avatarOverlayOpacityPercent}
+          onXChange={setAvatarOverlayXPercent}
+          onYChange={setAvatarOverlayYPercent}
+          onSizeChange={setAvatarOverlaySizePercent}
+          onOpacityChange={setAvatarOverlayOpacityPercent}
+        />
 
         <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
           <div className="flex items-center justify-between mb-2">
