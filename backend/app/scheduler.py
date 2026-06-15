@@ -18,6 +18,7 @@ from .telegram_progress import (
     update_task_status_message,
 )
 from .utils.platform_utils import _get_account_platform_map
+from .utils.publication_titles import build_publication_titles_by_account
 from .worker import celery_app
 
 load_dotenv()
@@ -721,17 +722,14 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
             )
 
         content = ""
-        title_by_account: dict[int, str] = {}
-
         pub_type = 4
 
         account_platform_map = _get_account_platform_map(account_ids)
-        for account_id in account_ids:
-            acc_platform = account_platform_map.get(account_id, "universal")
-            if task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
-                title_by_account[account_id] = (getattr(task, "source_title", None) or "").strip() or "Видео"
-            elif acc_platform == "youtube" or target_platform == "youtube":
-                title_by_account[account_id] = (getattr(task, "source_title", None) or "").strip() or "Видео"
+        title_by_account = build_publication_titles_by_account(
+            task=task,
+            account_ids=account_ids,
+            account_platform_map=account_platform_map,
+        )
 
         file_id = task.postmypost_file_id
         if not task.preview_url:

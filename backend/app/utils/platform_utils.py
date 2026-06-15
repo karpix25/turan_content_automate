@@ -26,10 +26,29 @@ def _normalize_platform_code(value: str | None) -> str:
         "google": "youtube",
         "google_video": "youtube",
         "google_shorts": "youtube",
+        "vk_video": "vk",
+        "vkontakte": "vk",
+        "вконтакте": "vk",
+        "zen": "dzen",
+        "yandex_zen": "dzen",
+        "яндекс_дзен": "dzen",
+        "rutube_video": "rutube",
     }
     normalized = aliases.get(normalized, normalized)
 
-    if normalized in {"instagram", "youtube", "tiktok", "universal"}:
+    if normalized in {
+        "instagram",
+        "youtube",
+        "tiktok",
+        "vk",
+        "dzen",
+        "rutube",
+        "reddit",
+        "medium",
+        "pinterest",
+        "odnoklassniki",
+        "universal",
+    }:
         return normalized
 
     # PostMyPost channel codes can vary by network/type; infer by tokens.
@@ -40,6 +59,20 @@ def _normalize_platform_code(value: str | None) -> str:
         return "youtube"
     if "tiktok" in normalized or {"tk", "tiktok"} & tokens:
         return "tiktok"
+    if "rutube" in normalized or "rutube" in tokens:
+        return "rutube"
+    if "vkontakte" in normalized or {"vk", "vkontakte"} & tokens:
+        return "vk"
+    if "dzen" in normalized or "zen" in normalized or {"dzen", "zen"} & tokens:
+        return "dzen"
+    if "reddit" in normalized or "reddit" in tokens:
+        return "reddit"
+    if "medium" in normalized or "medium" in tokens:
+        return "medium"
+    if "pinterest" in normalized or "pinterest" in tokens:
+        return "pinterest"
+    if "odnoklassniki" in normalized or {"ok", "odnoklassniki"} & tokens:
+        return "odnoklassniki"
 
     return "universal"
 
