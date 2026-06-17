@@ -6,6 +6,27 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
+
+def _extract_error_message(payload: Dict[str, Any] | None, fallback: str) -> str:
+    if not isinstance(payload, dict):
+        return fallback
+    for key in ("message", "error", "detail", "description"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return fallback
+
+
+def _normalize_error_message(message: str | None, status_code: int | None = None) -> str:
+    clean = (message or "").strip()
+    lowered = clean.lower()
+    if status_code == 402 or "out of credits" in lowered or "buy more" in lowered:
+        return "закончились кредиты ScrapeCreators"
+    if status_code == 401 or "unauthorized" in lowered or "api key" in lowered:
+        return "неверный или отсутствующий API-ключ ScrapeCreators"
+    return clean or "ScrapeCreators request failed"
+
+
 def normalize_instagram_handle(value: str | None) -> str:
     raw = (value or "").strip()
     if not raw:
@@ -40,13 +61,23 @@ class ScrapeCreatorsClient:
                 return data if isinstance(data, dict) else None
         except httpx.HTTPStatusError as e:
             body_preview = (e.response.text or "").strip().replace("\n", " ")[:300]
+            try:
+                error_payload = e.response.json()
+            except Exception:
+                error_payload = {}
+            message = _extract_error_message(error_payload, body_preview or "ScrapeCreators request failed")
             logger.error(
                 "ScrapeCreators request failed for %s: HTTP %s. Body: %s",
                 path,
                 e.response.status_code,
                 body_preview,
             )
-            return None
+            return {
+                "success": False,
+                "status_code": e.response.status_code,
+                "message": message,
+                "raw": error_payload if isinstance(error_payload, dict) else {},
+            }
         except Exception as e:
             logger.error(f"ScrapeCreators request failed for {path}: {e}")
             return None
@@ -304,7 +335,7 @@ class ScrapeCreatorsClient:
         if data.get("success") is False:
             return {
                 "download_url": None,
-                "error": data.get("message") or "ScrapeCreators returned success=false",
+                "error": _normalize_error_message(data.get("message"), data.get("status_code")),
                 "raw": data,
             }
 
