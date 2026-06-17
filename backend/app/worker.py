@@ -22,7 +22,6 @@ import redis
 from .integrations.vizard import VizardClient
 from .integrations.scrape_creators import ScrapeCreatorsClient
 from .integrations.llm import LLMClient
-from .integrations.rapidapi_youtube import RapidAPIYoutubeClient
 from .integrations.downloader import Downloader
 from .integrations.postmypost import PostMyPostClient
 from .processor import VideoProcessor
@@ -583,14 +582,6 @@ def upload_yandex_disk_task(self, task_id: int, file_paths: List[str] | None = N
         db.close()
 
 
-rapidapi_yt = RapidAPIYoutubeClient(
-    api_key=os.getenv("RAPIDAPI_KEY", ""),
-    host=os.getenv("YOUTUBE_DOWNLOAD_RAPIDAPI_HOST", "youtube-mp4-mp3-downloader.p.rapidapi.com"),
-    video_format=os.getenv("YOUTUBE_DOWNLOAD_FORMAT", "720"),
-    audio_quality=os.getenv("YOUTUBE_DOWNLOAD_AUDIO_QUALITY", "128"),
-    poll_interval_seconds=float(os.getenv("YOUTUBE_DOWNLOAD_POLL_INTERVAL_SECONDS", "2")),
-    timeout_seconds=float(os.getenv("YOUTUBE_DOWNLOAD_TIMEOUT_SECONDS", "90")),
-)
 downloader = Downloader(output_dir=(os.getenv("OUTPUT_DIR") or "./output").strip())
 processor = VideoProcessor()
 INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES = {"avatar_instagram_post_5s"}
@@ -5187,20 +5178,19 @@ def process_content_task(self, task_id: int):
             if _is_youtube_shorts_url(source_url):
                 update_task_status_message(db, task, stage="Скачивание", detail="Скачиваю YouTube Shorts.")
                 provider_source_url = f"https://www.youtube.com/shorts/{youtube_video_id}"
-                details = rapidapi_yt.get_youtube_details(provider_source_url)
+                details = scraper.get_youtube_details(provider_source_url)
                 download_url = _normalize_external_url((details or {}).get("download_url") or "")
                 if not download_url:
-                    rapidapi_error = (details or {}).get("error")
+                    scraper_error = (details or {}).get("error")
                     raise Exception(
-                        f"Failed to download YouTube Shorts via configured RapidAPI provider: "
-                        f"{rapidapi_error or 'No downloadable media URL'}"
+                        "Не удалось скачать YouTube Shorts через ScrapeCreators: "
+                        f"{scraper_error or 'нет ссылки на скачивание'}"
                     )
 
                 logging.info(
-                    "Task %s: routed YouTube Shorts to RapidAPI status=%s progress_id=%s",
+                    "Task %s: routed YouTube Shorts to ScrapeCreators credits_remaining=%s",
                     task_id,
-                    (details or {}).get("status"),
-                    (details or {}).get("progress_id"),
+                    (details or {}).get("credits_remaining"),
                 )
                 source_title = (
                     (task.source_title or "").strip()
@@ -5211,16 +5201,14 @@ def process_content_task(self, task_id: int):
                     task.source_title = source_title
                     db.commit()
 
-                local_file = downloader.download_media(
-                    download_url,
-                    f"yt_{task_id}",
-                    headers=_build_youtube_download_headers(provider_source_url),
-                )
+                local_file = downloader.download_video(download_url, f"yt_{task_id}")
 
                 if not local_file:
-                    raise Exception("Failed to download YouTube Shorts from provider URL")
-                transcript_data = scraper.get_youtube_transcript(provider_source_url) or {}
-                transcript_context = (transcript_data.get("transcript_only_text") or "").strip()
+                    raise Exception("Не удалось скачать YouTube Shorts по ссылке ScrapeCreators")
+                transcript_context = ((details or {}).get("transcript_only_text") or "").strip()
+                if not transcript_context:
+                    transcript_data = scraper.get_youtube_transcript(provider_source_url) or {}
+                    transcript_context = (transcript_data.get("transcript_only_text") or "").strip()
                 input_videos.append(local_file)
                 input_video_titles.append(source_title)
                 input_video_contexts.append(transcript_context or source_title)
