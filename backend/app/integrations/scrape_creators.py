@@ -27,6 +27,40 @@ def _normalize_error_message(message: str | None, status_code: int | None = None
     return clean or "ScrapeCreators request failed"
 
 
+def _first_download_url_from_items(items: Any) -> str | None:
+    if not isinstance(items, list):
+        return None
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        for key in ("download_url", "video_url", "url", "cdnUrl", "cdn_url"):
+            value = item.get(key)
+            if isinstance(value, str) and value.startswith(("http://", "https://")):
+                return value
+    return None
+
+
+def _extract_youtube_download_url(data: Dict[str, Any]) -> str | None:
+    for key in ("download_url", "video_url"):
+        value = data.get(key)
+        if isinstance(value, str) and value.startswith(("http://", "https://")):
+            return value
+
+    for key in ("files", "formats", "sources", "videos"):
+        candidate = _first_download_url_from_items(data.get(key))
+        if candidate:
+            return candidate
+
+    download_options = data.get("downloadOptions") or data.get("download_options")
+    if isinstance(download_options, dict):
+        for key in ("formats", "adaptiveFormats", "audioFormats", "videoFormats"):
+            candidate = _first_download_url_from_items(download_options.get(key))
+            if candidate:
+                return candidate
+
+    return None
+
+
 def normalize_instagram_handle(value: str | None) -> str:
     raw = (value or "").strip()
     if not raw:
@@ -339,26 +373,7 @@ class ScrapeCreatorsClient:
                 "raw": data,
             }
 
-        # Different API plans/versions may expose different field names.
-        download_url = (
-            data.get("download_url")
-            or data.get("video_url")
-        )
-
-        if not download_url:
-            for key in ("files", "formats", "sources", "videos"):
-                items = data.get(key)
-                if not isinstance(items, list):
-                    continue
-                for item in items:
-                    if not isinstance(item, dict):
-                        continue
-                    candidate = item.get("download_url") or item.get("video_url") or item.get("url")
-                    if candidate:
-                        download_url = candidate
-                        break
-                if download_url:
-                    break
+        download_url = _extract_youtube_download_url(data)
 
         return {
             "download_url": download_url,
