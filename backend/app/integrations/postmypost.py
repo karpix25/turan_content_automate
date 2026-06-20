@@ -453,12 +453,23 @@ class PostMyPostClient:
         response = self._request("PUT", f"/publications/{publication_id}", json=payload)
         return self._unwrap_data(response)
 
-    def get_publication(self, publication_id: int) -> Dict[str, Any]:
-        response = self._request("GET", f"/publications/{publication_id}")
+    @staticmethod
+    def _format_account_ids_param(account_ids: Optional[List[int]]) -> str | None:
+        if not account_ids:
+            return None
+        values = [str(int(item)) for item in account_ids if item is not None]
+        return ",".join(values) if values else None
+
+    def get_publication(self, publication_id: int, account_ids: Optional[List[int]] = None) -> Dict[str, Any]:
+        params: Dict[str, Any] = {}
+        account_ids_param = self._format_account_ids_param(account_ids)
+        if account_ids_param:
+            params["account_ids"] = account_ids_param
+        response = self._request("GET", f"/publications/{publication_id}", params=params or None)
         return self._unwrap_data(response)
 
     def delete_publication(self, publication_id: int, account_ids: List[int], delete_option: int = 3) -> None:
-        account_ids_csv = ",".join(str(item) for item in account_ids)
+        account_ids_csv = self._format_account_ids_param(account_ids) or ""
         try:
             self._request(
                 "DELETE",

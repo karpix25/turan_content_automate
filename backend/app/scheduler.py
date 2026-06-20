@@ -782,7 +782,7 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
         preview_url = pmp_client.extract_preview_url(response)
         if not preview_url and publication_id:
             try:
-                publication_payload = pmp_client.get_publication(int(publication_id))
+                publication_payload = pmp_client.get_publication(int(publication_id), account_ids=account_ids)
                 preview_url = pmp_client.extract_preview_url(publication_payload)
             except Exception as preview_error:
                 logger.warning("Failed to fetch publication preview for task %s: %s", task_id, preview_error)
@@ -875,7 +875,14 @@ def sync_postmypost_publication_statuses(limit: int | None = None):
         for task in tasks:
             checked += 1
             try:
-                publication_payload = pmp_client.get_publication(int(task.postmypost_id))
+                try:
+                    account_ids = _get_task_account_ids(db, task, task.user_id)
+                except Exception:
+                    account_ids = _parse_env_account_ids(os.getenv("POSTMYPOST_CHANNEL_IDS", ""))
+                publication_payload = pmp_client.get_publication(
+                    int(task.postmypost_id),
+                    account_ids=account_ids,
+                )
                 status_summary = _extract_status_summary(publication_payload)
                 mapped_status = _classify_postmypost_status(status_summary)
                 preview_url = pmp_client.extract_preview_url(publication_payload)
