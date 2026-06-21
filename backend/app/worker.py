@@ -21,6 +21,7 @@ from celery.signals import worker_process_init
 import redis
 from .integrations.vizard import VizardClient
 from .integrations.scrape_creators import ScrapeCreatorsClient
+from .integrations.rapidapi_youtube import RapidAPIYoutubeClient
 from .integrations.llm import LLMClient
 from .integrations.downloader import Downloader
 from .integrations.postmypost import PostMyPostClient
@@ -157,6 +158,18 @@ def reset_database_pool_after_worker_fork(**_kwargs):
 vizard = VizardClient(api_key=(os.getenv("VIZARD_API_KEY") or "").strip())
 pmp_client = PostMyPostClient(api_key=(os.getenv("POSTMYPOST_API_KEY") or "").strip())
 scraper = ScrapeCreatorsClient(api_key=(os.getenv("SCRAPE_CREATORS_API_KEY") or "").strip())
+youtube_downloader = RapidAPIYoutubeClient(
+    api_key=(os.getenv("RAPIDAPI_KEY") or "").strip(),
+    host=(
+        os.getenv("YOUTUBE_DOWNLOAD_RAPIDAPI_HOST")
+        or os.getenv("RAPIDAPI_HOST")
+        or "youtube-mp4-mp3-downloader.p.rapidapi.com"
+    ),
+    video_format=os.getenv("YOUTUBE_DOWNLOAD_FORMAT", "720"),
+    audio_quality=os.getenv("YOUTUBE_DOWNLOAD_AUDIO_QUALITY", "128"),
+    poll_interval_seconds=float(os.getenv("YOUTUBE_DOWNLOAD_POLL_INTERVAL_SECONDS", "2")),
+    timeout_seconds=float(os.getenv("YOUTUBE_DOWNLOAD_TIMEOUT_SECONDS", "90")),
+)
 llm = LLMClient(api_key=(os.getenv("OPENROUTER_API_KEY") or "").strip())
 elevenlabs_client = ElevenLabsClient(api_key=(os.getenv("ELEVENLABS_API_KEY") or "").strip())
 heygen_client = HeyGenClient(api_key=(os.getenv("HEYGEN_API_KEY") or "").strip())
@@ -5202,9 +5215,28 @@ def process_content_task(self, task_id: int):
                     db.commit()
 
                 local_file = downloader.download_video(download_url, f"yt_{task_id}")
-
                 if not local_file:
-                    raise Exception("Не удалось скачать YouTube Shorts по ссылке ScrapeCreators")
+                    update_task_status_message(
+                        db,
+                        task,
+                        stage="Скачивание",
+                        detail="ScrapeCreators дал ссылку, но YouTube ее отклонил. Пробую RapidAPI.",
+                    )
+                    rapid_details = youtube_downloader.get_youtube_details(provider_source_url)
+                    rapid_download_url = _normalize_external_url((rapid_details or {}).get("download_url") or "")
+                    if rapid_download_url:
+                        local_file = downloader.download_video(rapid_download_url, f"yt_{task_id}_rapidapi")
+                    if not local_file:
+                        rapid_error = (rapid_details or {}).get("error")
+                        raise Exception(
+                            "Не удалось скачать YouTube Shorts через RapidAPI: "
+                            f"{rapid_error or 'ссылка не скачалась'}"
+                        )
+                    logging.info(
+                        "Task %s: downloaded YouTube Shorts via RapidAPI fallback status=%s",
+                        task_id,
+                        (rapid_details or {}).get("status"),
+                    )
                 transcript_context = ((details or {}).get("transcript_only_text") or "").strip()
                 if not transcript_context:
                     transcript_data = scraper.get_youtube_transcript(provider_source_url) or {}
