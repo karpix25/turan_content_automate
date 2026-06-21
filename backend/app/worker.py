@@ -5189,22 +5189,28 @@ def process_content_task(self, task_id: int):
             if not youtube_video_id:
                 raise Exception("Failed to normalize YouTube video id")
             if _is_youtube_shorts_url(source_url):
-                update_task_status_message(db, task, stage="Скачивание", detail="Скачиваю YouTube Shorts.")
+                update_task_status_message(db, task, stage="Скачивание", detail="Скачиваю YouTube Shorts через RapidAPI.")
                 provider_source_url = f"https://www.youtube.com/shorts/{youtube_video_id}"
-                details = scraper.get_youtube_details(provider_source_url)
-                download_url = _normalize_external_url((details or {}).get("download_url") or "")
-                if not download_url:
-                    scraper_error = (details or {}).get("error")
+                rapid_details = youtube_downloader.get_youtube_details(provider_source_url)
+                rapid_download_url = _normalize_external_url((rapid_details or {}).get("download_url") or "")
+                if not rapid_download_url:
+                    rapid_error = (rapid_details or {}).get("error")
                     raise Exception(
-                        "Не удалось скачать YouTube Shorts через ScrapeCreators: "
-                        f"{scraper_error or 'нет ссылки на скачивание'}"
+                        "Не удалось скачать YouTube Shorts через RapidAPI: "
+                        f"{rapid_error or 'нет ссылки на скачивание'}"
                     )
 
-                logging.info(
-                    "Task %s: routed YouTube Shorts to ScrapeCreators credits_remaining=%s",
-                    task_id,
-                    (details or {}).get("credits_remaining"),
-                )
+                local_file = downloader.download_video(rapid_download_url, f"yt_{task_id}_rapidapi")
+                if not local_file:
+                    raise Exception("Не удалось скачать YouTube Shorts по ссылке RapidAPI")
+
+                details = scraper.get_youtube_details(provider_source_url) or {}
+                if details.get("error"):
+                    logging.warning(
+                        "Task %s: ScrapeCreators metadata unavailable after RapidAPI download: %s",
+                        task_id,
+                        details.get("error"),
+                    )
                 source_title = (
                     (task.source_title or "").strip()
                     or str((details or {}).get("title") or "").strip()
@@ -5214,29 +5220,11 @@ def process_content_task(self, task_id: int):
                     task.source_title = source_title
                     db.commit()
 
-                local_file = downloader.download_video(download_url, f"yt_{task_id}")
-                if not local_file:
-                    update_task_status_message(
-                        db,
-                        task,
-                        stage="Скачивание",
-                        detail="ScrapeCreators дал ссылку, но YouTube ее отклонил. Пробую RapidAPI.",
-                    )
-                    rapid_details = youtube_downloader.get_youtube_details(provider_source_url)
-                    rapid_download_url = _normalize_external_url((rapid_details or {}).get("download_url") or "")
-                    if rapid_download_url:
-                        local_file = downloader.download_video(rapid_download_url, f"yt_{task_id}_rapidapi")
-                    if not local_file:
-                        rapid_error = (rapid_details or {}).get("error")
-                        raise Exception(
-                            "Не удалось скачать YouTube Shorts через RapidAPI: "
-                            f"{rapid_error or 'ссылка не скачалась'}"
-                        )
-                    logging.info(
-                        "Task %s: downloaded YouTube Shorts via RapidAPI fallback status=%s",
-                        task_id,
-                        (rapid_details or {}).get("status"),
-                    )
+                logging.info(
+                    "Task %s: downloaded YouTube Shorts via RapidAPI status=%s",
+                    task_id,
+                    (rapid_details or {}).get("status"),
+                )
                 transcript_context = ((details or {}).get("transcript_only_text") or "").strip()
                 if not transcript_context:
                     transcript_data = scraper.get_youtube_transcript(provider_source_url) or {}
