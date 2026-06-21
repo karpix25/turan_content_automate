@@ -5191,18 +5191,45 @@ def process_content_task(self, task_id: int):
             if _is_youtube_shorts_url(source_url):
                 update_task_status_message(db, task, stage="Скачивание", detail="Скачиваю YouTube Shorts через RapidAPI.")
                 provider_source_url = f"https://www.youtube.com/shorts/{youtube_video_id}"
-                rapid_details = youtube_downloader.get_youtube_details(provider_source_url)
-                rapid_download_url = _normalize_external_url((rapid_details or {}).get("download_url") or "")
-                if not rapid_download_url:
-                    rapid_error = (rapid_details or {}).get("error")
+                local_file = None
+                rapid_details = {}
+                rapid_error = ""
+                for rapid_attempt in range(1, 4):
+                    rapid_details = youtube_downloader.get_youtube_details(provider_source_url)
+                    rapid_download_url = _normalize_external_url((rapid_details or {}).get("download_url") or "")
+                    if not rapid_download_url:
+                        rapid_error = (rapid_details or {}).get("error") or "нет ссылки на скачивание"
+                        break
+
+                    local_file = downloader.download_video(
+                        rapid_download_url,
+                        f"yt_{task_id}_rapidapi_{rapid_attempt}",
+                    )
+                    if local_file:
+                        break
+
+                    rapid_error = "ссылка RapidAPI недоступна"
+                    logging.warning(
+                        "Task %s: RapidAPI YouTube direct download failed on attempt %s/3 host=%s status=%s",
+                        task_id,
+                        rapid_attempt,
+                        urlparse(rapid_download_url).netloc,
+                        (rapid_details or {}).get("status"),
+                    )
+                    if rapid_attempt < 3:
+                        update_task_status_message(
+                            db,
+                            task,
+                            stage="Скачивание",
+                            detail=f"RapidAPI дал битую ссылку, пробую заново ({rapid_attempt + 1}/3).",
+                        )
+                        time.sleep(2)
+
+                if not local_file:
                     raise Exception(
                         "Не удалось скачать YouTube Shorts через RapidAPI: "
-                        f"{rapid_error or 'нет ссылки на скачивание'}"
+                        f"{rapid_error or 'ссылка на файл недоступна'}"
                     )
-
-                local_file = downloader.download_video(rapid_download_url, f"yt_{task_id}_rapidapi")
-                if not local_file:
-                    raise Exception("Не удалось скачать YouTube Shorts по ссылке RapidAPI")
 
                 details = scraper.get_youtube_details(provider_source_url) or {}
                 if details.get("error"):
