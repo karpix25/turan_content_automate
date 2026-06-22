@@ -10,6 +10,7 @@ from ...core.config import celery_client
 from ...telegram_progress import update_task_status_message
 from ...utils.plate_media import PLATE_ALLOWED_EXTENSIONS, get_plate_media_type
 from ..deps import get_db, ensure_admin_access, get_or_create_user
+from ..upload_storage import save_upload_file_stream
 from ..utils import _build_safe_upload_filename, normalize_ending_platform, parse_optional_account_id
 
 router = APIRouter(tags=["assets"])
@@ -240,8 +241,7 @@ async def upload_plate(telegram_id: str, file: UploadFile = File(...), db: Sessi
     file_name = f"{telegram_id}_{datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}_{safe_name}"
     file_path = os.path.join(plates_dir, file_name)
     
-    with open(file_path, "wb") as f:
-        f.write(await file.read())
+    await save_upload_file_stream(file, file_path)
         
     new_plate = models.Plate(user_id=user.id, file_path=file_path)
     db.add(new_plate)
@@ -438,8 +438,7 @@ async def upload_cta(
     os.makedirs(cta_dir, exist_ok=True)
     file_path = os.path.join(cta_dir, f"{telegram_id}_{norm_platform}_{file.filename}")
     
-    with open(file_path, "wb") as f:
-        f.write(await file.read())
+    await save_upload_file_stream(file, file_path)
         
     new_cta = models.CTAClip(user_id=user.id, file_path=file_path, label=label or file.filename, platform=norm_platform)
     db.add(new_cta)
@@ -464,8 +463,7 @@ async def upload_ending(
 
     account_segment = f"_a{norm_account_id}" if norm_account_id is not None else ""
     file_path = os.path.join(endings_dir, f"{telegram_id}_{norm_platform}{account_segment}_{file.filename}")
-    with open(file_path, "wb") as f:
-        f.write(await file.read())
+    await save_upload_file_stream(file, file_path)
 
     ending = models.CTAClip(user_id=user.id, account_id=norm_account_id, file_path=file_path, label=label or file.filename, platform=norm_platform)
     db.add(ending)

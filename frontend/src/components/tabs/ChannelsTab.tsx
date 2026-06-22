@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { ChevronDown, Film, Globe2, Upload, Loader2, Trash2 } from 'lucide-react';
 import { apiClient } from '../../api/client';
+import { getApiErrorMessage } from '../../api/errors';
 import { useTelegram } from '../../context/TelegramContext';
 import { PublishAccount, EndingClip } from '../../types';
 
@@ -195,7 +196,7 @@ export const ChannelsTab: React.FC = () => {
       flashSaved();
       await loadChannels();
     } catch (error) {
-      alert('Ошибка при загрузке плашки');
+      alert(getApiErrorMessage(error, 'Ошибка при загрузке плашки'));
     } finally {
       setUploadingPlateAccountId(null);
       setPlateUploadTarget(null);
@@ -214,7 +215,7 @@ export const ChannelsTab: React.FC = () => {
       });
       await loadEndings();
     } catch (error) {
-      alert('Ошибка при загрузке концовки');
+      alert(getApiErrorMessage(error, 'Ошибка при загрузке концовки'));
     } finally {
       setUploadingEndingAccountId(null);
       setEndingUploadTarget(null);
