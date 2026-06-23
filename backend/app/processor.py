@@ -637,7 +637,11 @@ class VideoProcessor:
             plate_start_seconds = processed_main_duration * normalized_plate_start_percent / 100.0
             remaining_duration = max(0.1, processed_main_duration - plate_start_seconds)
             if plate_is_video:
-                plate_input = ffmpeg.input(plate_path, t=remaining_duration)
+                plate_input = ffmpeg.input(
+                    plate_path,
+                    stream_loop=-1,
+                    t=max(remaining_duration + plate_start_seconds, remaining_duration),
+                )
                 plate = plate_input.video
             else:
                 plate = ffmpeg.input(plate_path)
