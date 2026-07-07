@@ -75,6 +75,7 @@ from .utils.media_utils import (
     _resolve_local_input_video_path,
     _resolve_media_file_path,
 )
+from .utils.image_data_url import image_file_to_data_url
 from .utils.avatar_overlay import apply_transparent_avatar_overlays
 from .utils.voice_calibration import (
     count_script_chars,
@@ -4200,11 +4201,12 @@ def process_content_task(self, task_id: int):
                 public_frame_url = thumbnail_generator._ensure_public_url(source_frame_path, prefix=f"infographic_frame_{task_id}")
             except Exception as public_url_error:
                 logging.warning("Task %s: failed to make infographic frame public: %s", task_id, public_url_error)
-            public_frame_url = public_frame_url or source_direct_image_url
+            frame_data_url = image_file_to_data_url(source_frame_path)
+            llm_frame_url = frame_data_url or public_frame_url or source_direct_image_url
 
             update_task_status_message(db, task, stage="Инфографика", detail="Читаю текст на кадре и собираю карточку.")
             card_payload = llm.generate_infographic_reels_card(
-                image_url=public_frame_url,
+                image_url=llm_frame_url,
                 caption=caption,
                 source_title=source_title,
                 style_profile=user.author_style_profile,
@@ -4291,6 +4293,7 @@ def process_content_task(self, task_id: int):
                 "source_frame_path": source_frame_path,
                 "source_direct_image_url": source_direct_image_url,
                 "public_frame_url": public_frame_url,
+                "llm_image_source": "data_url" if frame_data_url else ("public_url" if public_frame_url else "source_url"),
                 "source_title": source_title,
                 "caption": caption,
                 "creator": creator,
@@ -4335,11 +4338,12 @@ def process_content_task(self, task_id: int):
                 public_image_url = thumbnail_generator._ensure_public_url(local_post_image, prefix=f"igpost{task_id}")
             except Exception as public_url_error:
                 logging.warning("Task %s: failed to make Instagram post image public: %s", task_id, public_url_error)
-            public_image_url = public_image_url or source_image_url
+            post_image_data_url = image_file_to_data_url(local_post_image)
+            llm_post_image_url = post_image_data_url or public_image_url or source_image_url
 
             update_task_status_message(db, task, stage="Заголовок", detail="Анализирую текст на картинке и переписываю заголовок.")
             rewritten_title = llm.generate_instagram_post_5s_title(
-                image_url=public_image_url,
+                image_url=llm_post_image_url,
                 caption=caption,
             )
             if not rewritten_title:
@@ -4402,6 +4406,7 @@ def process_content_task(self, task_id: int):
                     "reason_detail": kie_error_detail,
                     "source_image_url": source_image_url,
                     "public_image_url": public_image_url,
+                    "llm_image_source": "data_url" if post_image_data_url else ("public_url" if public_image_url else "source_url"),
                     "source_image_path": local_post_image,
                     "clean_image_path": clean_image_path,
                     "title": final_title,
@@ -4469,6 +4474,7 @@ def process_content_task(self, task_id: int):
                 "status": "ready",
                 "source_image_url": source_image_url,
                 "public_image_url": public_image_url,
+                "llm_image_source": "data_url" if post_image_data_url else ("public_url" if public_image_url else "source_url"),
                 "source_image_path": local_post_image,
                 "clean_image_path": generated_clean_image,
                 "title": final_title,

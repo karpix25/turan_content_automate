@@ -34,6 +34,22 @@ def _format_social_description_paragraphs(text: str | None, *, max_length: int =
     return "\n\n".join(part for part in paragraphs if part).strip() or None
 
 
+def _looks_like_missing_source_content(*values: Any) -> bool:
+    combined = " ".join(str(value or "") for value in values).lower()
+    if not combined:
+        return False
+    markers = [
+        "контент не найден",
+        "не найден в источнике",
+        "исходный материал содержит только заголовок",
+        "факты или тезисы отсутствуют",
+        "невозможно извлечь основной смысл",
+        "нужны содержательные данные",
+        "нет данных для анализа",
+    ]
+    return any(marker in combined for marker in markers)
+
+
 class LLMClient:
     """
     Client for OpenRouter API to access Gemini 2.5 Pro and other models.
@@ -368,6 +384,13 @@ class LLMClient:
         final_thought = re.sub(r"\s+", " ", str(payload.get("final_thought") or "").strip())
         description = _format_social_description_paragraphs(str(payload.get("description") or clean_caption or title), max_length=900)
         image_prompt = str(payload.get("image_prompt") or "").strip()
+        if _looks_like_missing_source_content(title, items, final_thought, description, image_prompt):
+            logger.warning(
+                "Infographic reels analysis returned missing-content placeholder. title=%s items=%s",
+                title,
+                items,
+            )
+            return None
         if not image_prompt:
             image_prompt = (
                 "Создай вертикальную Instagram/Reels инфографику 9:16 в минималистичном стиле. "
