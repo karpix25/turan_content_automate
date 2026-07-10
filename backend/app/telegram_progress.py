@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import httpx
 
 from .utils.task_format_labels import get_task_format_label
+from .utils.publication_errors import get_publication_error
 
 
 logger = logging.getLogger(__name__)
@@ -296,7 +297,8 @@ def send_publication_batch_report_message(tasks: list, batch_meta: dict | None =
     if failed_tasks:
         lines.append(f"Ошибки: {len(failed_tasks)} публикаций")
         for task in failed_tasks[:5]:
-            lines.append(f"#{getattr(task, 'id', '-')}: публикация не синхронизировалась")
+            error_text = get_publication_error(task) or "публикация не синхронизировалась"
+            lines.append(f"#{getattr(task, 'id', '-')}: {error_text}")
         if len(failed_tasks) > 5:
             lines.append(f"Еще ошибок: {len(failed_tasks) - 5}")
     else:

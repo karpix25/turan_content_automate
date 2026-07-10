@@ -18,6 +18,12 @@ from .telegram_progress import (
     update_task_status_message,
 )
 from .utils.platform_utils import _get_account_platform_map
+from .utils.publication_errors import (
+    clear_publication_error,
+    format_missing_project_accounts_error,
+    format_publication_sync_error,
+    set_publication_error,
+)
 from .utils.publication_titles import build_publication_titles_by_account
 from .worker import celery_app
 
@@ -710,6 +716,19 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
         project_id = _get_project_id()
         post_at = _resolve_publication_post_at(db, user, task, force_now)
         target_platform = (getattr(task, "target_platform", "") or "").lower()
+        project_accounts = pmp_client.get_accounts(project_id=project_id)
+        project_account_ids = {
+            int(account["id"])
+            for account in project_accounts
+            if isinstance(account, dict) and account.get("id") is not None
+        }
+        missing_project_account_ids = [
+            account_id for account_id in account_ids if account_id not in project_account_ids
+        ]
+        if missing_project_account_ids:
+            raise RuntimeError(
+                format_missing_project_accounts_error(missing_project_account_ids, project_id)
+            )
 
         missing_description_account_ids = [
             account_id for account_id in account_ids if account_id not in account_descriptions
@@ -792,6 +811,7 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
         now_utc = datetime.datetime.now(datetime.timezone.utc)
         task.publishing_status = "scheduled" if post_at > now_utc else "in_progress"
         task.publish_at = post_at.replace(tzinfo=None)
+        clear_publication_error(task)
         _cleanup_local_output(task)
         db.commit()
         if post_at > now_utc:
@@ -825,13 +845,19 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
             raise self.retry(exc=e, countdown=delay)
         task = db.query(models.VideoTask).get(task_id)
         if task:
+            try:
+                account_ids = _get_task_account_ids(db, task, task.user_id)
+            except Exception:
+                account_ids = [int(task.target_account_id)] if task.target_account_id is not None else []
+            error_detail = format_publication_sync_error(e, account_ids)
             task.publishing_status = "failed"
+            set_publication_error(task, error_detail)
             db.commit()
             update_task_status_message(
                 db,
                 task,
                 stage="Ошибка публикации",
-                detail=f"Не удалось синхронизировать публикацию: {str(e)[:300]}",
+                detail=error_detail,
                 failed=True,
             )
             _maybe_send_publication_batch_report(db, task)

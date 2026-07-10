@@ -136,6 +136,15 @@ def update_postmypost_channels(
 
     existing_rows = db.query(models.UserPublishChannel).filter(models.UserPublishChannel.user_id == user.id).all()
     existing_by_account = {row.account_id: row for row in existing_rows}
+    for account_id, row in existing_by_account.items():
+        if account_id not in valid_ids and row.enabled:
+            logging.warning(
+                "Disabling stale PostMyPost account %s for user %s: account is absent from project %s",
+                account_id,
+                user.id,
+                project_id,
+            )
+            row.enabled = False
 
     # Normalize data from payload
     descriptions = payload.descriptions or {}
