@@ -43,6 +43,7 @@ from .integrations.deepgram_client import DeepgramClient
 
 # Utilities
 from .utils.platform_utils import (
+    _get_connected_postmypost_account_ids,
     _get_target_account_ids,
     _get_account_platform_map,
     _pick_platform_ending,
@@ -5340,6 +5341,22 @@ def process_content_task(self, task_id: int):
             elif task.target_account_id and int(task.target_account_id) not in target_account_ids:
                 target_account_ids = [int(task.target_account_id)] + target_account_ids
         target_account_ids = list(dict.fromkeys(target_account_ids))
+        if target_account_ids and task.type != "local_upload":
+            original_target_account_ids = target_account_ids
+            connected_target_account_ids = _get_connected_postmypost_account_ids(target_account_ids)
+            if connected_target_account_ids != target_account_ids:
+                logging.warning(
+                    "Task %s: filtered PostMyPost target accounts from %s to %s",
+                    task_id,
+                    target_account_ids,
+                    connected_target_account_ids,
+                )
+            target_account_ids = connected_target_account_ids
+            if original_target_account_ids and not target_account_ids:
+                raise Exception(
+                    "No connected PostMyPost accounts found. "
+                    "Reconnect channels in PostMyPost or enable connected channels in Turan."
+                )
 
         account_platform_map = _get_account_platform_map(target_account_ids)
         if task.type in AVATAR_TASK_TYPES and task.type not in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:

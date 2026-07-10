@@ -100,6 +100,34 @@ def _get_target_account_ids(db, user_id: int) -> List[int]:
     return []
 
 
+def _get_connected_postmypost_account_ids(account_ids: List[int]) -> List[int]:
+    from ..worker import pmp_client
+    if not account_ids or not pmp_client.api_key:
+        return account_ids
+    try:
+        project_id_raw = os.getenv("POSTMYPOST_PROJECT_ID", "").strip()
+        project_id = int(project_id_raw) if project_id_raw else None
+        project_id = pmp_client.ensure_project_id(project_id)
+        accounts = pmp_client.get_accounts(project_id=project_id)
+        connected_ids = {
+            int(account["id"])
+            for account in accounts
+            if isinstance(account, dict) and account.get("id") is not None
+        }
+    except Exception as e:
+        logging.warning("Failed to validate PostMyPost accounts against project: %s", e)
+        return account_ids
+
+    valid_ids = [account_id for account_id in account_ids if account_id in connected_ids]
+    skipped_ids = [account_id for account_id in account_ids if account_id not in connected_ids]
+    if skipped_ids:
+        logging.warning(
+            "Skipping PostMyPost account(s) absent from current project: %s",
+            skipped_ids,
+        )
+    return valid_ids
+
+
 def _get_account_platform_map(account_ids: List[int]) -> dict[int, str]:
     from ..worker import pmp_client
     if not account_ids or not pmp_client.api_key:
