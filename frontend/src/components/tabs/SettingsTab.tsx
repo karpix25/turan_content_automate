@@ -36,6 +36,7 @@ export const SettingsTab: React.FC = () => {
   const [trainingSource, setTrainingSource] = useState('');
   const [videoCount, setVideoCount] = useState('5');
   const [trainingStatus, setTrainingStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [trainingError, setTrainingError] = useState('');
   const [loadingStyle, setLoadingStyle] = useState(false);
   
   const [clonedVoices, setClonedVoices] = useState<ElevenLabsVoice[]>([]);
@@ -103,6 +104,12 @@ export const SettingsTab: React.FC = () => {
         const data = await apiClient.getStyleSettings(telegramId);
         setStyleProfile(data.author_style_profile || '');
         setTrainingSource(data.training_source || '');
+        setTrainingError(data.style_training_error || '');
+        if (data.style_training_status === 'queued' || data.style_training_status === 'processing') {
+          setTrainingStatus('loading');
+        } else if (data.style_training_status === 'failed') {
+          setTrainingStatus('error');
+        }
         if (data.heygen_avatar_id) setSelectedAvatar(data.heygen_avatar_id);
         if (data.heygen_vertical_avatar_id) setSelectedVerticalAvatar(data.heygen_vertical_avatar_id);
         setSelectedHeyGenApiVersion(data.heygen_video_api_version === 'v3' ? 'v3' : 'v2');
@@ -221,15 +228,36 @@ export const SettingsTab: React.FC = () => {
     loadFiveSecondSettings();
   }, [telegramId]);
 
+  useEffect(() => {
+    if (!telegramId || trainingStatus !== 'loading') return;
+    const intervalId = window.setInterval(async () => {
+      try {
+        const data = await apiClient.getStyleSettings(telegramId);
+        setStyleProfile(data.author_style_profile || '');
+        setTrainingSource(data.training_source || '');
+        setTrainingError(data.style_training_error || '');
+        if (data.style_training_status === 'completed') {
+          setTrainingStatus('success');
+          window.setTimeout(() => setTrainingStatus('idle'), 3000);
+        } else if (data.style_training_status === 'failed') {
+          setTrainingStatus('error');
+        }
+      } catch (error) {
+        setTrainingError('Не удалось получить статус обучения');
+        setTrainingStatus('error');
+      }
+    }, 4000);
+    return () => window.clearInterval(intervalId);
+  }, [telegramId, trainingStatus]);
+
   const trainStyle = async () => {
     if (!telegramId || !trainingSource) return;
     setTrainingStatus('loading');
+    setTrainingError('');
     try {
-      const data = await apiClient.trainStyle(telegramId, trainingSource, parseInt(videoCount) || 5);
-      setStyleProfile(data.style_profile);
-      setTrainingStatus('success');
-      setTimeout(() => setTrainingStatus('idle'), 3000);
+      await apiClient.trainStyle(telegramId, trainingSource, parseInt(videoCount) || 5);
     } catch (error) {
+      setTrainingError('Не удалось поставить обучение в очередь');
       setTrainingStatus('error');
       setTimeout(() => setTrainingStatus('idle'), 3000);
     }
@@ -1336,10 +1364,16 @@ export const SettingsTab: React.FC = () => {
               Стиль успешно обновлен
             </div>
           )}
+          {trainingStatus === 'loading' && (
+            <div className="p-3 bg-sky-50 text-sky-700 text-xs font-bold rounded-xl border border-sky-100 flex items-center gap-2">
+              <Loader2 className="animate-spin" size={14} />
+              Анализ канала идет в фоне
+            </div>
+          )}
           {trainingStatus === 'error' && (
             <div className="p-3 bg-rose-50 text-rose-700 text-xs font-bold rounded-xl border border-rose-100 flex items-center gap-2">
               <div className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
-              Ошибка при анализе канала
+              {trainingError || 'Ошибка при анализе канала'}
             </div>
           )}
 

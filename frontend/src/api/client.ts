@@ -23,6 +23,9 @@ export const apiClient = {
     const res = await axios.get<{
       author_style_profile: string | null;
       training_source: string | null;
+      style_training_status: string | null;
+      style_training_error: string | null;
+      style_training_updated_at: string | null;
       heygen_avatar_id: string | null;
       heygen_vertical_avatar_id: string | null;
       heygen_video_api_version: 'v2' | 'v3';

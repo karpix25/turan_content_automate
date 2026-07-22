@@ -78,6 +78,7 @@ from .utils.media_utils import (
 )
 from .utils.image_data_url import image_file_to_data_url
 from .utils.avatar_overlay import apply_transparent_avatar_overlays
+from .services.style_training import train_user_style
 from .utils.voice_calibration import (
     count_script_chars,
     get_audio_duration_seconds,
@@ -436,6 +437,41 @@ def refresh_instagram_post_5s_audio_library(self, user_id: int, profile: str):
             user.instagram_post_5s_audio_error = str(exc)[:500]
             db.commit()
         return {"status": "failed", "created": 0, "error": str(exc)[:500]}
+    finally:
+        db.close()
+
+
+@celery_app.task(bind=True, name="train_style_task", soft_time_limit=1200, time_limit=1260)
+def train_style_task(self, user_id: int, channel_url: str, video_count: int):
+    db = SessionLocal()
+    try:
+        user = db.query(models.User).get(user_id)
+        if not user:
+            return {"status": "missing_user"}
+
+        user.style_training_status = "processing"
+        user.style_training_error = None
+        user.style_training_updated_at = datetime.datetime.utcnow()
+        db.commit()
+
+        style_profile = train_user_style(
+            db,
+            user,
+            channel_url=channel_url,
+            video_count=max(1, min(int(video_count or 5), 10)),
+            scraper=scraper,
+            llm=llm,
+        )
+        return {"status": "completed", "profile_length": len(style_profile)}
+    except Exception as exc:
+        logging.exception("Style training failed for user %s", user_id)
+        user = db.query(models.User).get(user_id)
+        if user:
+            user.style_training_status = "failed"
+            user.style_training_error = str(exc)[:500]
+            user.style_training_updated_at = datetime.datetime.utcnow()
+            db.commit()
+        return {"status": "failed", "error": str(exc)[:500]}
     finally:
         db.close()
 

@@ -26,6 +26,9 @@ class User(Base):
     # Writing style training
     author_style_profile = Column(String, nullable=True)  # Detailed tone/style analyzed by LLM
     training_source = Column(String, nullable=True)       # YouTube channel link/handle
+    style_training_status = Column(String, nullable=True)
+    style_training_error = Column(String, nullable=True)
+    style_training_updated_at = Column(DateTime, nullable=True)
     heygen_avatar_id = Column(String, nullable=True)
     heygen_vertical_avatar_id = Column(String, nullable=True)
     heygen_video_api_version = Column(String, default="v2", nullable=False)
