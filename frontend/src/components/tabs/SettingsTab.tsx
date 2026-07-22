@@ -79,6 +79,8 @@ export const SettingsTab: React.FC = () => {
   const [fiveSecondSettings, setFiveSecondSettings] = useState<InstagramPost5sSettings | null>(null);
   const [fiveSecondCtaText, setFiveSecondCtaText] = useState<string>('');
   const [fiveSecondImagePrompt, setFiveSecondImagePrompt] = useState<string>('');
+  const [savingFiveSecondSettings, setSavingFiveSecondSettings] = useState(false);
+  const [savedFiveSecondSettings, setSavedFiveSecondSettings] = useState(false);
   const [uploadingFiveSecondAudio, setUploadingFiveSecondAudio] = useState(false);
   const [deletingFiveSecondAudioId, setDeletingFiveSecondAudioId] = useState<number | null>(null);
   const [uploadingFiveSecondOverlay, setUploadingFiveSecondOverlay] = useState(false);
@@ -300,6 +302,27 @@ export const SettingsTab: React.FC = () => {
     } catch (error) {
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  const handleSaveFiveSecondSettings = async () => {
+    if (!telegramId) return;
+    setSavingFiveSecondSettings(true);
+    try {
+      await apiClient.updateSettings(telegramId, {
+        instagram_post_5s_cta_text: fiveSecondCtaText,
+        instagram_post_5s_image_prompt: fiveSecondImagePrompt,
+      });
+      const data = await apiClient.getInstagramPost5sSettings(telegramId);
+      setFiveSecondSettings(data);
+      setFiveSecondCtaText(data.cta_text || '');
+      setFiveSecondImagePrompt(data.image_prompt || '');
+      setSavedFiveSecondSettings(true);
+      window.setTimeout(() => setSavedFiveSecondSettings(false), 2000);
+    } catch (error) {
+      alert(extractApiErrorMessage(error, 'Не удалось сохранить настройки 5 секунд'));
+    } finally {
+      setSavingFiveSecondSettings(false);
     }
   };
 
@@ -685,9 +708,25 @@ export const SettingsTab: React.FC = () => {
 
       <details open className="tg-card p-4 settings-section">
         <summary className="list-none">
-        <div className="flex items-center gap-2">
-          <Music2 size={18} className="text-[#24a1de]" />
-          <h3 className="text-[15px] font-bold text-slate-900">5 секунд</h3>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Music2 size={18} className="text-[#24a1de]" />
+            <h3 className="text-[15px] font-bold text-slate-900">5 секунд</h3>
+          </div>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              handleSaveFiveSecondSettings();
+            }}
+            disabled={savingFiveSecondSettings}
+            className={`h-8 px-3 text-[11px] font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition-colors ${
+              savedFiveSecondSettings ? 'bg-[#34c759] text-white' : 'bg-[#24a1de] text-white'
+            } disabled:opacity-50`}
+          >
+            {savingFiveSecondSettings ? <Loader2 className="animate-spin" size={13} /> : <Save size={13} />}
+            {savedFiveSecondSettings ? 'Сохранено' : 'Сохранить'}
+          </button>
         </div>
         </summary>
 
