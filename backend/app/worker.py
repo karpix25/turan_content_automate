@@ -79,6 +79,11 @@ from .utils.media_utils import (
 from .utils.image_data_url import image_file_to_data_url
 from .utils.avatar_overlay import apply_transparent_avatar_overlays
 from .services.style_training import train_user_style
+from .services.instagram_post_5s import (
+    build_integrated_card_prompt,
+    normalize_multiline_text,
+    render_static_card_video,
+)
 from .utils.voice_calibration import (
     count_script_chars,
     get_audio_duration_seconds,
@@ -4405,62 +4410,58 @@ def process_content_task(self, task_id: int):
             task.script_text = rewritten_description or final_title
             db.commit()
 
-            update_task_status_message(db, task, stage="Изображение", detail="Очищаю картинку от текста через image-to-image.")
-            clean_image_prompt = (
-                "Use the provided Instagram post image as the main reference. "
-                "Create a clean 9:16 vertical background image from it while keeping the original visual composition "
-                "and camera distance as close as possible. Do not zoom out, shrink the person, or turn the source "
-                "into a small centered poster. The main subject should stay large and prominent, close to the "
-                "reference crop, with natural outpainting only where 9:16 needs extra space. Preserve the scene, "
-                "colors, lighting and mood, but remove all readable text, captions, headlines, numbers, logos, "
-                "UI elements, stickers, watermarks and overlay graphics. Do not add any new text, borders, sidebars "
-                "or poster frame. The output must be only the visual first layer/background, ready for a separate "
-                "title plate."
+            five_second_cta_text = normalize_multiline_text(
+                getattr(user, "instagram_post_5s_cta_text", None),
+                max_length=220,
             )
             five_second_image_prompt = " ".join(
                 str(getattr(user, "instagram_post_5s_image_prompt", None) or "").split()
             ).strip()
-            if five_second_image_prompt:
-                clean_image_prompt = (
-                    f"{clean_image_prompt} Additional creative direction from the user: "
-                    f"{five_second_image_prompt}"
-                )
-            clean_image_path = os.path.join(output_dir, f"instagram_post_clean_{task_id}.png")
-            generated_clean_image = thumbnail_generator.generate_image_from_references(
-                prompt=clean_image_prompt,
+            update_task_status_message(db, task, stage="Изображение", detail="Генерирую цельную 5-секундную карточку с CTA.")
+            card_image_prompt = build_integrated_card_prompt(
+                title=final_title,
+                description=rewritten_description,
+                cta_text=five_second_cta_text,
+                user_direction=five_second_image_prompt or None,
+            )
+            card_image_path = os.path.join(output_dir, f"instagram_post_card_{task_id}.png")
+            generated_card_image = thumbnail_generator.generate_image_from_references(
+                prompt=card_image_prompt,
                 reference_paths=[local_post_image],
-                output_path=clean_image_path,
+                output_path=card_image_path,
                 aspect_ratio="9:16",
                 resolution="1K",
             )
-            if not generated_clean_image:
+            if not generated_card_image:
                 kie_error_detail = thumbnail_generator.get_last_error_message_ru()
                 current_meta = dict(task.script_meta or {})
                 current_meta["instagram_post_5s"] = {
                     **dict(current_meta.get("instagram_post_5s") or {}),
                     "status": "failed",
-                    "reason": "image_cleanup_failed",
+                    "reason": "card_generation_failed",
                     "reason_detail": kie_error_detail,
                     "source_image_url": source_image_url,
                     "public_image_url": public_image_url,
                     "llm_image_source": "data_url" if post_image_data_url else ("public_url" if public_image_url else "source_url"),
                     "source_image_path": local_post_image,
-                    "clean_image_path": clean_image_path,
+                    "card_image_path": card_image_path,
                     "title": final_title,
                     "caption": caption,
                     "rewritten_description": rewritten_description,
                     "description_txt_path": description_txt_path,
                     "creator": creator,
+                    "cta_text": five_second_cta_text,
                     "image_prompt": five_second_image_prompt or None,
+                    "card_image_prompt": card_image_prompt,
                 }
                 task.script_meta = current_meta
                 db.commit()
                 if (os.getenv("INSTAGRAM_POST_5S_ALLOW_ORIGINAL_IMAGE_FALLBACK") or "0").strip() in {"1", "true", "True"}:
-                    logging.warning("Task %s: image cleanup failed; using original post image as fallback.", task_id)
-                    generated_clean_image = local_post_image
+                    logging.warning("Task %s: card generation failed; using original post image as fallback.", task_id)
+                    generated_card_image = local_post_image
                 else:
                     raise Exception(
-                        "Не удалось очистить картинку для формата 5 секунд через KIE. "
+                        "Не удалось сгенерировать цельную карточку для формата 5 секунд через KIE. "
                         f"{kie_error_detail}"
                     )
 
@@ -4475,30 +4476,14 @@ def process_content_task(self, task_id: int):
             ]
             selected_audio_track = random.choice(usable_audio_tracks) if usable_audio_tracks else None
             selected_audio_path = selected_audio_track.file_path if selected_audio_track else None
-            overlay_path = (
-                user.instagram_post_5s_overlay_path
-                if user.instagram_post_5s_overlay_path and os.path.isfile(user.instagram_post_5s_overlay_path)
-                else None
-            )
-            five_second_cta_text = "\n".join(
-                line
-                for line in (
-                    " ".join(raw_line.split())
-                    for raw_line in (getattr(user, "instagram_post_5s_cta_text", None) or "").replace("\r\n", "\n").split("\n")
-                )
-                if line
-            ).strip() or None
-
-            update_task_status_message(db, task, stage="Монтаж", detail="Собираю 5-секундное видео с плашкой.")
+            update_task_status_message(db, task, stage="Монтаж", detail="Собираю 5-секундное видео из готовой карточки.")
             five_second_output = os.path.join(output_dir, f"instagram_post_5s_{task_id}.mp4")
-            final_post_video, five_second_meta = _render_five_second_post_video(
-                image_path=generated_clean_image,
-                title=final_title,
+            final_post_video, five_second_meta = render_static_card_video(
+                image_path=generated_card_image,
                 output_path=five_second_output,
                 audio_path=selected_audio_path,
-                overlay_path=overlay_path,
-                cta_text=five_second_cta_text,
                 duration_seconds=5.0,
+                timeout_seconds=min(900, max(120, PROCESS_TASK_SOFT_LIMIT_SECONDS - 600)),
             )
             if not final_post_video:
                 raise Exception(
@@ -4513,16 +4498,16 @@ def process_content_task(self, task_id: int):
                 "public_image_url": public_image_url,
                 "llm_image_source": "data_url" if post_image_data_url else ("public_url" if public_image_url else "source_url"),
                 "source_image_path": local_post_image,
-                "clean_image_path": generated_clean_image,
+                "card_image_path": generated_card_image,
                 "title": final_title,
                 "caption": caption,
                 "rewritten_description": rewritten_description,
                 "description_txt_path": description_txt_path,
                 "selected_audio_track_id": selected_audio_track.id if selected_audio_track else None,
                 "selected_audio_path": selected_audio_path,
-                "overlay_path": overlay_path,
                 "cta_text": five_second_cta_text,
                 "image_prompt": five_second_image_prompt or None,
+                "card_image_prompt": card_image_prompt,
                 "creator": creator,
                 "render": five_second_meta,
             }
