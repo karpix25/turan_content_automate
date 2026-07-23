@@ -18,6 +18,16 @@ router = APIRouter(tags=["assets"])
 THUMBNAIL_REFERENCE_KINDS = {"horizontal", "vertical", "both"}
 
 
+def _parse_required_int(value: str | int | None, field_name: str) -> int:
+    try:
+        parsed = int(str(value or "").strip())
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"{field_name} is required")
+    if parsed <= 0:
+        raise HTTPException(status_code=400, detail=f"{field_name} is required")
+    return parsed
+
+
 def _normalize_thumbnail_reference_kind(kind: str | None) -> str:
     normalized = (kind or "both").strip().lower()
     if normalized in {"youtube", "default", "landscape"}:
@@ -210,6 +220,7 @@ async def upload_test_video(
 
     new_task = models.VideoTask(
         user_id=user.id,
+        postmypost_project_id=user.postmypost_project_id,
         source_url=file_path,
         source_title=safe_name,
         type="local_upload",
@@ -232,9 +243,17 @@ async def upload_test_video(
     return {"status": "queued", "task_id": new_task.id}
 
 @router.post("/upload/plate/{telegram_id}", response_model=schemas.PlateAssetOut)
-async def upload_plate(telegram_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_plate(
+    telegram_id: str,
+    project_id: str = Form(""),
+    account_id: str = Form(""),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
     ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
+    norm_project_id = _parse_required_int(project_id, "project_id")
+    norm_account_id = _parse_required_int(account_id, "account_id")
     plates_dir = os.getenv("PLATES_DIR", "/app/database/media/plates")
     os.makedirs(plates_dir, exist_ok=True)
     safe_name = _validate_plate_file(file)
@@ -243,12 +262,19 @@ async def upload_plate(telegram_id: str, file: UploadFile = File(...), db: Sessi
     
     await save_upload_file_stream(file, file_path)
         
-    new_plate = models.Plate(user_id=user.id, file_path=file_path)
+    new_plate = models.Plate(
+        user_id=user.id,
+        postmypost_project_id=norm_project_id,
+        account_id=norm_account_id,
+        file_path=file_path,
+    )
     db.add(new_plate)
     db.commit()
     db.refresh(new_plate)
     return schemas.PlateAssetOut(
         id=new_plate.id,
+        postmypost_project_id=new_plate.postmypost_project_id,
+        account_id=new_plate.account_id,
         file_path=file_path,
         media_type=get_plate_media_type(file_path),
     )
@@ -394,15 +420,31 @@ def delete_instagram_post_5s_overlay(telegram_id: str, db: Session = Depends(get
     return _instagram_post_5s_settings_response(user, db)
 
 @router.delete("/plates/{telegram_id}/{plate_id}")
-def delete_plate(telegram_id: str, plate_id: int, db: Session = Depends(get_db)):
+def delete_plate(
+    telegram_id: str,
+    plate_id: int,
+    project_id: int | None = None,
+    account_id: int | None = None,
+    db: Session = Depends(get_db),
+):
     ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
-    plate = db.query(models.Plate).filter(models.Plate.id == plate_id, models.Plate.user_id == user.id).first()
+    query = db.query(models.Plate).filter(models.Plate.id == plate_id, models.Plate.user_id == user.id)
+    if project_id is not None:
+        query = query.filter(models.Plate.postmypost_project_id == int(project_id))
+    if account_id is not None:
+        query = query.filter(models.Plate.account_id == int(account_id))
+    plate = query.first()
     if not plate:
         raise HTTPException(status_code=404, detail="Plate not found")
 
     # Cleanup references in UserPublishChannel
-    for row in db.query(models.UserPublishChannel).filter(models.UserPublishChannel.user_id == user.id).all():
+    rows_query = db.query(models.UserPublishChannel).filter(models.UserPublishChannel.user_id == user.id)
+    if plate.postmypost_project_id is not None:
+        rows_query = rows_query.filter(models.UserPublishChannel.postmypost_project_id == plate.postmypost_project_id)
+    if plate.account_id is not None:
+        rows_query = rows_query.filter(models.UserPublishChannel.account_id == plate.account_id)
+    for row in rows_query.all():
         plate_ids = [int(item) for item in (row.selected_plate_ids or []) if item is not None]
         if plate_id in plate_ids:
             plate_ids = [item for item in plate_ids if item != plate_id]
@@ -448,6 +490,7 @@ async def upload_cta(
 @router.post("/upload/ending/{telegram_id}", response_model=schemas.EndingClipOut)
 async def upload_ending(
     telegram_id: str,
+    project_id: str = Form(""),
     platform: str = Form(...),
     label: str = Form(""),
     account_id: str = Form(""),
@@ -456,26 +499,51 @@ async def upload_ending(
 ):
     ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
+    norm_project_id = _parse_required_int(project_id, "project_id")
     norm_platform = normalize_ending_platform(platform)
-    norm_account_id = parse_optional_account_id(account_id)
+    norm_account_id = _parse_required_int(account_id, "account_id")
     endings_dir = os.getenv("CTA_DIR", "/app/database/media/cta")
     os.makedirs(endings_dir, exist_ok=True)
 
-    account_segment = f"_a{norm_account_id}" if norm_account_id is not None else ""
-    file_path = os.path.join(endings_dir, f"{telegram_id}_{norm_platform}{account_segment}_{file.filename}")
+    safe_name = _build_safe_upload_filename(file.filename, fallback_extension=".mp4")
+    file_path = os.path.join(
+        endings_dir,
+        (
+            f"{telegram_id}_p{norm_project_id}_a{norm_account_id}_{norm_platform}_"
+            f"{datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}_{safe_name}"
+        ),
+    )
     await save_upload_file_stream(file, file_path)
 
-    ending = models.CTAClip(user_id=user.id, account_id=norm_account_id, file_path=file_path, label=label or file.filename, platform=norm_platform)
+    ending = models.CTAClip(
+        user_id=user.id,
+        postmypost_project_id=norm_project_id,
+        account_id=norm_account_id,
+        file_path=file_path,
+        label=label or file.filename,
+        platform=norm_platform,
+    )
     db.add(ending)
     db.commit()
     db.refresh(ending)
     return ending
 
 @router.delete("/endings/{telegram_id}/{ending_id}")
-def delete_ending(telegram_id: str, ending_id: int, db: Session = Depends(get_db)):
+def delete_ending(
+    telegram_id: str,
+    ending_id: int,
+    project_id: int | None = None,
+    account_id: int | None = None,
+    db: Session = Depends(get_db),
+):
     ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
-    ending = db.query(models.CTAClip).filter(models.CTAClip.id == ending_id, models.CTAClip.user_id == user.id).first()
+    query = db.query(models.CTAClip).filter(models.CTAClip.id == ending_id, models.CTAClip.user_id == user.id)
+    if project_id is not None:
+        query = query.filter(models.CTAClip.postmypost_project_id == int(project_id))
+    if account_id is not None:
+        query = query.filter(models.CTAClip.account_id == int(account_id))
+    ending = query.first()
     if not ending:
         raise HTTPException(status_code=404, detail="Ending not found")
 
@@ -490,10 +558,20 @@ def delete_ending(telegram_id: str, ending_id: int, db: Session = Depends(get_db
     return {"status": "deleted", "ending_id": ending_id}
 
 @router.get("/endings/{telegram_id}", response_model=list[schemas.EndingClipOut])
-def list_endings(telegram_id: str, db: Session = Depends(get_db)):
+def list_endings(
+    telegram_id: str,
+    project_id: int | None = None,
+    account_id: int | None = None,
+    db: Session = Depends(get_db),
+):
     ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
-    return db.query(models.CTAClip).filter(models.CTAClip.user_id == user.id).order_by(models.CTAClip.account_id.asc().nullsfirst(), models.CTAClip.id.desc()).all()
+    query = db.query(models.CTAClip).filter(models.CTAClip.user_id == user.id)
+    if project_id is not None:
+        query = query.filter(models.CTAClip.postmypost_project_id == int(project_id))
+    if account_id is not None:
+        query = query.filter(models.CTAClip.account_id == int(account_id))
+    return query.order_by(models.CTAClip.account_id.asc().nullsfirst(), models.CTAClip.id.desc()).all()
 
 
 @router.post("/upload/thumbnail-reference/{telegram_id}", response_model=schemas.ThumbnailReferenceOut)

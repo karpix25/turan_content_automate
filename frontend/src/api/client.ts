@@ -3,8 +3,10 @@ import {
   UserSettings,
   VideoTaskItem,
   PublishAccount,
+  PostMyPostProjectsResponse,
   PlateAsset,
   EndingClip,
+  UniqueizationMode,
   ThumbnailReference,
   ThumbnailFaceReference,
   AvatarInsertClip,
@@ -107,52 +109,80 @@ export const apiClient = {
   },
 
   // Channels
-  getChannels: async (telegramId: string) => {
-    const res = await axios.get<PublishAccount[]>(`${API_BASE}/postmypost/channels/${telegramId}`);
+  getPostMyPostProjects: async (telegramId: string) => {
+    const res = await axios.get<PostMyPostProjectsResponse>(API_BASE + '/postmypost/projects/' + telegramId);
     return res.data;
   },
-  updateChannels: async (telegramId: string, payload: any) => {
-    const res = await axios.post<PublishAccount[]>(`${API_BASE}/postmypost/channels/${telegramId}`, payload);
+  updatePostMyPostProject: async (telegramId: string, projectId: number, uniqueizationMode?: UniqueizationMode) => {
+    const res = await axios.post<PostMyPostProjectsResponse>(API_BASE + '/postmypost/projects/' + telegramId, {
+      project_id: projectId,
+      ...(uniqueizationMode ? { uniqueization_mode: uniqueizationMode } : {}),
+    });
+    return res.data;
+  },
+  getChannels: async (telegramId: string, projectId?: number | null) => {
+    const res = await axios.get<PublishAccount[]>(`${API_BASE}/postmypost/channels/${telegramId}`, {
+      params: projectId ? { project_id: projectId } : undefined,
+    });
+    return res.data;
+  },
+  updateChannels: async (telegramId: string, projectId: number | null, payload: any) => {
+    const res = await axios.post<PublishAccount[]>(`${API_BASE}/postmypost/channels/${telegramId}`, payload, {
+      params: projectId ? { project_id: projectId } : undefined,
+    });
     return res.data;
   },
 
   // Endings & Plates
-  getEndings: async (telegramId: string) => {
-    const res = await axios.get<EndingClip[]>(`${API_BASE}/endings/${telegramId}`);
+  getEndings: async (telegramId: string, projectId?: number | null, accountId?: number | null) => {
+    const res = await axios.get<EndingClip[]>(`${API_BASE}/endings/${telegramId}`, {
+      params: {
+        ...(projectId ? { project_id: projectId } : {}),
+        ...(accountId ? { account_id: accountId } : {}),
+      },
+    });
     return res.data;
   },
-  uploadPlate: async (telegramId: string, file: File, accountId?: number) => {
+  uploadPlate: async (telegramId: string, file: File, projectId: number, accountId: number) => {
     const formData = new FormData();
     formData.append('file', file);
-    if (accountId !== undefined) {
-      formData.append('account_id', accountId.toString());
-    }
+    formData.append('project_id', projectId.toString());
+    formData.append('account_id', accountId.toString());
     const res = await axios.post<PlateAsset>(`${API_BASE}/upload/plate/${telegramId}`, formData);
     return res.data;
   },
   uploadEnding: async (
     telegramId: string,
     file: File,
-    options: { accountId?: number; platform?: string; label?: string } = {}
+    options: { projectId: number; accountId: number; platform?: string; label?: string }
   ) => {
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('project_id', options.projectId.toString());
+    formData.append('account_id', options.accountId.toString());
     formData.append('platform', options.platform || 'universal');
-    if (options.accountId !== undefined) {
-      formData.append('account_id', options.accountId.toString());
-    }
     if (options.label) {
       formData.append('label', options.label);
     }
     const res = await axios.post<EndingClip>(`${API_BASE}/upload/ending/${telegramId}`, formData);
     return res.data;
   },
-  deletePlate: async (telegramId: string, plateId: number) => {
-    const res = await axios.delete(`${API_BASE}/plates/${telegramId}/${plateId}`);
+  deletePlate: async (telegramId: string, plateId: number, projectId?: number | null, accountId?: number | null) => {
+    const res = await axios.delete(`${API_BASE}/plates/${telegramId}/${plateId}`, {
+      params: {
+        ...(projectId ? { project_id: projectId } : {}),
+        ...(accountId ? { account_id: accountId } : {}),
+      },
+    });
     return res.data;
   },
-  deleteEnding: async (telegramId: string, endingId: number) => {
-    const res = await axios.delete(`${API_BASE}/endings/${telegramId}/${endingId}`);
+  deleteEnding: async (telegramId: string, endingId: number, projectId?: number | null, accountId?: number | null) => {
+    const res = await axios.delete(`${API_BASE}/endings/${telegramId}/${endingId}`, {
+      params: {
+        ...(projectId ? { project_id: projectId } : {}),
+        ...(accountId ? { account_id: accountId } : {}),
+      },
+    });
     return res.data;
   },
   getInstagramPost5sSettings: async (telegramId: string) => {

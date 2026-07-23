@@ -7,6 +7,7 @@ import subprocess
 import ffmpeg
 from typing import List, Dict, Optional, Tuple
 
+from .services.video_uniqueization_profiles import build_uniqueization_profile
 from .utils.plate_media import is_plate_video
 
 logger = logging.getLogger(__name__)
@@ -19,15 +20,26 @@ class VideoProcessor:
     def _truthy_env(name: str, default: str = "0") -> bool:
         return (os.getenv(name, default) or "").strip().lower() in {"1", "true", "yes", "on"}
 
-    def _encode_kwargs(self, *, include_audio: bool = True) -> Dict[str, object]:
+    def _encode_kwargs(
+        self,
+        *,
+        include_audio: bool = True,
+        unique_profile: Optional[Dict[str, object]] = None,
+    ) -> Dict[str, object]:
         kwargs: Dict[str, object] = {
             "vcodec": "libx264",
             "preset": os.getenv("FFMPEG_X264_PRESET", "veryfast"),
-            "crf": os.getenv("FFMPEG_X264_CRF", "18"),
+            "crf": str(
+                int(unique_profile["crf"])
+                if unique_profile and unique_profile.get("unique_variations_enabled")
+                else os.getenv("FFMPEG_X264_CRF", "18")
+            ),
             "pix_fmt": "yuv420p",
             "movflags": "+faststart",
             "map_metadata": "-1",
         }
+        if unique_profile and unique_profile.get("unique_variations_enabled"):
+            kwargs["g"] = int(unique_profile["gop"])
         if include_audio:
             kwargs.update(
                 {
@@ -588,7 +600,9 @@ class VideoProcessor:
                       ass_path: Optional[str] = None,
                       cta_path: Optional[str] = None,
                       subtitles_enabled: bool = False,
-                      unique_seed: Optional[int] = None):
+                      unique_seed: Optional[int] = None,
+                      force_unique_variations: bool = False,
+                      uniqueization_mode: Optional[str] = "auto"):
         """
         The final rendering pipeline using FFmpeg.
         1. Burn subtitles.
@@ -618,8 +632,20 @@ class VideoProcessor:
         if subtitles_enabled and ass_path:
             video = video.filter('subtitles', ass_path, force_style="Alignment=2")
 
-        profile = self._build_unique_profile(unique_seed)
+        profile = self._build_unique_profile(
+            unique_seed,
+            force_enabled=force_unique_variations,
+            uniqueization_mode=uniqueization_mode,
+        )
+        active_main_duration = main_duration
         if profile["unique_variations_enabled"]:
+            trim_start = float(profile.get("trim_start_seconds") or 0.0)
+            trim_end = float(profile.get("trim_end_seconds") or 0.0)
+            if main_duration > 2.0 and trim_start + trim_end < main_duration - 0.5:
+                trim_end_at = max(trim_start + 0.5, main_duration - trim_end)
+                video = video.filter("trim", start=trim_start, end=trim_end_at).filter("setpts", "PTS-STARTPTS")
+                audio = audio.filter("atrim", start=trim_start, end=trim_end_at).filter("asetpts", "PTS-STARTPTS")
+                active_main_duration = max(0.5, trim_end_at - trim_start)
             video = video.filter(
                 "eq",
                 brightness=profile["brightness"],
@@ -627,13 +653,35 @@ class VideoProcessor:
                 saturation=profile["saturation"],
                 gamma=profile["gamma"],
             )
+            rotate_degrees = float(profile.get("rotate_degrees") or 0.0)
+            if abs(rotate_degrees) > 0.001:
+                video = video.filter("rotate", f"{rotate_degrees}*PI/180", fillcolor="black")
+            zoom = float(profile.get("zoom") or 1.0)
+            if zoom > 1.0001:
+                scaled_width = max(target_width + 2, int(target_width * zoom) // 2 * 2)
+                scaled_height = max(target_height + 2, int(target_height * zoom) // 2 * 2)
+                crop_x = max(0, min(scaled_width - target_width, (scaled_width - target_width) // 2 + int(profile["shift_x"])))
+                crop_y = max(0, min(scaled_height - target_height, (scaled_height - target_height) // 2 + int(profile["shift_y"])))
+                video = video.filter("scale", scaled_width, scaled_height).filter("crop", target_width, target_height, crop_x, crop_y)
+            grain_strength = int(profile.get("grain_strength") or 0)
+            if grain_strength > 0:
+                video = video.filter("noise", alls=grain_strength, allf="t+u")
             video = video.filter("setpts", f"PTS/{profile['speed']}")
             audio = audio.filter("atempo", profile["speed"])
+            audio_volume = float(profile.get("audio_volume") or 1.0)
+            if abs(audio_volume - 1.0) > 0.0001:
+                audio = audio.filter("volume", audio_volume)
+            audio_bass = float(profile.get("audio_bass_db") or 0.0)
+            if abs(audio_bass) > 0.001:
+                audio = audio.filter("bass", g=audio_bass)
+            audio_treble = float(profile.get("audio_treble_db") or 0.0)
+            if abs(audio_treble) > 0.001:
+                audio = audio.filter("treble", g=audio_treble)
 
         if plate_path:
             plate_is_video = is_plate_video(plate_path)
             normalized_plate_start_percent = self._normalize_percent(plate_start_percent)
-            processed_main_duration = main_duration / profile["speed"] if profile["speed"] else main_duration
+            processed_main_duration = active_main_duration / profile["speed"] if profile["speed"] else active_main_duration
             plate_start_seconds = processed_main_duration * normalized_plate_start_percent / 100.0
             remaining_duration = max(0.1, processed_main_duration - plate_start_seconds)
             if plate_is_video:
@@ -701,7 +749,7 @@ class VideoProcessor:
             video = joined[0]
             audio = joined[1]
 
-        unique_tag = uuid.uuid4().hex
+        unique_tag = str(profile.get("metadata_tag") or uuid.uuid4().hex)
         try:
             (
                 ffmpeg
@@ -710,12 +758,12 @@ class VideoProcessor:
                 audio,
                 output_path,
                 threads='auto',
-                **self._encode_kwargs(include_audio=True),
+                **self._encode_kwargs(include_audio=True, unique_profile=profile),
             )
                 .global_args(
                 "-metadata", f"title=content-studio-{unique_tag}",
                 "-metadata", f"comment=uniq-{unique_tag}",
-                "-metadata", f"description=variant-{profile['variant_id']}",
+                "-metadata", f"description=variant-{profile['variant_id']}-mode-{profile.get('mode', 'off')}",
             )
                 .overwrite_output()
                 .run(capture_stdout=True, capture_stderr=True)
@@ -759,28 +807,21 @@ class VideoProcessor:
                 cta_path=variant_cta_path,
                 subtitles_enabled=subtitles_enabled,
                 unique_seed=variant_seed,
+                uniqueization_mode="light",
             )
             outputs.append(variant_output)
         return outputs
 
-    def _build_unique_profile(self, unique_seed: Optional[int]) -> Dict[str, float | int]:
-        if not self._truthy_env("VIDEO_UNIQUE_VARIATIONS_ENABLED", "0"):
-            return {
-                "variant_id": 0,
-                "brightness": 0.0,
-                "contrast": 1.0,
-                "saturation": 1.0,
-                "gamma": 1.0,
-                "speed": 1.0,
-                "unique_variations_enabled": 0,
-            }
-        rnd = random.Random(unique_seed if unique_seed is not None else random.randint(1, 10_000_000))
-        return {
-            "variant_id": int(rnd.random() * 1_000_000),
-            "brightness": round(rnd.uniform(-0.03, 0.03), 3),
-            "contrast": round(rnd.uniform(0.97, 1.06), 3),
-            "saturation": round(rnd.uniform(0.95, 1.08), 3),
-            "gamma": round(rnd.uniform(0.97, 1.04), 3),
-            "speed": round(rnd.uniform(0.988, 1.012), 4),
-            "unique_variations_enabled": 1,
-        }
+    def _build_unique_profile(
+        self,
+        unique_seed: Optional[int],
+        *,
+        force_enabled: bool = False,
+        uniqueization_mode: Optional[str] = "auto",
+    ) -> Dict[str, object]:
+        return build_uniqueization_profile(
+            unique_seed,
+            mode=uniqueization_mode,
+            force_enabled=force_enabled,
+            env_enabled=self._truthy_env("VIDEO_UNIQUE_VARIATIONS_ENABLED", "0"),
+        )

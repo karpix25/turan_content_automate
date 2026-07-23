@@ -5,7 +5,12 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from ... import models, schemas
 from ...core.config import celery_client
+from ...core.config import pmp_client
 from ...telegram_progress import update_task_status_message
+from ...utils.postmypost_projects import (
+    ensure_postmypost_project_available,
+    resolve_user_postmypost_project_id,
+)
 from ..deps import get_db, ensure_admin_access, get_or_create_user, get_user_task_or_404
 from ..utils import normalize_source_url, validate_youtube_url, resolve_output_file_path, normalize_utc_naive
 
@@ -51,8 +56,15 @@ def create_task(telegram_id: str, payload: schemas.VideoTaskCreate, db: Session 
     if payload.type == "youtube":
         validate_youtube_url(source_url)
 
+    try:
+        postmypost_project_id = int(payload.postmypost_project_id) if payload.postmypost_project_id else resolve_user_postmypost_project_id(user, pmp_client)
+        postmypost_project_id = ensure_postmypost_project_available(postmypost_project_id, pmp_client)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
     new_task = models.VideoTask(
         user_id=user.id,
+        postmypost_project_id=postmypost_project_id,
         source_url=source_url,
         type=payload.type,
         source_title=(payload.source_title or "").strip() or None,

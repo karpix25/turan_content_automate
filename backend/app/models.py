@@ -22,6 +22,7 @@ class User(Base):
     publish_window_end_msk = Column(String, default="22:00:00", nullable=False)
     selected_plate_id = Column(Integer, nullable=True)
     plate_start_percent = Column(Integer, default=0, nullable=False)
+    postmypost_project_id = Column(Integer, nullable=True)
     
     # Writing style training
     author_style_profile = Column(String, nullable=True)  # Detailed tone/style analyzed by LLM
@@ -64,6 +65,8 @@ class Plate(Base):
     __tablename__ = "plates"
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"))
+    postmypost_project_id = Column(Integer, nullable=True, index=True)
+    account_id = Column(Integer, nullable=True, index=True)
     file_path = Column(String)
     is_active = Column(Boolean, default=True)
 
@@ -71,6 +74,7 @@ class CTAClip(Base):
     __tablename__ = "cta_clips"
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"))
+    postmypost_project_id = Column(Integer, nullable=True, index=True)
     account_id = Column(Integer, nullable=True, index=True)
     file_path = Column(String)
     label = Column(String)
@@ -135,6 +139,7 @@ class VideoTask(Base):
     output_path = Column(String, nullable=True)
     
     # Publication
+    postmypost_project_id = Column(Integer, nullable=True, index=True)
     target_account_id = Column(Integer, nullable=True)
     publish_at = Column(DateTime, nullable=True)
     publishing_status = Column(String, default="not_published")  # 'not_published', 'scheduled', 'in_progress', 'published', 'failed'
@@ -151,10 +156,11 @@ class VideoTask(Base):
 
 class UserPublishChannel(Base):
     __tablename__ = "user_publish_channels"
-    __table_args__ = (UniqueConstraint("user_id", "account_id", name="uq_user_account_channel"),)
+    __table_args__ = (UniqueConstraint("user_id", "postmypost_project_id", "account_id", name="uq_user_project_account_channel"),)
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    postmypost_project_id = Column(Integer, nullable=True, index=True)
     account_id = Column(Integer, index=True, nullable=False)
     enabled = Column(Boolean, default=True, nullable=False)
     publication_description = Column(String, nullable=True)
@@ -162,5 +168,17 @@ class UserPublishChannel(Base):
     selected_plate_ids = Column(JSON, nullable=True)
     selected_plate_id = Column(Integer, nullable=True)
     plate_start_percent = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+
+class PostMyPostProjectSetting(Base):
+    __tablename__ = "postmypost_project_settings"
+    __table_args__ = (UniqueConstraint("user_id", "project_id", name="uq_user_postmypost_project_setting"),)
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    project_id = Column(Integer, index=True, nullable=False)
+    uniqueization_mode = Column(String, default="auto", nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

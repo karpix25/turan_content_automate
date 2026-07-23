@@ -10,6 +10,11 @@ from aiogram.utils import executor
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from dotenv import load_dotenv
 
+from postmypost_project_flow import (
+    pop_pending_project_task,
+    prompt_postmypost_project_choice as prompt_postmypost_project_choice_flow,
+)
+
 load_dotenv()
 
 API_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -210,22 +215,27 @@ async def create_task_in_backend(
     status_message: types.Message,
     source_title: str | None = None,
     reply_message_id: int | str | None = None,
+    postmypost_project_id: int | None = None,
 ):
     """
     Helper to trigger task creation in backend and update status message.
     """
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
+            task_payload = {
+                "source_url": url,
+                "type": task_type,
+                "source_title": (source_title or "").strip() or None,
+                "telegram_chat_id": str(status_message.chat.id),
+                "telegram_status_message_id": str(status_message.message_id),
+                "telegram_reply_message_id": str(reply_message_id or ""),
+            }
+            if postmypost_project_id is not None:
+                task_payload["postmypost_project_id"] = int(postmypost_project_id)
+
             response = await client.post(
                 f"{BACKEND_API_URL}/tasks/{user_id}",
-                json={
-                    "source_url": url,
-                    "type": task_type,
-                    "source_title": (source_title or "").strip() or None,
-                    "telegram_chat_id": str(status_message.chat.id),
-                    "telegram_status_message_id": str(status_message.message_id),
-                    "telegram_reply_message_id": str(reply_message_id or ""),
-                },
+                json=task_payload,
             )
         response.raise_for_status()
         payload = response.json()
@@ -254,6 +264,30 @@ async def create_task_in_backend(
             )
         except Exception:
             await status_message.answer("❌ Sorry, something went wrong while creating the task.")
+
+
+async def prompt_postmypost_project_choice(
+    user_id: str,
+    chat_id: int | str,
+    url: str,
+    task_type: str,
+    intro_text: str,
+    reply_message_id: int | str | None = None,
+    source_title: str | None = None,
+) -> None:
+    await prompt_postmypost_project_choice_flow(
+        bot=bot,
+        backend_api_url=BACKEND_API_URL,
+        create_task_in_backend=create_task_in_backend,
+        strip_keyboard_styles=strip_keyboard_styles,
+        user_id=user_id,
+        chat_id=chat_id,
+        url=url,
+        task_type=task_type,
+        intro_text=intro_text,
+        reply_message_id=reply_message_id,
+        source_title=source_title,
+    )
 
 
 async def send_thumbnail_prompt_review_to_backend(user_id: str, task_id: int, action: str, prompt: str | None = None) -> bool:
@@ -557,10 +591,61 @@ async def handle_link(message: types.Message):
         )
         return
 
-    # Automatically process Instagram, YouTube Shorts, and Vizard project links.
-    status_message = await message.reply("⏳ Получил ссылку\nЭтап: создаю задачу.")
-    await create_task_in_backend(user_id, url, task_type, status_message, reply_message_id=message.message_id)
+    # Automatically process Vizard project links after choosing the PostMyPost container.
+    await prompt_postmypost_project_choice(
+        user_id,
+        message.chat.id,
+        url,
+        task_type,
+        "⏳ Получил ссылку",
+        reply_message_id=message.message_id,
+    )
 
+
+
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith('pmp:'))
+async def process_postmypost_project_choice(callback_query: types.CallbackQuery):
+    parts = (callback_query.data or "").split(":")
+    if len(parts) != 3:
+        await callback_query.answer("Некорректный выбор контейнера", show_alert=True)
+        return
+
+    _, token, project_id_raw = parts
+    pending = pop_pending_project_task(token, str(callback_query.from_user.id))
+    if not pending:
+        await callback_query.answer("Выбор устарел. Отправьте ссылку ещё раз.", show_alert=True)
+        return
+
+    try:
+        project_id = int(project_id_raw)
+    except ValueError:
+        await callback_query.answer("Некорректный контейнер", show_alert=True)
+        return
+
+    await callback_query.answer("Контейнер выбран. Создаю задачу...")
+    status_message = callback_query.message
+    try:
+        await status_message.edit_text(
+            "⏳ Контейнер PostMyPost выбран\nЭтап: создаю задачу.",
+            disable_web_page_preview=True,
+        )
+    except Exception:
+        status_message = await bot.send_message(
+            callback_query.message.chat.id,
+            "⏳ Контейнер PostMyPost выбран\nЭтап: создаю задачу.",
+            reply_to_message_id=pending.get("reply_message_id"),
+            allow_sending_without_reply=True,
+        )
+
+    await create_task_in_backend(
+        str(callback_query.from_user.id),
+        pending["url"],
+        pending["task_type"],
+        status_message,
+        source_title=pending.get("source_title"),
+        reply_message_id=pending.get("reply_message_id"),
+        postmypost_project_id=project_id,
+    )
 
 
 @dp.callback_query_handler(lambda c: c.data and c.data.startswith(('vizard:', 'avatar:', 'publish:', 'five:', 'info:')))
@@ -588,18 +673,13 @@ async def process_choice(callback_query: types.CallbackQuery):
             url = f"https://www.youtube.com/watch?v={identifier}"
         else:
             return
-        await callback_query.answer("Запускаю инфографику...")
-        status_message = await bot.send_message(
-            callback_query.message.chat.id,
-            "⏳ Выбрана инфографика → REELS\nЭтап: создаю задачу.",
-            reply_to_message_id=original_message_id,
-            allow_sending_without_reply=True,
-        )
-        await create_task_in_backend(
+        await callback_query.answer("Выберите контейнер PostMyPost...")
+        await prompt_postmypost_project_choice(
             str(callback_query.from_user.id),
+            callback_query.message.chat.id,
             url,
             "infographic_reels",
-            status_message,
+            "⏳ Выбрана инфографика → REELS",
             reply_message_id=original_message_id,
         )
         try:
@@ -612,18 +692,13 @@ async def process_choice(callback_query: types.CallbackQuery):
         if platform != "igp":
             return
         url = f"https://www.instagram.com/p/{identifier}/"
-        await callback_query.answer("Запускаю 5 секунд...")
-        status_message = await bot.send_message(
-            callback_query.message.chat.id,
-            "⏳ Выбран вариант 5 секунд\nЭтап: создаю задачу.",
-            reply_to_message_id=original_message_id,
-            allow_sending_without_reply=True,
-        )
-        await create_task_in_backend(
+        await callback_query.answer("Выберите контейнер PostMyPost...")
+        await prompt_postmypost_project_choice(
             str(callback_query.from_user.id),
+            callback_query.message.chat.id,
             url,
             "avatar_instagram_post_5s",
-            status_message,
+            "⏳ Выбран вариант 5 секунд",
             reply_message_id=original_message_id,
         )
         try:
@@ -649,20 +724,13 @@ async def process_choice(callback_query: types.CallbackQuery):
             url = f"https://www.youtube.com/watch?v={identifier}" if platform == "yt" else identifier
             task_type = "avatar_horizontal"
             answer_text = "👤 Запускаю создание сценария с аватаром..."
-        await callback_query.answer(answer_text)
-        
-        status_message = await bot.send_message(
-            callback_query.message.chat.id,
-            "⏳ Выбран Аватар\nЭтап: создаю задачу.",
-            reply_to_message_id=original_message_id,
-            allow_sending_without_reply=True,
-        )
-        
-        await create_task_in_backend(
+        await callback_query.answer("Выберите контейнер PostMyPost...")
+        await prompt_postmypost_project_choice(
             str(callback_query.from_user.id),
+            callback_query.message.chat.id,
             url,
             task_type,
-            status_message,
+            "⏳ Выбран Аватар",
             reply_message_id=original_message_id,
         )
         
@@ -690,18 +758,13 @@ async def process_choice(callback_query: types.CallbackQuery):
         else:
             return
 
-        await callback_query.answer(answer_text)
-        status_message = await bot.send_message(
-            callback_query.message.chat.id,
-            selected_text,
-            reply_to_message_id=original_message_id,
-            allow_sending_without_reply=True,
-        )
-        await create_task_in_backend(
+        await callback_query.answer("Выберите контейнер PostMyPost...")
+        await prompt_postmypost_project_choice(
             str(callback_query.from_user.id),
+            callback_query.message.chat.id,
             url,
             task_type,
-            status_message,
+            selected_text.replace("\nЭтап: создаю задачу.", ""),
             reply_message_id=original_message_id,
         )
 
@@ -714,21 +777,13 @@ async def process_choice(callback_query: types.CallbackQuery):
     # Process Vizard choice
     url = f"https://www.youtube.com/watch?v={identifier}" if platform == "yt" else identifier
     
-    await callback_query.answer("Запускаю Vizard...")
-    
-    # We create a new status message to show progress
-    status_message = await bot.send_message(
-        callback_query.message.chat.id,
-        "⏳ Выбран Vizard\nЭтап: создаю задачу.",
-        reply_to_message_id=original_message_id,
-        allow_sending_without_reply=True,
-    )
-    
-    await create_task_in_backend(
+    await callback_query.answer("Выберите контейнер PostMyPost...")
+    await prompt_postmypost_project_choice(
         str(callback_query.from_user.id),
+        callback_query.message.chat.id,
         url,
         "youtube",
-        status_message,
+        "⏳ Выбран Vizard",
         reply_message_id=original_message_id,
     )
     

@@ -65,8 +65,12 @@ export type VideoTaskItem = {
 export type PlateAsset = {
   id: number;
   file_path: string;
+  postmypost_project_id?: number | null;
+  account_id?: number | null;
   media_type?: 'image' | 'video';
 };
+
+export type UniqueizationMode = 'auto' | 'light' | 'standard' | 'aggressive' | 'off';
 
 export type PublishAccount = {
   account_id: number;
@@ -85,9 +89,24 @@ export type PublishAccount = {
   plate_assets?: PlateAsset[];
 };
 
+export type PostMyPostProject = {
+  id: number;
+  name: string;
+  timezone_id?: number | null;
+  selected: boolean;
+  uniqueization_mode?: UniqueizationMode | null;
+};
+
+export type PostMyPostProjectsResponse = {
+  selected_project_id?: number | null;
+  selected_project_uniqueization_mode?: UniqueizationMode | null;
+  projects: PostMyPostProject[];
+};
+
 export type EndingClip = {
   id: number;
   user_id: number;
+  postmypost_project_id?: number | null;
   account_id?: number | null;
   file_path: string;
   label?: string | null;

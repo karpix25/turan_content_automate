@@ -56,6 +56,7 @@ class VideoTaskCreate(BaseModel):
     source_url: str
     type: str
     source_title: Optional[str] = None
+    postmypost_project_id: Optional[int] = None
     publish_at: Optional[datetime.datetime] = None
     telegram_chat_id: Optional[str] = None
     telegram_status_message_id: Optional[str] = None
@@ -68,6 +69,16 @@ class ThumbnailPromptReviewUpdate(BaseModel):
     action: str
     prompt: Optional[str] = None
 
+class ContentScriptGenerateRequest(BaseModel):
+    count: int = 3
+    format: str = "short"
+    notebook_id: Optional[str] = None
+    topic_hint: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+
+class ContentScriptReviewUpdate(BaseModel):
+    action: str
+
 class VideoTaskOut(BaseModel):
     id: int
     user_id: int
@@ -75,6 +86,7 @@ class VideoTaskOut(BaseModel):
     type: str
     status: str
     output_path: Optional[str]
+    postmypost_project_id: Optional[int] = None
     target_account_id: Optional[int]
     target_platform: Optional[str]
     source_title: Optional[str]
@@ -101,8 +113,26 @@ class ChannelPreferenceUpdate(BaseModel):
     selected_plate_ids: Optional[dict[str, list[int]]] = None
     plate_start_percents: Optional[dict[str, int | None]] = None
 
+class PostMyPostProjectUpdate(BaseModel):
+    project_id: int
+    uniqueization_mode: Optional[str] = None
+
+class PostMyPostProjectOut(BaseModel):
+    id: int
+    name: str
+    timezone_id: Optional[int] = None
+    selected: bool = False
+    uniqueization_mode: str = "auto"
+
+class PostMyPostProjectsOut(BaseModel):
+    selected_project_id: Optional[int]
+    selected_project_uniqueization_mode: str = "auto"
+    projects: list[PostMyPostProjectOut] = []
+
 class PlateAssetOut(BaseModel):
     id: int
+    postmypost_project_id: Optional[int] = None
+    account_id: Optional[int] = None
     file_path: str
     media_type: str = "image"
 
@@ -129,6 +159,7 @@ class PostMyPostAccountOut(BaseModel):
 class EndingClipOut(BaseModel):
     id: int
     user_id: int
+    postmypost_project_id: Optional[int] = None
     account_id: Optional[int]
     file_path: str
     label: Optional[str]

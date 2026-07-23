@@ -57,6 +57,7 @@ def init_database() -> None:
         add_column_if_missing("users", "publish_window_start_msk", "VARCHAR(16) DEFAULT '10:00:00'")
         add_column_if_missing("users", "publish_window_end_msk", "VARCHAR(16) DEFAULT '22:00:00'")
         add_column_if_missing("users", "plate_start_percent", "INTEGER DEFAULT 0")
+        add_column_if_missing("users", "postmypost_project_id", "INTEGER")
         add_column_if_missing("users", "author_style_profile", "TEXT")
         add_column_if_missing("users", "training_source", "TEXT")
         add_column_if_missing("users", "style_training_status", "VARCHAR(32)")
@@ -265,6 +266,7 @@ def init_database() -> None:
             text("UPDATE users SET plate_start_percent = 100 WHERE plate_start_percent > 100")
         )
         add_column_if_missing("tasks", "target_account_id", "INTEGER")
+        add_column_if_missing("tasks", "postmypost_project_id", "INTEGER")
         add_column_if_missing("tasks", "postmypost_file_id", "INTEGER")
         add_column_if_missing("tasks", "telegram_chat_id", "VARCHAR(64)")
         add_column_if_missing("tasks", "telegram_status_message_id", "VARCHAR(64)")
@@ -277,11 +279,13 @@ def init_database() -> None:
         add_column_if_missing("tasks", "script_text", "TEXT")
         add_column_if_missing("tasks", "script_meta", "JSONB")
         add_column_if_missing("cta_clips", "platform", "VARCHAR(32) DEFAULT 'universal'")
+        add_column_if_missing("cta_clips", "postmypost_project_id", "INTEGER")
         add_column_if_missing("cta_clips", "account_id", "INTEGER")
         conn.execute(
             text("UPDATE cta_clips SET platform = 'universal' WHERE platform IS NULL")
         )
         add_column_if_missing("user_publish_channels", "publication_description", "TEXT")
+        add_column_if_missing("user_publish_channels", "postmypost_project_id", "INTEGER")
         add_column_if_missing("user_publish_channels", "publish_limit_per_day", "INTEGER DEFAULT 3")
         conn.execute(
             text(
@@ -370,6 +374,82 @@ def init_database() -> None:
         add_column_if_missing("user_publish_channels", "selected_plate_id", "INTEGER")
         add_column_if_missing("user_publish_channels", "selected_plate_ids", "JSONB")
         add_column_if_missing("user_publish_channels", "plate_start_percent", "INTEGER")
+        add_column_if_missing("plates", "postmypost_project_id", "INTEGER")
+        add_column_if_missing("plates", "account_id", "INTEGER")
+        if not table_exists("postmypost_project_settings"):
+            conn.execute(
+                text(
+                    "CREATE TABLE postmypost_project_settings ("
+                    "id SERIAL PRIMARY KEY, "
+                    "user_id INTEGER NOT NULL REFERENCES users(id), "
+                    "project_id INTEGER NOT NULL, "
+                    "uniqueization_mode VARCHAR(32) NOT NULL DEFAULT 'auto', "
+                    "created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(), "
+                    "updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()"
+                    ")"
+                )
+            )
+        add_column_if_missing("postmypost_project_settings", "uniqueization_mode", "VARCHAR(32) DEFAULT 'auto'")
+        conn.execute(
+            text(
+                "UPDATE postmypost_project_settings "
+                "SET uniqueization_mode = 'auto' "
+                "WHERE uniqueization_mode IS NULL "
+                "OR uniqueization_mode NOT IN ('auto', 'light', 'standard', 'aggressive', 'off')"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_postmypost_project_setting_idx "
+                "ON postmypost_project_settings(user_id, project_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE user_publish_channels upc "
+                "SET postmypost_project_id = users.postmypost_project_id "
+                "FROM users "
+                "WHERE upc.user_id = users.id AND upc.postmypost_project_id IS NULL"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE tasks "
+                "SET postmypost_project_id = users.postmypost_project_id "
+                "FROM users "
+                "WHERE tasks.user_id = users.id AND tasks.postmypost_project_id IS NULL"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE cta_clips "
+                "SET postmypost_project_id = users.postmypost_project_id "
+                "FROM users "
+                "WHERE cta_clips.user_id = users.id AND cta_clips.postmypost_project_id IS NULL"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE plates "
+                "SET postmypost_project_id = users.postmypost_project_id "
+                "FROM users "
+                "WHERE plates.user_id = users.id AND plates.postmypost_project_id IS NULL"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE user_publish_channels DROP CONSTRAINT IF EXISTS uq_user_account_channel"
+            )
+        )
+        conn.execute(
+            text("DROP INDEX IF EXISTS uq_user_project_account_channel_idx")
+        )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_project_account_channel_idx "
+                "ON user_publish_channels(user_id, COALESCE(postmypost_project_id, 0), account_id)"
+            )
+        )
         conn.execute(
             text(
                 "UPDATE user_publish_channels SET plate_start_percent = 0 WHERE plate_start_percent IS NOT NULL AND plate_start_percent < 0"

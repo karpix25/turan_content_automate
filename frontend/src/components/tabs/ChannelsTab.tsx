@@ -1,13 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { ChevronDown, Film, Globe2, Upload, Loader2, Trash2 } from 'lucide-react';
+import { Globe2, Loader2 } from 'lucide-react';
 import { apiClient } from '../../api/client';
 import { getApiErrorMessage } from '../../api/errors';
 import { useTelegram } from '../../context/TelegramContext';
-import { PublishAccount, EndingClip } from '../../types';
+import { EndingClip, PostMyPostProject, PostMyPostProjectsResponse, PublishAccount, UniqueizationMode } from '../../types';
+import { ChannelAccountCard } from './channels/ChannelAccountCard';
+import { PostMyPostProjectSelector } from './channels/PostMyPostProjectSelector';
 
 export const ChannelsTab: React.FC = () => {
   const { telegramId } = useTelegram();
+  const [projects, setProjects] = useState<PostMyPostProject[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
+  const [selectedUniqueizationMode, setSelectedUniqueizationMode] = useState<UniqueizationMode>('auto');
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [savingProject, setSavingProject] = useState(false);
+  const [savingUniqueizationMode, setSavingUniqueizationMode] = useState(false);
   const [publishAccounts, setPublishAccounts] = useState<PublishAccount[]>([]);
   const [channelDescriptions, setChannelDescriptions] = useState<Record<number, string>>({});
   const [publishLimitByAccount, setPublishLimitByAccount] = useState<Record<number, number>>({});
@@ -44,6 +52,21 @@ export const ChannelsTab: React.FC = () => {
     setTimeout(() => setSaved(false), 2000);
   };
 
+  const normalizeUniqueizationMode = (mode?: UniqueizationMode | null): UniqueizationMode => (
+    mode === 'light' || mode === 'standard' || mode === 'aggressive' || mode === 'off' ? mode : 'auto'
+  );
+
+  const applyProjectsData = (data: PostMyPostProjectsResponse) => {
+    const nextProjectId = data.selected_project_id ?? data.projects.find(project => project.selected)?.id ?? data.projects[0]?.id ?? null;
+    const selectedProject = data.projects.find(project => project.id === nextProjectId);
+    setProjects(data.projects);
+    setSelectedProjectId(nextProjectId);
+    setSelectedUniqueizationMode(
+      normalizeUniqueizationMode(data.selected_project_uniqueization_mode ?? selectedProject?.uniqueization_mode),
+    );
+    return nextProjectId;
+  };
+
   const applyChannelsData = (data: PublishAccount[]) => {
     setPublishAccounts(data);
     const descMap: Record<number, string> = {};
@@ -69,11 +92,26 @@ export const ChannelsTab: React.FC = () => {
     });
   };
 
-  const loadChannels = async () => {
-    if (!telegramId) return;
-    setChannelsLoading(true);
+  const loadProjects = async () => {
+    if (!telegramId) return null;
+    setProjectsLoading(true);
     try {
-      const data = await apiClient.getChannels(telegramId);
+      const data = await apiClient.getPostMyPostProjects(telegramId);
+      return applyProjectsData(data);
+    } catch (error: any) {
+      setChannelsError(error.response?.data?.detail || error.message || 'Ошибка загрузки проектов PostMyPost');
+      return null;
+    } finally {
+      setProjectsLoading(false);
+    }
+  };
+
+  const loadChannels = async (projectId = selectedProjectId) => {
+    if (!telegramId || !projectId) return;
+    setChannelsLoading(true);
+    setChannelsError('');
+    try {
+      const data = await apiClient.getChannels(telegramId, projectId);
       applyChannelsData(data);
     } catch (error: any) {
       setChannelsError(error.response?.data?.detail || error.message || 'Ошибка загрузки каналов');
@@ -82,18 +120,22 @@ export const ChannelsTab: React.FC = () => {
     }
   };
 
-  const loadEndings = async () => {
-    if (!telegramId) return;
+  const loadEndings = async (projectId = selectedProjectId) => {
+    if (!telegramId || !projectId) return;
     try {
-      const data = await apiClient.getEndings(telegramId);
+      const data = await apiClient.getEndings(telegramId, projectId);
       setEndingClips(data);
     } catch (error) {
     }
   };
 
   useEffect(() => {
-    loadChannels();
-    loadEndings();
+    if (!telegramId) return;
+    loadProjects().then(projectId => {
+      if (!projectId) return;
+      loadChannels(projectId);
+      loadEndings(projectId);
+    });
   }, [telegramId]);
 
   const buildChannelSettingsPayload = (
@@ -108,10 +150,10 @@ export const ChannelsTab: React.FC = () => {
   });
 
   const saveChannelSettings = async () => {
-    if (!telegramId) return;
+    if (!telegramId || !selectedProjectId) return;
     setSavingChannelSettings(true);
     try {
-      const data = await apiClient.updateChannels(telegramId, buildChannelSettingsPayload());
+      const data = await apiClient.updateChannels(telegramId, selectedProjectId, buildChannelSettingsPayload());
       applyChannelsData(data);
       flashSaved();
     } catch (error: any) {
@@ -121,8 +163,45 @@ export const ChannelsTab: React.FC = () => {
     }
   };
 
+  const handleProjectChange = async (projectId: number) => {
+    if (!telegramId || projectId === selectedProjectId || savingProject) return;
+    const nextProject = projects.find(project => project.id === projectId);
+    setSavingProject(true);
+    setSelectedProjectId(projectId);
+    setSelectedUniqueizationMode(normalizeUniqueizationMode(nextProject?.uniqueization_mode));
+    try {
+      const data = await apiClient.updatePostMyPostProject(telegramId, projectId);
+      applyProjectsData(data);
+      await loadChannels(projectId);
+      await loadEndings(projectId);
+      flashSaved();
+    } catch (error: any) {
+      alert(error.response?.data?.detail || error.message || 'Ошибка выбора контейнера PostMyPost');
+      await loadProjects();
+    } finally {
+      setSavingProject(false);
+    }
+  };
+
+  const handleUniqueizationModeChange = async (mode: UniqueizationMode) => {
+    if (!telegramId || !selectedProjectId || savingUniqueizationMode) return;
+    const previousMode = selectedUniqueizationMode;
+    setSelectedUniqueizationMode(mode);
+    setSavingUniqueizationMode(true);
+    try {
+      const data = await apiClient.updatePostMyPostProject(telegramId, selectedProjectId, mode);
+      applyProjectsData(data);
+      flashSaved();
+    } catch (error: any) {
+      setSelectedUniqueizationMode(previousMode);
+      alert(error.response?.data?.detail || error.message || 'Ошибка сохранения режима уникализации');
+    } finally {
+      setSavingUniqueizationMode(false);
+    }
+  };
+
   const handleAccountToggle = async (accountId: number) => {
-    if (!telegramId || savingChannelSettings) return;
+    if (!telegramId || !selectedProjectId || savingChannelSettings) return;
     const previousAccounts = publishAccounts;
     const nextAccounts = publishAccounts.map(acc =>
       acc.account_id === accountId ? { ...acc, enabled: !acc.enabled } : acc
@@ -132,6 +211,7 @@ export const ChannelsTab: React.FC = () => {
     try {
       const data = await apiClient.updateChannels(
         telegramId,
+        selectedProjectId,
         buildChannelSettingsPayload(selectedPlateIdsByAccount, nextAccounts),
       );
       applyChannelsData(data);
@@ -152,12 +232,13 @@ export const ChannelsTab: React.FC = () => {
   };
 
   const deletePlate = async (plateId: number) => {
-    if (!telegramId) return;
+    if (!telegramId || !selectedProjectId) return;
     if (!window.confirm('Точно удалить плашку?')) return;
     setDeletingPlateId(plateId);
     try {
-      await apiClient.deletePlate(telegramId, plateId);
-      await loadChannels();
+      const account = publishAccounts.find(acc => (acc.plate_assets || []).some(plate => plate.id === plateId));
+      await apiClient.deletePlate(telegramId, plateId, selectedProjectId, account?.account_id);
+      await loadChannels(selectedProjectId);
     } catch (error) {
     } finally {
       setDeletingPlateId(null);
@@ -165,12 +246,13 @@ export const ChannelsTab: React.FC = () => {
   };
 
   const deleteEnding = async (endingId: number) => {
-    if (!telegramId) return;
+    if (!telegramId || !selectedProjectId) return;
     if (!window.confirm('Точно удалить концовку?')) return;
     setDeletingEndingId(endingId);
     try {
-      await apiClient.deleteEnding(telegramId, endingId);
-      await loadEndings();
+      const ending = endingClips.find(item => item.id === endingId);
+      await apiClient.deleteEnding(telegramId, endingId, selectedProjectId, ending?.account_id);
+      await loadEndings(selectedProjectId);
     } catch (error) {
     } finally {
       setDeletingEndingId(null);
@@ -179,10 +261,10 @@ export const ChannelsTab: React.FC = () => {
 
   const handlePlateUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !telegramId || !plateUploadTarget) return;
+    if (!file || !telegramId || !selectedProjectId || !plateUploadTarget) return;
     setUploadingPlateAccountId(plateUploadTarget.account_id);
     try {
-      const newPlate = await apiClient.uploadPlate(telegramId, file, plateUploadTarget.account_id);
+      const newPlate = await apiClient.uploadPlate(telegramId, file, selectedProjectId, plateUploadTarget.account_id);
       const nextPlateIdsByAccount = {
         ...selectedPlateIdsByAccount,
         [plateUploadTarget.account_id]: [
@@ -190,11 +272,11 @@ export const ChannelsTab: React.FC = () => {
           newPlate.id,
         ],
       };
-      
+
       setSelectedPlateIdsByAccount(nextPlateIdsByAccount);
-      await apiClient.updateChannels(telegramId, buildChannelSettingsPayload(nextPlateIdsByAccount));
+      await apiClient.updateChannels(telegramId, selectedProjectId, buildChannelSettingsPayload(nextPlateIdsByAccount));
       flashSaved();
-      await loadChannels();
+      await loadChannels(selectedProjectId);
     } catch (error) {
       alert(getApiErrorMessage(error, 'Ошибка при загрузке плашки'));
     } finally {
@@ -206,14 +288,15 @@ export const ChannelsTab: React.FC = () => {
 
   const handleEndingUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !telegramId || !endingUploadTarget) return;
+    if (!file || !telegramId || !selectedProjectId || !endingUploadTarget) return;
     setUploadingEndingAccountId(endingUploadTarget.account_id);
     try {
       await apiClient.uploadEnding(telegramId, file, {
+        projectId: selectedProjectId,
         accountId: endingUploadTarget.account_id,
         platform: 'universal',
       });
-      await loadEndings();
+      await loadEndings(selectedProjectId);
     } catch (error) {
       alert(getApiErrorMessage(error, 'Ошибка при загрузке концовки'));
     } finally {
@@ -230,24 +313,42 @@ export const ChannelsTab: React.FC = () => {
     <motion.div key="channels" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4 pb-20">
       <div className="sticky top-[61px] z-30 -mx-4 px-4 py-2 bg-[#f1f2f6]/95 backdrop-blur flex items-center justify-between gap-2">
         <button
-          onClick={loadChannels}
-          disabled={channelsLoading}
+          onClick={() => {
+            loadProjects().then(projectId => {
+              const nextProjectId = projectId || selectedProjectId;
+              if (!nextProjectId) return;
+              loadChannels(nextProjectId);
+              loadEndings(nextProjectId);
+            });
+          }}
+          disabled={channelsLoading || projectsLoading}
           className="h-10 px-3 bg-white border border-slate-200 text-slate-700 text-xs sm:text-sm font-bold rounded-xl flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
         >
-          {channelsLoading ? <Loader2 className="animate-spin" size={16} /> : <Globe2 size={16} />}
+          {(channelsLoading || projectsLoading) ? <Loader2 className="animate-spin" size={16} /> : <Globe2 size={16} />}
           Обновить список
         </button>
         <button
           onClick={saveChannelSettings}
-          disabled={savingChannelSettings}
+          disabled={savingChannelSettings || savingProject || savingUniqueizationMode}
           className={`h-10 px-3 sm:px-5 text-xs sm:text-sm font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg transition-all ${
             saved ? 'bg-[#34c759] text-white shadow-green-500/20' : 'bg-[#24a1de] text-white shadow-blue-500/20'
           } disabled:opacity-50`}
         >
-          {savingChannelSettings ? <Loader2 className="animate-spin" size={16} /> : null}
+          {(savingChannelSettings || savingProject || savingUniqueizationMode) ? <Loader2 className="animate-spin" size={16} /> : null}
           {saved ? 'Сохранено!' : 'Сохранить настройки'}
         </button>
       </div>
+
+      <PostMyPostProjectSelector
+        projects={projects}
+        selectedProjectId={selectedProjectId}
+        loading={projectsLoading}
+        disabled={savingProject || channelsLoading || savingUniqueizationMode}
+        accountsCount={publishAccounts.length}
+        uniqueizationMode={selectedUniqueizationMode}
+        onUniqueizationModeChange={handleUniqueizationModeChange}
+        onChange={handleProjectChange}
+      />
 
       {channelsError && (
         <div className="p-4 rounded-2xl bg-rose-50 border border-rose-100 text-rose-600 text-sm font-medium">
@@ -264,7 +365,7 @@ export const ChannelsTab: React.FC = () => {
         <div className="flex flex-col items-center justify-center py-10 px-4 text-center bg-white rounded-2xl border border-slate-100 shadow-sm">
           <Globe2 className="w-12 h-12 text-slate-200 mb-3" />
           <h3 className="text-lg font-bold text-slate-800 mb-1">Нет аккаунтов</h3>
-          <p className="text-sm text-slate-500">Добавьте аккаунты в PostMyPost</p>
+          <p className="text-sm text-slate-500">Подключите аккаунты внутри выбранного контейнера PostMyPost</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -283,200 +384,32 @@ export const ChannelsTab: React.FC = () => {
             onChange={handleEndingUpload}
           />
 
-          {publishAccounts.map(account => {
-            const isUploadingPlate = uploadingPlateAccountId === account.account_id;
-            const isUploadingEnding = uploadingEndingAccountId === account.account_id;
-            const accountEndings = endingClips.filter(e => e.account_id === account.account_id);
-            const isCollapsed = Boolean(collapsedAccounts[account.account_id]);
-            return (
-              <div key={account.account_id} className={`tg-card overflow-hidden transition-opacity ${!account.enabled ? 'opacity-60' : ''}`}>
-                <div className="p-4">
-                  <div className="flex items-start justify-between gap-4 mb-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => toggleAccountCollapse(account.account_id)}
-                          className="h-8 w-8 -ml-1 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900 flex items-center justify-center transition-colors"
-                          aria-label={isCollapsed ? 'Развернуть канал' : 'Свернуть канал'}
-                        >
-                          <ChevronDown
-                            size={18}
-                            className={`transition-transform ${isCollapsed ? '-rotate-90' : 'rotate-0'}`}
-                          />
-                        </button>
-                        <h4 className="text-[17px] font-bold text-slate-900 leading-tight truncate">
-                          {account.account_name}
-                        </h4>
-                      </div>
-                      <p className="text-xs text-slate-500 mt-1">
-                        Канал: {account.channel_name || 'Неизвестно'} <span className="opacity-50">({account.channel_code})</span>
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => handleAccountToggle(account.account_id)}
-                      disabled={savingChannelSettings}
-                      className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors shrink-0 ${account.enabled ? 'bg-[#34c759]' : 'bg-[#e9e9eb]'}`}
-                    >
-                      <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${account.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
-                    </button>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    <span className={`px-2 py-1 rounded-lg text-[10px] font-bold ${account.description ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                      Описание {account.description ? 'есть' : 'нет'}
-                    </span>
-                    <span className={`px-2 py-1 rounded-lg text-[10px] font-bold ${(account.plate_assets || []).length > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                      Плашки {(account.plate_assets || []).length}
-                    </span>
-                    <span className={`px-2 py-1 rounded-lg text-[10px] font-bold ${accountEndings.length > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                      Концовки {accountEndings.length}
-                    </span>
-                  </div>
-
-                  {account.enabled && !isCollapsed && (
-                    <div className="mt-4 space-y-4 pt-4 border-t border-slate-100">
-                      <div>
-                        <label className="text-xs font-bold text-[#707579] uppercase tracking-wider mb-2 block">Лимит публикаций в день</label>
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="range"
-                            min="2"
-                            max="20"
-                            value={publishLimitByAccount[account.account_id] ?? 3}
-                            onChange={(e) => setPublishLimitByAccount(prev => ({ ...prev, [account.account_id]: clampPublishLimit(Number(e.target.value)) }))}
-                            className="flex-1 accent-[#24a1de]"
-                          />
-                          <input
-                            type="number"
-                            min="2"
-                            max="96"
-                            value={publishLimitByAccount[account.account_id] ?? 3}
-                            onChange={(e) => setPublishLimitByAccount(prev => ({ ...prev, [account.account_id]: clampPublishLimit(Number(e.target.value)) }))}
-                            className="input-field h-10 w-16 text-center text-sm font-bold"
-                          />
-                        </div>
-                        <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
-                          Vizard занимает до половины лимита, остальные слоты остаются для быстрых форматов.
-                        </p>
-                      </div>
-
-                      <div>
-                        <label className="text-xs font-bold text-[#707579] uppercase tracking-wider mb-2 block">Описание (шаблон поста)</label>
-                        <textarea
-                          value={channelDescriptions[account.account_id] || ''}
-                          onChange={(e) => setChannelDescriptions(prev => ({ ...prev, [account.account_id]: e.target.value }))}
-                          placeholder="Введите текст, который будет добавляться к каждому посту..."
-                          className="input-field text-sm min-h-[80px] leading-relaxed resize-y"
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
-                          <div className="flex items-center justify-between mb-3">
-                            <label className="text-xs font-bold text-[#707579] uppercase tracking-wider">Плашки</label>
-                            <button
-                              onClick={() => { setPlateUploadTarget(account); plateInputRef.current?.click(); }}
-                              disabled={isUploadingPlate}
-                              className="text-[#24a1de] hover:bg-blue-50 p-1.5 rounded-lg transition-colors disabled:opacity-50"
-                            >
-                              {isUploadingPlate ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-                            </button>
-                          </div>
-                          
-                          <div className="space-y-2 mb-3">
-                            {account.plate_assets?.map(plate => {
-                              const isVideoPlate = plate.media_type === 'video';
-                              return (
-                                <div key={plate.id} className="flex items-center gap-2 bg-white p-1.5 rounded-lg border border-slate-100">
-                                  {isVideoPlate ? (
-                                    <video
-                                      src={getMediaUrl(plate.file_path)}
-                                      muted
-                                      playsInline
-                                      className="w-8 h-8 object-cover rounded bg-slate-100"
-                                    />
-                                  ) : (
-                                    <img src={getMediaUrl(plate.file_path)} alt="Plate" className="w-8 h-8 object-cover rounded bg-slate-100" />
-                                  )}
-                                  <span className="text-[10px] text-slate-500 flex-1 truncate">{plate.file_path.split('/').pop()}</span>
-                                  {isVideoPlate && (
-                                    <span className="h-6 w-6 rounded-md bg-blue-50 text-[#24a1de] flex items-center justify-center" title="Видео-плашка">
-                                      <Film size={13} />
-                                    </span>
-                                  )}
-                                  <button
-                                    onClick={() => deletePlate(plate.id)}
-                                    disabled={deletingPlateId === plate.id}
-                                    className="p-1.5 text-slate-400 hover:text-rose-500 rounded-md"
-                                  >
-                                    {deletingPlateId === plate.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                                  </button>
-                                </div>
-                              );
-                            })}
-                            {(!account.plate_assets || account.plate_assets.length === 0) && (
-                              <p className="text-xs text-slate-400 italic">Нет загруженных плашек</p>
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-medium text-slate-500 whitespace-nowrap">Время (%):</span>
-                            <input
-                              type="number"
-                              min="0" max="100"
-                              value={plateStartPercentByAccount[account.account_id] ?? 50}
-                              onChange={(e) => setPlateStartPercentByAccount(prev => ({ ...prev, [account.account_id]: clampPercent(Number(e.target.value)) }))}
-                              className="input-field h-7 text-xs px-2"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
-                          <div className="flex items-center justify-between mb-3">
-                            <label className="text-xs font-bold text-[#707579] uppercase tracking-wider">Концовки</label>
-                            <button
-                              onClick={() => { setEndingUploadTarget(account); endingInputRef.current?.click(); }}
-                              disabled={isUploadingEnding}
-                              className="text-[#24a1de] hover:bg-blue-50 p-1.5 rounded-lg transition-colors disabled:opacity-50"
-                            >
-                              {isUploadingEnding ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-                            </button>
-                          </div>
-
-                          <div className="space-y-2">
-                            {accountEndings.map(ending => (
-                              <div key={ending.id} className="flex items-center gap-2 bg-white p-1.5 rounded-lg border border-slate-100">
-                                <div className="w-8 h-8 rounded bg-slate-100 overflow-hidden flex-shrink-0">
-                                  {ending.file_path.toLowerCase().endsWith('.mp4') ? (
-                                    <video src={getMediaUrl(ending.file_path)} className="w-full h-full object-cover" />
-                                  ) : (
-                                    <img src={getMediaUrl(ending.file_path)} className="w-full h-full object-cover" />
-                                  )}
-                                </div>
-                                <span className="text-[10px] font-bold bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 uppercase">
-                                  {ending.platform}
-                                </span>
-                                <span className="text-[10px] text-slate-500 flex-1 truncate">{ending.file_path.split('/').pop()}</span>
-                                <button
-                                  onClick={() => deleteEnding(ending.id)}
-                                  disabled={deletingEndingId === ending.id}
-                                  className="p-1.5 text-slate-400 hover:text-rose-500 rounded-md"
-                                >
-                                  {deletingEndingId === ending.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                                </button>
-                              </div>
-                            ))}
-                            {accountEndings.length === 0 && (
-                              <p className="text-xs text-slate-400 italic">Нет загруженных концовок</p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+          {publishAccounts.map(account => (
+            <ChannelAccountCard
+              key={account.account_id}
+              account={account}
+              accountEndings={endingClips.filter(e => e.account_id === account.account_id)}
+              isCollapsed={Boolean(collapsedAccounts[account.account_id])}
+              isSaving={savingChannelSettings}
+              isUploadingPlate={uploadingPlateAccountId === account.account_id}
+              isUploadingEnding={uploadingEndingAccountId === account.account_id}
+              deletingPlateId={deletingPlateId}
+              deletingEndingId={deletingEndingId}
+              description={channelDescriptions[account.account_id] || ''}
+              publishLimit={publishLimitByAccount[account.account_id] ?? 3}
+              plateStartPercent={plateStartPercentByAccount[account.account_id] ?? 50}
+              getMediaUrl={getMediaUrl}
+              onToggleEnabled={handleAccountToggle}
+              onToggleCollapse={toggleAccountCollapse}
+              onDescriptionChange={(accountId, value) => setChannelDescriptions(prev => ({ ...prev, [accountId]: value }))}
+              onPublishLimitChange={(accountId, value) => setPublishLimitByAccount(prev => ({ ...prev, [accountId]: clampPublishLimit(value) }))}
+              onPlateStartPercentChange={(accountId, value) => setPlateStartPercentByAccount(prev => ({ ...prev, [accountId]: clampPercent(value) }))}
+              onUploadPlate={(targetAccount) => { setPlateUploadTarget(targetAccount); plateInputRef.current?.click(); }}
+              onUploadEnding={(targetAccount) => { setEndingUploadTarget(targetAccount); endingInputRef.current?.click(); }}
+              onDeletePlate={deletePlate}
+              onDeleteEnding={deleteEnding}
+            />
+          ))}
         </div>
       )}
     </motion.div>

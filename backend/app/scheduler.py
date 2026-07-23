@@ -24,6 +24,7 @@ from .utils.publication_errors import (
     format_publication_sync_error,
     set_publication_error,
 )
+from .utils.postmypost_projects import resolve_task_postmypost_project_id, resolve_user_postmypost_project_id
 from .utils.publication_titles import build_publication_titles_by_account
 from .worker import celery_app
 
@@ -85,16 +86,17 @@ def _parse_env_account_ids(raw: str) -> List[int]:
     return result
 
 
-def _get_project_id() -> int:
-    project_id_raw = os.getenv("POSTMYPOST_PROJECT_ID", "").strip()
-    project_id = int(project_id_raw) if project_id_raw else None
-    return pmp_client.ensure_project_id(project_id)
+def _get_project_id(user: models.User, task: models.VideoTask | None = None) -> int:
+    return resolve_task_postmypost_project_id(task, user, pmp_client) if task else resolve_user_postmypost_project_id(user, pmp_client)
 
 
-def _get_enabled_account_ids(db, user_id: int) -> List[int]:
-    rows = db.query(models.UserPublishChannel).filter(
+def _get_enabled_account_ids(db, user_id: int, project_id: int | None = None) -> List[int]:
+    query = db.query(models.UserPublishChannel).filter(
         models.UserPublishChannel.user_id == user_id,
-    ).order_by(models.UserPublishChannel.account_id.asc()).all()
+    )
+    if project_id is not None:
+        query = query.filter(models.UserPublishChannel.postmypost_project_id == int(project_id))
+    rows = query.order_by(models.UserPublishChannel.account_id.asc()).all()
     if rows:
         ids = [item.account_id for item in rows if item.enabled]
         if ids:
@@ -112,7 +114,9 @@ def _get_account_ids_for_unschedule(db, task: models.VideoTask) -> List[int]:
         return [int(task.target_account_id)]
 
     try:
-        return _get_enabled_account_ids(db, task.user_id)
+        user = db.query(models.User).get(task.user_id)
+        project_id = _get_project_id(user, task) if user else None
+        return _get_enabled_account_ids(db, task.user_id, project_id)
     except Exception:
         pass
 
@@ -135,13 +139,18 @@ def _get_account_ids_for_unschedule(db, task: models.VideoTask) -> List[int]:
 def _get_task_account_ids(db, task: models.VideoTask, user_id: int) -> List[int]:
     if task.target_account_id is not None:
         return [int(task.target_account_id)]
-    return _get_enabled_account_ids(db, user_id)
+    user = db.query(models.User).get(user_id)
+    project_id = _get_project_id(user, task) if user else None
+    return _get_enabled_account_ids(db, user_id, project_id)
 
 
-def _get_account_descriptions(db, user_id: int) -> dict[int, str]:
-    rows = db.query(models.UserPublishChannel).filter(
+def _get_account_descriptions(db, user_id: int, project_id: int | None = None) -> dict[int, str]:
+    query = db.query(models.UserPublishChannel).filter(
         models.UserPublishChannel.user_id == user_id
-    ).all()
+    )
+    if project_id is not None:
+        query = query.filter(models.UserPublishChannel.postmypost_project_id == int(project_id))
+    rows = query.all()
     result: dict[int, str] = {}
     for row in rows:
         text_value = (row.publication_description or "").strip()
@@ -699,8 +708,9 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
         if not user:
             raise RuntimeError("Task user not found")
 
+        project_id = _get_project_id(user, task)
         account_ids = _get_task_account_ids(db, task, user.id)
-        account_descriptions = _get_account_descriptions(db, user.id)
+        account_descriptions = _get_account_descriptions(db, user.id, project_id)
         content_by_account = {
             account_id: _build_publication_content(account_descriptions.get(account_id), task)
             for account_id in account_ids
@@ -713,7 +723,6 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
             account_ids,
             list(account_descriptions.keys()),
         )
-        project_id = _get_project_id()
         post_at = _resolve_publication_post_at(db, user, task, force_now)
         target_platform = (getattr(task, "target_platform", "") or "").lower()
         project_accounts = pmp_client.get_accounts(project_id=project_id)
@@ -743,7 +752,7 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
         content = ""
         pub_type = 4
 
-        account_platform_map = _get_account_platform_map(account_ids)
+        account_platform_map = _get_account_platform_map(account_ids, user)
         title_by_account = build_publication_titles_by_account(
             task=task,
             account_ids=account_ids,

@@ -148,6 +148,7 @@ def _upsert_variant_task(
         existing.type = base_task.type
         existing.status = "completed"
         existing.vizard_project_id = base_task.vizard_project_id
+        existing.postmypost_project_id = base_task.postmypost_project_id
         existing.source_url = f"{base_source} [slot {variant_index}] [account {target_account_id}]"
         existing.publish_at = publish_at
         existing.target_account_id = target_account_id
@@ -163,6 +164,7 @@ def _upsert_variant_task(
         type=base_task.type,
         status="completed",
         vizard_project_id=base_task.vizard_project_id,
+        postmypost_project_id=base_task.postmypost_project_id,
         output_path=output_path,
         publish_at=publish_at,
         target_account_id=target_account_id,
@@ -203,6 +205,7 @@ def _upsert_processed_task(
         existing.type = base_task.type
         existing.status = "completed"
         existing.vizard_project_id = base_task.vizard_project_id
+        existing.postmypost_project_id = base_task.postmypost_project_id
         existing.source_url = source_label
         existing.source_title = source_title
         existing.script_text = base_task.script_text
@@ -229,6 +232,7 @@ def _upsert_processed_task(
         type=base_task.type,
         status="completed",
         vizard_project_id=base_task.vizard_project_id,
+        postmypost_project_id=base_task.postmypost_project_id,
         output_path=output_path,
         source_title=source_title,
         script_text=base_task.script_text,

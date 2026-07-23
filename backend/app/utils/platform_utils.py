@@ -7,6 +7,7 @@ from typing import List
 from .. import models
 from ..publish_planner import plan_next_publish_times
 from .media_utils import _resolve_media_file_path
+from .postmypost_projects import resolve_user_postmypost_project_id
 
 
 def _normalize_platform_code(value: str | None) -> str:
@@ -86,10 +87,11 @@ def _parse_env_account_ids(env_val: str) -> List[int]:
         return []
 
 
-def _get_target_account_ids(db, user_id: int) -> List[int]:
-    rows = db.query(models.UserPublishChannel).filter(
-        models.UserPublishChannel.user_id == user_id,
-    ).order_by(models.UserPublishChannel.account_id.asc()).all()
+def _get_target_account_ids(db, user_id: int, project_id: int | None = None) -> List[int]:
+    query = db.query(models.UserPublishChannel).filter(models.UserPublishChannel.user_id == user_id)
+    if project_id is not None:
+        query = query.filter(models.UserPublishChannel.postmypost_project_id == int(project_id))
+    rows = query.order_by(models.UserPublishChannel.account_id.asc()).all()
     if rows:
         return [item.account_id for item in rows if item.enabled]
 
@@ -100,15 +102,17 @@ def _get_target_account_ids(db, user_id: int) -> List[int]:
     return []
 
 
-def _get_connected_postmypost_account_ids(account_ids: List[int]) -> List[int]:
+def _get_connected_postmypost_account_ids(
+    account_ids: List[int],
+    user: models.User | None = None,
+    project_id: int | None = None,
+) -> List[int]:
     from ..worker import pmp_client
     if not account_ids or not pmp_client.api_key:
         return account_ids
     try:
-        project_id_raw = os.getenv("POSTMYPOST_PROJECT_ID", "").strip()
-        project_id = int(project_id_raw) if project_id_raw else None
-        project_id = pmp_client.ensure_project_id(project_id)
-        accounts = pmp_client.get_accounts(project_id=project_id)
+        resolved_project_id = int(project_id) if project_id else resolve_user_postmypost_project_id(user, pmp_client)
+        accounts = pmp_client.get_accounts(project_id=resolved_project_id)
         connected_ids = {
             int(account["id"])
             for account in accounts
@@ -128,15 +132,17 @@ def _get_connected_postmypost_account_ids(account_ids: List[int]) -> List[int]:
     return valid_ids
 
 
-def _get_account_platform_map(account_ids: List[int]) -> dict[int, str]:
+def _get_account_platform_map(
+    account_ids: List[int],
+    user: models.User | None = None,
+    project_id: int | None = None,
+) -> dict[int, str]:
     from ..worker import pmp_client
     if not account_ids or not pmp_client.api_key:
         return {}
     try:
-        project_id_raw = os.getenv("POSTMYPOST_PROJECT_ID", "").strip()
-        project_id = int(project_id_raw) if project_id_raw else None
-        project_id = pmp_client.ensure_project_id(project_id)
-        accounts = pmp_client.get_accounts(project_id=project_id)
+        resolved_project_id = int(project_id) if project_id else resolve_user_postmypost_project_id(user, pmp_client)
+        accounts = pmp_client.get_accounts(project_id=resolved_project_id)
         channels = pmp_client.get_channels()
         channels_by_id = {
             int(item["id"]): item
@@ -168,6 +174,7 @@ def _get_channel_plate_config(
     db,
     user: models.User,
     account_id: int | None,
+    project_id: int | None = None,
 ) -> tuple[str | None, int]:
     selected_plate_ids: list[int] = []
     if getattr(user, "selected_plate_id", None) is not None:
@@ -177,6 +184,7 @@ def _get_channel_plate_config(
     if account_id is not None:
         row = db.query(models.UserPublishChannel).filter(
             models.UserPublishChannel.user_id == user.id,
+            models.UserPublishChannel.postmypost_project_id == project_id,
             models.UserPublishChannel.account_id == account_id,
         ).first()
         if row:
@@ -189,7 +197,15 @@ def _get_channel_plate_config(
 
     active_plate = None
     if selected_plate_ids:
-        candidates = db.query(models.Plate).filter(models.Plate.id.in_(selected_plate_ids)).all()
+        plate_query = db.query(models.Plate).filter(
+            models.Plate.user_id == user.id,
+            models.Plate.id.in_(selected_plate_ids),
+        )
+        if project_id is not None:
+            plate_query = plate_query.filter(models.Plate.postmypost_project_id == int(project_id))
+        if account_id is not None:
+            plate_query = plate_query.filter(models.Plate.account_id == int(account_id))
+        candidates = plate_query.all()
         if candidates:
             active_plate = random.choice(candidates)
     plate_path = _resolve_media_file_path(active_plate.file_path if active_plate else None, media_kind="plates")

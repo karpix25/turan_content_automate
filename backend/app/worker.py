@@ -51,6 +51,15 @@ from .utils.platform_utils import (
     _build_account_variant_plan,
     _normalize_platform_code,
 )
+from .services.video_uniqueizer import (
+    build_unique_seed,
+    get_duplicate_platform_account_ids,
+)
+from .services.video_uniqueization import (
+    get_project_uniqueization_mode,
+    resolve_output_uniqueization_mode,
+    uniqueization_variations_enabled,
+)
 from .utils.youtube_utils import (
     _validate_youtube_url_or_raise,
     _extract_youtube_video_id,
@@ -76,6 +85,7 @@ from .utils.media_utils import (
     _resolve_local_input_video_path,
     _resolve_media_file_path,
 )
+from .utils.postmypost_projects import resolve_task_postmypost_project_id
 from .utils.image_data_url import image_file_to_data_url
 from .utils.avatar_overlay import apply_transparent_avatar_overlays
 from .services.style_training import train_user_style
@@ -5350,7 +5360,24 @@ def process_content_task(self, task_id: int):
 
         subtitles_enabled = False
         ass_path = None
-        target_account_ids = [] if task.type == "local_upload" else _get_target_account_ids(db, user.id)
+        postmypost_project_id = getattr(task, "postmypost_project_id", None) or getattr(
+            user,
+            "postmypost_project_id",
+            None,
+        )
+        if task.type != "local_upload" and not postmypost_project_id:
+            postmypost_project_id = resolve_task_postmypost_project_id(task, user, pmp_client)
+        if postmypost_project_id is not None:
+            postmypost_project_id = int(postmypost_project_id)
+            if getattr(task, "postmypost_project_id", None) != postmypost_project_id:
+                task.postmypost_project_id = postmypost_project_id
+                db.commit()
+
+        target_account_ids = (
+            []
+            if task.type == "local_upload"
+            else _get_target_account_ids(db, user.id, project_id=postmypost_project_id)
+        )
         if task.type in READY_TO_PUBLISH_VIDEO_TASK_TYPES:
             if not target_account_ids:
                 raise Exception(
@@ -5373,7 +5400,11 @@ def process_content_task(self, task_id: int):
         target_account_ids = list(dict.fromkeys(target_account_ids))
         if target_account_ids and task.type != "local_upload":
             original_target_account_ids = target_account_ids
-            connected_target_account_ids = _get_connected_postmypost_account_ids(target_account_ids)
+            connected_target_account_ids = _get_connected_postmypost_account_ids(
+                target_account_ids,
+                user,
+                project_id=postmypost_project_id,
+            )
             if connected_target_account_ids != target_account_ids:
                 logging.warning(
                     "Task %s: filtered PostMyPost target accounts from %s to %s",
@@ -5388,7 +5419,31 @@ def process_content_task(self, task_id: int):
                     "Reconnect channels in PostMyPost or enable connected channels in Turan."
                 )
 
-        account_platform_map = _get_account_platform_map(target_account_ids)
+        account_platform_map = _get_account_platform_map(
+            target_account_ids,
+            user,
+            project_id=postmypost_project_id,
+        )
+        account_platform_map = {
+            account_id: _normalize_platform_code(account_platform_map.get(account_id, "universal"))
+            for account_id in target_account_ids
+        }
+        duplicate_platform_account_ids = get_duplicate_platform_account_ids(
+            target_account_ids,
+            account_platform_map,
+        )
+        project_uniqueization_mode = get_project_uniqueization_mode(
+            db,
+            user.id,
+            postmypost_project_id,
+        )
+        logging.info(
+            "Task %s: PostMyPost project=%s uniqueization_mode=%s duplicate_accounts=%s",
+            task_id,
+            postmypost_project_id,
+            project_uniqueization_mode,
+            sorted(duplicate_platform_account_ids),
+        )
         if task.type in AVATAR_TASK_TYPES and task.type not in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
             logging.info("Task %s: avatar skips PostMyPost publication and account fan-out", task_id)
 
@@ -5396,9 +5451,12 @@ def process_content_task(self, task_id: int):
             account_ids=target_account_ids,
             account_platform_map=account_platform_map,
         )
-        ending_clips = db.query(models.CTAClip).filter(
-            models.CTAClip.user_id == user.id
-        ).order_by(models.CTAClip.id.desc()).all()
+        ending_query = db.query(models.CTAClip).filter(models.CTAClip.user_id == user.id)
+        if postmypost_project_id is not None:
+            ending_query = ending_query.filter(
+                models.CTAClip.postmypost_project_id == postmypost_project_id,
+            )
+        ending_clips = ending_query.order_by(models.CTAClip.id.desc()).all()
         
         logging.info(
             "Task %s: user_id=%s telegram_id=%s accounts=%s variants_count=%s endings_loaded=%s",
@@ -5446,6 +5504,7 @@ def process_content_task(self, task_id: int):
                     "expected_clips": len(source_items),
                     "expected_publications": len(output_platforms),
                     "expected_accounts": len(target_account_ids),
+                    "postmypost_project_id": postmypost_project_id,
                     "source_label": base_source,
                     "started_at": batch_meta.get("started_at") or datetime.datetime.utcnow().isoformat(),
                 }
@@ -5458,6 +5517,30 @@ def process_content_task(self, task_id: int):
         publish_index = 0
         per_output_publication_enabled = bool(process_all_clips and should_sync_outputs)
         synced_output_task_ids: set[int] = set()
+
+        def _build_uniqueization_context(
+            *,
+            account_id: int | None,
+            clip_index: int,
+            slot_index: int,
+        ) -> tuple[int, str, dict]:
+            unique_seed = build_unique_seed(
+                project_id=postmypost_project_id,
+                clip_index=clip_index,
+                account_id=account_id,
+                slot_index=slot_index,
+            )
+            uniqueization_mode = resolve_output_uniqueization_mode(
+                project_mode=project_uniqueization_mode,
+                has_duplicate_platform=bool(account_id in duplicate_platform_account_ids),
+            )
+            uniqueization_meta = {
+                "postmypost_project_id": postmypost_project_id,
+                "account_id": account_id,
+                "unique_seed": unique_seed,
+                "uniqueization_mode": uniqueization_mode,
+            }
+            return unique_seed, uniqueization_mode, uniqueization_meta
 
         def _sync_rendered_output_now(rendered_output: dict) -> None:
             if not per_output_publication_enabled:
@@ -5475,6 +5558,10 @@ def process_content_task(self, task_id: int):
             )
             if output_task.id in synced_output_task_ids:
                 return
+            output_meta = dict(output_task.script_meta or {})
+            output_meta["render_uniqueization"] = dict(rendered_output.get("uniqueization") or {})
+            output_task.script_meta = output_meta
+            db.commit()
             if (
                 output_task.postmypost_id
                 or output_task.postmypost_file_id
@@ -5545,6 +5632,12 @@ def process_content_task(self, task_id: int):
                 for account_id in target_account_ids:
                     slot_idx = account_variant_index.get(account_id, 1)
                     platform_code = account_platform_map.get(account_id, "universal")
+                    unique_seed, uniqueization_mode, uniqueization_meta = _build_uniqueization_context(
+                        account_id=account_id,
+                        clip_index=clip_index,
+                        slot_index=slot_idx,
+                    )
+                    should_uniqueize_output = uniqueization_variations_enabled(uniqueization_mode)
                     output_source_title = (
                         youtube_publication_title
                         if _normalize_platform_code(platform_code) == "youtube" or task.type == "youtube"
@@ -5561,7 +5654,17 @@ def process_content_task(self, task_id: int):
                             platform_code,
                             slot_idx,
                         )
-                        shutil.copy2(video_path, account_output)
+                        if should_uniqueize_output:
+                            processor.process_video(
+                                input_path=video_path,
+                                output_path=account_output,
+                                subtitles_enabled=False,
+                                unique_seed=unique_seed,
+                                uniqueization_mode=uniqueization_mode,
+                                force_unique_variations=True,
+                            )
+                        else:
+                            shutil.copy2(video_path, account_output)
                         publish_at = publish_times[publish_index] if len(publish_times) > publish_index else None
                         publish_index += 1
                         rendered_output = {
@@ -5577,6 +5680,7 @@ def process_content_task(self, task_id: int):
                                 account_id=account_id,
                             ),
                             "clip_index": clip_index,
+                            "uniqueization": uniqueization_meta,
                         }
                         rendered_outputs.append(rendered_output)
                         _sync_rendered_output_now(rendered_output)
@@ -5591,7 +5695,17 @@ def process_content_task(self, task_id: int):
                             platform_code,
                             slot_idx,
                         )
-                        shutil.copy2(video_path, account_output)
+                        if should_uniqueize_output:
+                            processor.process_video(
+                                input_path=video_path,
+                                output_path=account_output,
+                                subtitles_enabled=False,
+                                unique_seed=unique_seed,
+                                uniqueization_mode=uniqueization_mode,
+                                force_unique_variations=True,
+                            )
+                        else:
+                            shutil.copy2(video_path, account_output)
                         publish_at = publish_times[publish_index] if len(publish_times) > publish_index else None
                         publish_index += 1
                         rendered_output = {
@@ -5607,12 +5721,18 @@ def process_content_task(self, task_id: int):
                                 account_id=account_id,
                             ),
                             "clip_index": clip_index,
+                            "uniqueization": uniqueization_meta,
                         }
                         rendered_outputs.append(rendered_output)
                         _sync_rendered_output_now(rendered_output)
                         continue
 
-                    plate_path, plate_start_percent = _get_channel_plate_config(db, user, account_id)
+                    plate_path, plate_start_percent = _get_channel_plate_config(
+                        db,
+                        user,
+                        account_id,
+                        project_id=postmypost_project_id,
+                    )
                     ending = _pick_platform_ending(
                         clips=ending_clips,
                         platform=platform_code,
@@ -5661,7 +5781,9 @@ def process_content_task(self, task_id: int):
                         ass_path=ass_path,
                         cta_path=ending_path,
                         subtitles_enabled=subtitles_enabled,
-                        unique_seed=(clip_index * 1000) + slot_idx if process_all_clips else slot_idx,
+                        unique_seed=unique_seed,
+                        uniqueization_mode=uniqueization_mode,
+                        force_unique_variations=should_uniqueize_output,
                     )
                     publish_at = publish_times[publish_index] if len(publish_times) > publish_index else None
                     publish_index += 1
@@ -5678,13 +5800,30 @@ def process_content_task(self, task_id: int):
                             account_id=account_id,
                         ),
                         "clip_index": clip_index,
+                        "uniqueization": uniqueization_meta,
                     }
                     rendered_outputs.append(rendered_output)
                     _sync_rendered_output_now(rendered_output)
             else:
                 base_output = f"{video_root}_final.mp4"
+                unique_seed, uniqueization_mode, uniqueization_meta = _build_uniqueization_context(
+                    account_id=None,
+                    clip_index=clip_index,
+                    slot_index=1,
+                )
+                should_uniqueize_output = uniqueization_variations_enabled(uniqueization_mode)
                 if task.type in READY_TO_PUBLISH_VIDEO_TASK_TYPES:
-                    shutil.copy2(video_path, base_output)
+                    if should_uniqueize_output:
+                        processor.process_video(
+                            input_path=video_path,
+                            output_path=base_output,
+                            subtitles_enabled=False,
+                            unique_seed=unique_seed,
+                            uniqueization_mode=uniqueization_mode,
+                            force_unique_variations=True,
+                        )
+                    else:
+                        shutil.copy2(video_path, base_output)
                     publish_at = publish_times[publish_index] if len(publish_times) > publish_index else None
                     publish_index += 1
                     rendered_outputs.append(
@@ -5698,11 +5837,22 @@ def process_content_task(self, task_id: int):
                                 base_source,
                                 clip_index=clip_index if process_all_clips else None,
                             ),
+                            "uniqueization": uniqueization_meta,
                         }
                     )
                     continue
                 if task.type in AVATAR_TASK_TYPES:
-                    shutil.copy2(video_path, base_output)
+                    if should_uniqueize_output:
+                        processor.process_video(
+                            input_path=video_path,
+                            output_path=base_output,
+                            subtitles_enabled=False,
+                            unique_seed=unique_seed,
+                            uniqueization_mode=uniqueization_mode,
+                            force_unique_variations=True,
+                        )
+                    else:
+                        shutil.copy2(video_path, base_output)
                     rendered_outputs.append(
                         {
                             "output_path": base_output,
@@ -5714,10 +5864,16 @@ def process_content_task(self, task_id: int):
                                 base_source,
                                 clip_index=clip_index if process_all_clips else None,
                             ),
+                            "uniqueization": uniqueization_meta,
                         }
                     )
                     continue
-                plate_path, plate_start_percent = _get_channel_plate_config(db, user, None)
+                plate_path, plate_start_percent = _get_channel_plate_config(
+                    db,
+                    user,
+                    None,
+                    project_id=postmypost_project_id,
+                )
                 logging.info(
                     "Task %s: clip=%s account=%s platform=%s plate_path=%s plate_start_percent=%s",
                     task_id,
@@ -5741,7 +5897,9 @@ def process_content_task(self, task_id: int):
                     ass_path=ass_path,
                     cta_path=None,
                     subtitles_enabled=subtitles_enabled,
-                    unique_seed=clip_index if process_all_clips else 1,
+                    unique_seed=unique_seed,
+                    uniqueization_mode=uniqueization_mode,
+                    force_unique_variations=should_uniqueize_output,
                 )
                 publish_at = publish_times[publish_index] if len(publish_times) > publish_index else None
                 publish_index += 1
@@ -5756,6 +5914,7 @@ def process_content_task(self, task_id: int):
                             base_source,
                             clip_index=clip_index if process_all_clips else None,
                         ),
+                        "uniqueization": uniqueization_meta,
                     }
                 )
 
@@ -5774,6 +5933,14 @@ def process_content_task(self, task_id: int):
         task.postmypost_file_id = None
         task.preview_url = None
         task.publishing_status = _resolve_publishing_status(primary_output["publish_at"], should_sync=should_sync_outputs)
+        current_meta = dict(task.script_meta or {})
+        current_meta["render_uniqueization"] = dict(primary_output.get("uniqueization") or {})
+        current_meta["rendered_outputs_uniqueization"] = [
+            dict(output.get("uniqueization") or {})
+            for output in rendered_outputs
+            if output.get("uniqueization")
+        ]
+        task.script_meta = current_meta
         if vertical_thumbnail_intro_meta:
             current_meta = dict(task.script_meta or {})
             current_meta["vertical_thumbnail_intro"] = vertical_thumbnail_intro_meta
