@@ -65,6 +65,105 @@ def get_user_channel_row_map(db: Session, user_id: int, project_id: int) -> dict
     ).all()
     return {row.account_id: row for row in rows}
 
+
+def _selected_plate_ids(row: models.UserPublishChannel | None) -> list[int]:
+    if not row:
+        return []
+    if isinstance(row.selected_plate_ids, list):
+        return [int(item) for item in row.selected_plate_ids if item is not None]
+    if row.selected_plate_id is not None:
+        return [int(row.selected_plate_id)]
+    return []
+
+
+def _project_row_has_custom_settings(row: models.UserPublishChannel) -> bool:
+    return any(
+        [
+            bool(row.enabled),
+            bool((row.publication_description or "").strip()),
+            validate_account_publish_limit(row.publish_limit_per_day) != DEFAULT_ACCOUNT_LIMIT_PER_DAY,
+            bool(_selected_plate_ids(row)),
+            row.plate_start_percent not in (None, 25),
+        ]
+    )
+
+
+def migrate_legacy_project_assets(
+    db: Session,
+    user: models.User,
+    project_id: int,
+    valid_account_ids: set[int],
+) -> None:
+    legacy_rows = db.query(models.UserPublishChannel).filter(
+        models.UserPublishChannel.user_id == user.id,
+        models.UserPublishChannel.postmypost_project_id.is_(None),
+        models.UserPublishChannel.account_id.in_(valid_account_ids or {-1}),
+    ).all()
+    if not legacy_rows:
+        return
+
+    project_rows = db.query(models.UserPublishChannel).filter(
+        models.UserPublishChannel.user_id == user.id,
+        models.UserPublishChannel.postmypost_project_id == project_id,
+        models.UserPublishChannel.account_id.in_(valid_account_ids or {-1}),
+    ).all()
+    project_by_account = {row.account_id: row for row in project_rows}
+    changed = False
+
+    for legacy in legacy_rows:
+        legacy_plate_ids = _selected_plate_ids(legacy)
+        row = project_by_account.get(legacy.account_id)
+        if row is None:
+            row = models.UserPublishChannel(
+                user_id=user.id,
+                postmypost_project_id=project_id,
+                account_id=legacy.account_id,
+            )
+            db.add(row)
+            project_by_account[legacy.account_id] = row
+            changed = True
+        elif _project_row_has_custom_settings(row):
+            continue
+
+        row.enabled = legacy.enabled
+        row.publication_description = legacy.publication_description
+        row.publish_limit_per_day = validate_account_publish_limit(legacy.publish_limit_per_day)
+        row.selected_plate_ids = legacy_plate_ids
+        row.selected_plate_id = legacy_plate_ids[0] if legacy_plate_ids else None
+        row.plate_start_percent = legacy.plate_start_percent
+        changed = True
+
+        if legacy_plate_ids:
+            db.query(models.Plate).filter(
+                models.Plate.user_id == user.id,
+                models.Plate.id.in_(legacy_plate_ids),
+                models.Plate.postmypost_project_id.is_(None),
+            ).update(
+                {
+                    models.Plate.postmypost_project_id: project_id,
+                    models.Plate.account_id: legacy.account_id,
+                },
+                synchronize_session=False,
+            )
+            changed = True
+
+    migrated_endings = db.query(models.CTAClip).filter(
+        models.CTAClip.user_id == user.id,
+        models.CTAClip.postmypost_project_id.is_(None),
+        models.CTAClip.account_id.in_(valid_account_ids or {-1}),
+    ).update({models.CTAClip.postmypost_project_id: project_id}, synchronize_session=False)
+    changed = changed or bool(migrated_endings)
+
+    if changed:
+        logging.info(
+            "Migrated legacy PostMyPost channel assets for user=%s project=%s accounts=%s",
+            user.id,
+            project_id,
+            sorted(valid_account_ids),
+        )
+        db.commit()
+
+
 def build_postmypost_channels_response(
     db: Session,
     user: models.User,
@@ -97,12 +196,8 @@ def build_postmypost_channels_response(
         channel_info = channels_by_id.get(channel_id) if channel_id is not None else None
 
         row = row_map.get(account_id)
-        selected_plate_ids = []
-        if row and isinstance(row.selected_plate_ids, list):
-            selected_plate_ids = [int(item) for item in row.selected_plate_ids if item is not None]
-        elif row and row.selected_plate_id is not None:
-            selected_plate_ids = [int(row.selected_plate_id)]
-        elif user.selected_plate_id is not None:
+        selected_plate_ids = _selected_plate_ids(row)
+        if not selected_plate_ids and user.selected_plate_id is not None:
             selected_plate_ids = [int(user.selected_plate_id)]
 
         selected_plate_id = selected_plate_ids[0] if selected_plate_ids else None
@@ -200,6 +295,7 @@ def update_postmypost_project(
             if isinstance(account, dict) and account.get("id") is not None
         }
         user.postmypost_project_id = selected_project_id
+        migrate_legacy_project_assets(db, user, selected_project_id, valid_account_ids)
         if payload.uniqueization_mode is not None:
             set_project_uniqueization_mode(
                 db,
@@ -239,6 +335,12 @@ def get_postmypost_channels(telegram_id: str, project_id: int | None = None, db:
         project_id = get_postmypost_project_id(user, project_id)
         channels = pmp_client.get_channels()
         accounts = pmp_client.get_accounts(project_id=project_id)
+        valid_account_ids = {
+            int(account["id"])
+            for account in accounts
+            if isinstance(account, dict) and account.get("id") is not None
+        }
+        migrate_legacy_project_assets(db, user, project_id, valid_account_ids)
     except Exception as e:
         logging.exception(f"CRITICAL: Failed to load PostMyPost channels for user {telegram_id}: {e}")
         raise HTTPException(status_code=502, detail=f"PostMyPost Error: {e}")
