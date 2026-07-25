@@ -14,8 +14,23 @@ engine = create_engine(
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+DATABASE_INIT_LOCK_KEY = 760145167
+
 
 def init_database() -> None:
+    if engine.url.get_backend_name().startswith("postgresql"):
+        with engine.connect() as conn:
+            conn.execute(text("SELECT pg_advisory_lock(:lock_key)"), {"lock_key": DATABASE_INIT_LOCK_KEY})
+            try:
+                _init_database_unlocked()
+            finally:
+                conn.execute(text("SELECT pg_advisory_unlock(:lock_key)"), {"lock_key": DATABASE_INIT_LOCK_KEY})
+                conn.commit()
+        return
+    _init_database_unlocked()
+
+
+def _init_database_unlocked() -> None:
     Base.metadata.create_all(bind=engine)
     # Lightweight runtime migration for existing deployments.
     with engine.begin() as conn:
