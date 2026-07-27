@@ -2144,6 +2144,7 @@ def process_content_task(self, task_id: int):
             models.VideoTask.id != task.id,
             models.VideoTask.user_id == task.user_id,
             models.VideoTask.vizard_project_id == task.vizard_project_id,
+            models.VideoTask.postmypost_project_id == task.postmypost_project_id,
             models.VideoTask.status == "completed",
             models.VideoTask.output_path.isnot(None),
         ).count()

@@ -32,7 +32,13 @@ def pop_pending_project_task(token: str, user_id: str) -> PendingTask | None:
 
 
 def build_project_choice_keyboard(projects: list[dict], token: str, selected_project_id: int | None) -> dict:
-    rows = []
+    rows = [[
+        {
+            "text": "🌍 Опубликовать везде",
+            "callback_data": f"pmp:{token}:all",
+            "style": "primary",
+        }
+    ]]
     for project in projects[:20]:
         project_id = project.get("id")
         if project_id is None:
@@ -81,6 +87,14 @@ async def prompt_postmypost_project_choice(
         payload = response.json()
         projects = payload.get("projects") or []
         selected_project_id = payload.get("selected_project_id")
+        _PENDING_PROJECT_TASKS[token]["projects"] = [
+            {
+                "id": int(project["id"]),
+                "name": str(project.get("name") or f"Project {project['id']}").strip(),
+            }
+            for project in projects
+            if isinstance(project, dict) and project.get("id") is not None
+        ]
     except Exception as exc:
         logging.error("Failed to load PostMyPost projects for Telegram choice: %s", exc)
         await bot.send_message(

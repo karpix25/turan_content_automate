@@ -221,24 +221,16 @@ async def create_task_in_backend(
     Helper to trigger task creation in backend and update status message.
     """
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            task_payload = {
-                "source_url": url,
-                "type": task_type,
-                "source_title": (source_title or "").strip() or None,
-                "telegram_chat_id": str(status_message.chat.id),
-                "telegram_status_message_id": str(status_message.message_id),
-                "telegram_reply_message_id": str(reply_message_id or ""),
-            }
-            if postmypost_project_id is not None:
-                task_payload["postmypost_project_id"] = int(postmypost_project_id)
-
-            response = await client.post(
-                f"{BACKEND_API_URL}/tasks/{user_id}",
-                json=task_payload,
-            )
-        response.raise_for_status()
-        payload = response.json()
+        payload = await create_task_in_backend_payload(
+            user_id,
+            url,
+            task_type,
+            chat_id=status_message.chat.id,
+            status_message_id=status_message.message_id,
+            source_title=source_title,
+            reply_message_id=reply_message_id,
+            postmypost_project_id=postmypost_project_id,
+        )
         task_id = payload.get("task_id")
         queue_position = payload.get("queue_position")
         queue_total = payload.get("queue_total")
@@ -264,6 +256,37 @@ async def create_task_in_backend(
             )
         except Exception:
             await status_message.answer("❌ Sorry, something went wrong while creating the task.")
+
+
+async def create_task_in_backend_payload(
+    user_id: str,
+    url: str,
+    task_type: str,
+    *,
+    chat_id: int | str,
+    status_message_id: int | str,
+    source_title: str | None = None,
+    reply_message_id: int | str | None = None,
+    postmypost_project_id: int | None = None,
+) -> dict:
+    task_payload = {
+        "source_url": url,
+        "type": task_type,
+        "source_title": (source_title or "").strip() or None,
+        "telegram_chat_id": str(chat_id),
+        "telegram_status_message_id": str(status_message_id),
+        "telegram_reply_message_id": str(reply_message_id or ""),
+    }
+    if postmypost_project_id is not None:
+        task_payload["postmypost_project_id"] = int(postmypost_project_id)
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.post(
+            f"{BACKEND_API_URL}/tasks/{user_id}",
+            json=task_payload,
+        )
+    response.raise_for_status()
+    return response.json()
 
 
 async def prompt_postmypost_project_choice(
@@ -602,6 +625,87 @@ async def handle_link(message: types.Message):
     )
 
 
+async def create_task_in_all_postmypost_projects(
+    *,
+    user_id: str,
+    pending: dict,
+    status_message: types.Message,
+) -> None:
+    projects = [
+        project
+        for project in (pending.get("projects") or [])
+        if isinstance(project, dict) and project.get("id") is not None
+    ]
+    if not projects:
+        await status_message.edit_text(
+            "❌ Не нашёл список проектов. Отправьте ссылку ещё раз.",
+            disable_web_page_preview=True,
+        )
+        return
+
+    created: list[str] = []
+    failed: list[str] = []
+    total = len(projects)
+    for index, project in enumerate(projects, start=1):
+        project_id = int(project["id"])
+        project_name = str(project.get("name") or f"Project {project_id}").strip()
+        try:
+            await status_message.edit_text(
+                (
+                    "⏳ Опубликовать везде\n"
+                    f"Этап: создаю задачи {index}/{total}\n"
+                    f"Сейчас: {project_name}"
+                ),
+                disable_web_page_preview=True,
+            )
+        except Exception:
+            pass
+
+        try:
+            project_status_message = await bot.send_message(
+                status_message.chat.id,
+                f"⏳ {project_name}\nЭтап: задача создаётся.",
+                reply_to_message_id=pending.get("reply_message_id"),
+                allow_sending_without_reply=True,
+            )
+            payload = await create_task_in_backend_payload(
+                user_id,
+                pending["url"],
+                pending["task_type"],
+                chat_id=project_status_message.chat.id,
+                status_message_id=project_status_message.message_id,
+                source_title=pending.get("source_title"),
+                reply_message_id=pending.get("reply_message_id"),
+                postmypost_project_id=project_id,
+            )
+            task_id = payload.get("task_id")
+            created.append(f"#{task_id} — {project_name}" if task_id else project_name)
+        except Exception as exc:
+            logging.error("Failed to create task for PostMyPost project %s: %s", project_id, exc)
+            failed.append(project_name)
+
+    lines = [
+        "✅ Опубликовать везде",
+        f"Создано задач: {len(created)}/{total}",
+    ]
+    if created:
+        lines.append("")
+        lines.extend(created[:12])
+        if len(created) > 12:
+            lines.append(f"Еще задач: {len(created) - 12}")
+    if failed:
+        lines.append("")
+        lines.append(f"Ошибки: {len(failed)}")
+        lines.extend(f"— {name}" for name in failed[:5])
+        if len(failed) > 5:
+            lines.append(f"Еще ошибок: {len(failed) - 5}")
+
+    try:
+        await status_message.edit_text("\n".join(lines), disable_web_page_preview=True)
+    except Exception:
+        await status_message.answer("\n".join(lines), disable_web_page_preview=True)
+
+
 
 @dp.callback_query_handler(lambda c: c.data and c.data.startswith('pmp:'))
 async def process_postmypost_project_choice(callback_query: types.CallbackQuery):
@@ -616,26 +720,43 @@ async def process_postmypost_project_choice(callback_query: types.CallbackQuery)
         await callback_query.answer("Выбор устарел. Отправьте ссылку ещё раз.", show_alert=True)
         return
 
-    try:
-        project_id = int(project_id_raw)
-    except ValueError:
-        await callback_query.answer("Некорректный контейнер", show_alert=True)
-        return
+    publish_everywhere = project_id_raw == "all"
+    if publish_everywhere:
+        project_id = None
+    else:
+        try:
+            project_id = int(project_id_raw)
+        except ValueError:
+            await callback_query.answer("Некорректный контейнер", show_alert=True)
+            return
 
-    await callback_query.answer("Контейнер выбран. Создаю задачу...")
+    await callback_query.answer("Создаю задачи..." if publish_everywhere else "Контейнер выбран. Создаю задачу...")
     status_message = callback_query.message
+    status_text = (
+        "⏳ Опубликовать везде\nЭтап: создаю задачи."
+        if publish_everywhere
+        else "⏳ Контейнер PostMyPost выбран\nЭтап: создаю задачу."
+    )
     try:
         await status_message.edit_text(
-            "⏳ Контейнер PostMyPost выбран\nЭтап: создаю задачу.",
+            status_text,
             disable_web_page_preview=True,
         )
     except Exception:
         status_message = await bot.send_message(
             callback_query.message.chat.id,
-            "⏳ Контейнер PostMyPost выбран\nЭтап: создаю задачу.",
+            status_text,
             reply_to_message_id=pending.get("reply_message_id"),
             allow_sending_without_reply=True,
         )
+
+    if publish_everywhere:
+        await create_task_in_all_postmypost_projects(
+            user_id=str(callback_query.from_user.id),
+            pending=pending,
+            status_message=status_message,
+        )
+        return
 
     await create_task_in_backend(
         str(callback_query.from_user.id),
