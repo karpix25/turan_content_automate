@@ -3,19 +3,24 @@ import { motion } from 'framer-motion';
 import { Globe2, Loader2 } from 'lucide-react';
 import { apiClient } from '../../api/client';
 import { getApiErrorMessage } from '../../api/errors';
+import { usePostMyPostProject } from '../../context/PostMyPostProjectContext';
 import { useTelegram } from '../../context/TelegramContext';
-import { EndingClip, PostMyPostProject, PostMyPostProjectsResponse, PublishAccount, UniqueizationMode } from '../../types';
+import { EndingClip, PublishAccount } from '../../types';
 import { ChannelAccountCard } from './channels/ChannelAccountCard';
-import { PostMyPostProjectSelector } from './channels/PostMyPostProjectSelector';
+import { UniqueizationModeSelector } from './channels/UniqueizationModeSelector';
 
 export const ChannelsTab: React.FC = () => {
   const { telegramId } = useTelegram();
-  const [projects, setProjects] = useState<PostMyPostProject[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
-  const [selectedUniqueizationMode, setSelectedUniqueizationMode] = useState<UniqueizationMode>('auto');
-  const [projectsLoading, setProjectsLoading] = useState(false);
-  const [savingProject, setSavingProject] = useState(false);
-  const [savingUniqueizationMode, setSavingUniqueizationMode] = useState(false);
+  const {
+    selectedProjectId,
+    selectedProject,
+    selectedUniqueizationMode,
+    loading: projectsLoading,
+    savingProject,
+    savingUniqueizationMode,
+    refreshProjects,
+    setUniqueizationMode,
+  } = usePostMyPostProject();
   const [publishAccounts, setPublishAccounts] = useState<PublishAccount[]>([]);
   const [channelDescriptions, setChannelDescriptions] = useState<Record<number, string>>({});
   const [publishLimitByAccount, setPublishLimitByAccount] = useState<Record<number, number>>({});
@@ -52,21 +57,6 @@ export const ChannelsTab: React.FC = () => {
     setTimeout(() => setSaved(false), 2000);
   };
 
-  const normalizeUniqueizationMode = (mode?: UniqueizationMode | null): UniqueizationMode => (
-    mode === 'light' || mode === 'standard' || mode === 'aggressive' || mode === 'off' ? mode : 'auto'
-  );
-
-  const applyProjectsData = (data: PostMyPostProjectsResponse) => {
-    const nextProjectId = data.selected_project_id ?? data.projects.find(project => project.selected)?.id ?? data.projects[0]?.id ?? null;
-    const selectedProject = data.projects.find(project => project.id === nextProjectId);
-    setProjects(data.projects);
-    setSelectedProjectId(nextProjectId);
-    setSelectedUniqueizationMode(
-      normalizeUniqueizationMode(data.selected_project_uniqueization_mode ?? selectedProject?.uniqueization_mode),
-    );
-    return nextProjectId;
-  };
-
   const applyChannelsData = (data: PublishAccount[]) => {
     setPublishAccounts(data);
     const descMap: Record<number, string> = {};
@@ -90,20 +80,6 @@ export const ChannelsTab: React.FC = () => {
       });
       return next;
     });
-  };
-
-  const loadProjects = async () => {
-    if (!telegramId) return null;
-    setProjectsLoading(true);
-    try {
-      const data = await apiClient.getPostMyPostProjects(telegramId);
-      return applyProjectsData(data);
-    } catch (error: any) {
-      setChannelsError(error.response?.data?.detail || error.message || 'Ошибка загрузки проектов PostMyPost');
-      return null;
-    } finally {
-      setProjectsLoading(false);
-    }
   };
 
   const loadChannels = async (projectId = selectedProjectId) => {
@@ -131,12 +107,10 @@ export const ChannelsTab: React.FC = () => {
 
   useEffect(() => {
     if (!telegramId) return;
-    loadProjects().then(projectId => {
-      if (!projectId) return;
-      loadChannels(projectId);
-      loadEndings(projectId);
-    });
-  }, [telegramId]);
+    if (!selectedProjectId) return;
+    loadChannels(selectedProjectId);
+    loadEndings(selectedProjectId);
+  }, [telegramId, selectedProjectId]);
 
   const buildChannelSettingsPayload = (
     plateIdsByAccount = selectedPlateIdsByAccount,
@@ -160,43 +134,6 @@ export const ChannelsTab: React.FC = () => {
       alert(error.response?.data?.detail || error.message || 'Ошибка сохранения каналов');
     } finally {
       setSavingChannelSettings(false);
-    }
-  };
-
-  const handleProjectChange = async (projectId: number) => {
-    if (!telegramId || projectId === selectedProjectId || savingProject) return;
-    const nextProject = projects.find(project => project.id === projectId);
-    setSavingProject(true);
-    setSelectedProjectId(projectId);
-    setSelectedUniqueizationMode(normalizeUniqueizationMode(nextProject?.uniqueization_mode));
-    try {
-      const data = await apiClient.updatePostMyPostProject(telegramId, projectId);
-      applyProjectsData(data);
-      await loadChannels(projectId);
-      await loadEndings(projectId);
-      flashSaved();
-    } catch (error: any) {
-      alert(error.response?.data?.detail || error.message || 'Ошибка выбора контейнера PostMyPost');
-      await loadProjects();
-    } finally {
-      setSavingProject(false);
-    }
-  };
-
-  const handleUniqueizationModeChange = async (mode: UniqueizationMode) => {
-    if (!telegramId || !selectedProjectId || savingUniqueizationMode) return;
-    const previousMode = selectedUniqueizationMode;
-    setSelectedUniqueizationMode(mode);
-    setSavingUniqueizationMode(true);
-    try {
-      const data = await apiClient.updatePostMyPostProject(telegramId, selectedProjectId, mode);
-      applyProjectsData(data);
-      flashSaved();
-    } catch (error: any) {
-      setSelectedUniqueizationMode(previousMode);
-      alert(error.response?.data?.detail || error.message || 'Ошибка сохранения режима уникализации');
-    } finally {
-      setSavingUniqueizationMode(false);
     }
   };
 
@@ -311,10 +248,10 @@ export const ChannelsTab: React.FC = () => {
 
   return (
     <motion.div key="channels" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4 pb-20">
-      <div className="sticky top-[61px] z-30 -mx-4 px-4 py-2 bg-[#f1f2f6]/95 backdrop-blur flex items-center justify-between gap-2">
+      <div className="sticky top-[101px] z-30 -mx-4 px-4 py-2 bg-[#f1f2f6]/95 backdrop-blur flex items-center justify-between gap-2">
         <button
           onClick={() => {
-            loadProjects().then(projectId => {
+            refreshProjects().then(projectId => {
               const nextProjectId = projectId || selectedProjectId;
               if (!nextProjectId) return;
               loadChannels(nextProjectId);
@@ -339,16 +276,24 @@ export const ChannelsTab: React.FC = () => {
         </button>
       </div>
 
-      <PostMyPostProjectSelector
-        projects={projects}
-        selectedProjectId={selectedProjectId}
-        loading={projectsLoading}
-        disabled={savingProject || channelsLoading || savingUniqueizationMode}
-        accountsCount={publishAccounts.length}
-        uniqueizationMode={selectedUniqueizationMode}
-        onUniqueizationModeChange={handleUniqueizationModeChange}
-        onChange={handleProjectChange}
-      />
+      <div className="tg-card p-3 space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold text-[#707579] uppercase tracking-wider">Уникализация проекта</p>
+            <p className="text-xs text-slate-500 truncate">{selectedProject?.name || 'Проект не выбран'}</p>
+          </div>
+          <span className="px-2 py-1 rounded-lg bg-slate-100 text-[10px] font-bold text-slate-500 whitespace-nowrap">
+            {publishAccounts.length} аккаунт{publishAccounts.length === 1 ? '' : 'ов'}
+          </span>
+        </div>
+        <UniqueizationModeSelector
+          mode={selectedUniqueizationMode}
+          disabled={savingProject || savingUniqueizationMode || projectsLoading || !selectedProjectId}
+          onChange={(mode) => {
+            setUniqueizationMode(mode).then(flashSaved);
+          }}
+        />
+      </div>
 
       {channelsError && (
         <div className="p-4 rounded-2xl bg-rose-50 border border-rose-100 text-rose-600 text-sm font-medium">

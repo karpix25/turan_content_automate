@@ -4,6 +4,7 @@ import { Rocket } from 'lucide-react';
 
 import { useTelegram } from './context/TelegramContext';
 import { BottomNav } from './components/layout/BottomNav';
+import { ProjectSwitcherBar } from './components/layout/ProjectSwitcherBar';
 import { QueueTab } from './components/tabs/QueueTab';
 import { ChannelsTab } from './components/tabs/ChannelsTab';
 import { PlanningTab } from './components/tabs/PlanningTab';
@@ -95,6 +96,7 @@ const App: React.FC = () => {
           </button>
         </div>
       </header>
+      <ProjectSwitcherBar />
 
       <main className="p-4">
         <AnimatePresence mode="wait">

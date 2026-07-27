@@ -85,7 +85,7 @@ export const apiClient = {
   },
 
   // Tasks
-  getTasks: async (telegramId: string, filters?: { publish_from?: string; publish_to?: string }) => {
+  getTasks: async (telegramId: string, filters?: { publish_from?: string; publish_to?: string; project_id?: number | null }) => {
     const res = await axios.get<VideoTaskItem[]>(`${API_BASE}/tasks/${telegramId}`, {
       params: filters
     });

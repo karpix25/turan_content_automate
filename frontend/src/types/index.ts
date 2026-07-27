@@ -53,6 +53,7 @@ export type VideoTaskItem = {
   type: string;
   status: string;
   output_path?: string | null;
+  postmypost_project_id?: number | null;
   target_account_id?: number | null;
   target_platform?: string | null;
   preview_url?: string | null;

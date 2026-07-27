@@ -5,6 +5,7 @@ import {
   Loader2, Download, Trash2, Globe2, ExternalLink, X
 } from 'lucide-react';
 import { apiClient } from '../../api/client';
+import { usePostMyPostProject } from '../../context/PostMyPostProjectContext';
 import { useTelegram } from '../../context/TelegramContext';
 import { VideoTaskItem } from '../../types';
 
@@ -63,6 +64,7 @@ const isImagePreview = (value: string | undefined) =>
 
 export const QueueTab: React.FC = () => {
   const { telegramId } = useTelegram();
+  const { selectedProjectId } = usePostMyPostProject();
   const [tasks, setTasks] = useState<VideoTaskItem[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
   const [queueStatusFilter, setQueueStatusFilter] = useState<'all' | 'active' | 'scheduled' | 'published' | 'failed'>('all');
@@ -83,6 +85,7 @@ export const QueueTab: React.FC = () => {
       const data = await apiClient.getTasks(telegramId, {
         publish_from: dateToPeriodStartIso(publishDateFrom),
         publish_to: dateToPeriodEndIso(publishDateTo || publishDateFrom),
+        project_id: selectedProjectId,
       });
       setTasks(data);
       setScheduleInputs(
@@ -103,7 +106,7 @@ export const QueueTab: React.FC = () => {
     loadTasks();
     const interval = setInterval(loadTasks, 15000);
     return () => clearInterval(interval);
-  }, [telegramId, publishDateFrom, publishDateTo]);
+  }, [telegramId, selectedProjectId, publishDateFrom, publishDateTo]);
 
   const saveTaskSchedule = async (taskId: number, overrideValue?: string | null) => {
     if (!telegramId) return;

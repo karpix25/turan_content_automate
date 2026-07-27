@@ -106,6 +106,7 @@ def list_user_tasks(
     telegram_id: str,
     publish_from: datetime.datetime | None = None,
     publish_to: datetime.datetime | None = None,
+    project_id: int | None = None,
     db: Session = Depends(get_db),
 ):
     ensure_admin_access(telegram_id)
@@ -113,6 +114,8 @@ def list_user_tasks(
     query = db.query(models.VideoTask).filter(
         models.VideoTask.user_id == user.id
     )
+    if project_id is not None:
+        query = query.filter(models.VideoTask.postmypost_project_id == int(project_id))
     if publish_from is not None:
         query = query.filter(models.VideoTask.publish_at >= normalize_utc_naive(publish_from))
     if publish_to is not None:
