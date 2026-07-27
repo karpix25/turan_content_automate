@@ -83,21 +83,18 @@ async def prompt_postmypost_project_choice(
         selected_project_id = payload.get("selected_project_id")
     except Exception as exc:
         logging.error("Failed to load PostMyPost projects for Telegram choice: %s", exc)
-        status_message = await bot.send_message(
+        await bot.send_message(
             chat_id,
-            f"{intro_text}\nЭтап: создаю задачу с текущим контейнером.",
+            (
+                f"{intro_text}\n"
+                "❌ Не удалось загрузить проекты PostMyPost.\n"
+                "Задача не создана, чтобы ролик случайно не ушёл не в тот проект.\n"
+                "Попробуйте ещё раз или откройте Mini App и проверьте подключение PostMyPost."
+            ),
             reply_to_message_id=reply_message_id,
             allow_sending_without_reply=True,
         )
         _PENDING_PROJECT_TASKS.pop(token, None)
-        await create_task_in_backend(
-            user_id,
-            url,
-            task_type,
-            status_message,
-            source_title=source_title,
-            reply_message_id=reply_message_id,
-        )
         return
 
     if not projects:
