@@ -446,7 +446,14 @@ def _init_database_unlocked() -> None:
                 "UPDATE user_publish_channels upc "
                 "SET postmypost_project_id = users.postmypost_project_id "
                 "FROM users "
-                "WHERE upc.user_id = users.id AND upc.postmypost_project_id IS NULL"
+                "WHERE upc.user_id = users.id "
+                "AND upc.postmypost_project_id IS NULL "
+                "AND NOT EXISTS ("
+                "SELECT 1 FROM user_publish_channels existing "
+                "WHERE existing.user_id = upc.user_id "
+                "AND existing.account_id = upc.account_id "
+                "AND existing.postmypost_project_id = users.postmypost_project_id"
+                ")"
             )
         )
         conn.execute(
