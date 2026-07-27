@@ -92,6 +92,7 @@ from .services.style_training import train_user_style
 from .services.instagram_post_5s import (
     build_integrated_card_prompt,
     normalize_multiline_text,
+    normalize_trigger_headline,
     render_static_card_video,
 )
 from .services.instagram_post_5s_settings import get_instagram_post_5s_project_settings
@@ -4410,6 +4411,7 @@ def process_content_task(self, task_id: int):
                 rewritten_title,
                 fallback=(task.source_title or (f"Пост @{creator}" if creator else "Главный тезис")),
             )
+            final_title = normalize_trigger_headline(final_title, fallback="Главная боль")
             update_task_status_message(db, task, stage="Описание", detail="Переписываю описание поста под наш ролик.")
             rewritten_description = llm.generate_instagram_post_5s_description(
                 caption=caption,
@@ -4445,15 +4447,11 @@ def process_content_task(self, task_id: int):
                 cta_text=five_second_cta_text,
                 user_direction=five_second_image_prompt or None,
             )
-            active_five_second_face_path = user.vertical_thumbnail_face_path or user.thumbnail_face_path
-            five_second_face_paths = [active_five_second_face_path] if active_five_second_face_path else []
-            if not active_five_second_face_path:
-                logging.warning("Task %s: Instagram post 5s generation has no active face reference", task_id)
             card_image_path = os.path.join(output_dir, f"instagram_post_card_{task_id}.png")
             generated_card_image = thumbnail_generator.generate_thumbnail(
                 prompt=card_image_prompt,
-                face_path=active_five_second_face_path,
-                face_paths=five_second_face_paths,
+                face_path=None,
+                face_paths=[],
                 reference_paths=[local_post_image],
                 output_path=card_image_path,
                 aspect_ratio="9:16",
@@ -4478,7 +4476,7 @@ def process_content_task(self, task_id: int):
                     "rewritten_description": rewritten_description,
                     "description_txt_path": description_txt_path,
                     "creator": creator,
-                    "face_path": active_five_second_face_path,
+                    "face_path": None,
                     "cta_text": five_second_cta_text,
                     "image_prompt": five_second_image_prompt or None,
                     "card_image_prompt": card_image_prompt,
@@ -4534,7 +4532,7 @@ def process_content_task(self, task_id: int):
                 "description_txt_path": description_txt_path,
                 "selected_audio_track_id": selected_audio_track.id if selected_audio_track else None,
                 "selected_audio_path": selected_audio_path,
-                "face_path": active_five_second_face_path,
+                "face_path": None,
                 "cta_text": five_second_cta_text,
                 "image_prompt": five_second_image_prompt or None,
                 "card_image_prompt": card_image_prompt,

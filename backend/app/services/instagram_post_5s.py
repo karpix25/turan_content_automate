@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import subprocess
 
 
@@ -17,6 +18,21 @@ def normalize_multiline_text(value: str | None, *, max_length: int | None = None
     return text or None
 
 
+def normalize_trigger_headline(value: str | None, *, fallback: str = "Главная боль") -> str:
+    title = re.sub(r"\s+", " ", (value or "")).strip().strip("\"'«»“”")
+    title = re.sub(r"[#@]\S+", "", title).strip()
+    title = re.sub(r"^(вот\s+)?на\s+что\s+", "", title, flags=re.IGNORECASE).strip()
+    title = re.sub(r"^(почему|как|что)\s+это\s+", "", title, flags=re.IGNORECASE).strip()
+    if not re.search(r"[\wА-Яа-яЁё]", title, flags=re.UNICODE):
+        title = fallback
+    words = [word for word in title.split(" ") if word]
+    if len(words) > 7:
+        title = " ".join(words[:7]).strip()
+    if len(title) > 60:
+        title = title[:60].rsplit(" ", 1)[0].strip()
+    return title.rstrip(".!?…") or fallback
+
+
 def build_integrated_card_prompt(
     *,
     title: str,
@@ -29,14 +45,15 @@ def build_integrated_card_prompt(
         "Create a final ready-to-publish vertical Instagram card image, 9:16. "
         "Do not create a background for later overlays. Do not add a red title plate. "
         "All text must be naturally designed inside the generated image itself.\n\n"
-        "Use the provided Instagram post as content/style reference and use the provided author face reference for the person. "
-        "Build a new clean Russian infographic card "
+        "Use the provided Instagram post as content/style reference. "
+        "Build a new clean Russian infographic card without any people, portraits, faces, hands, characters, mascots, or presenters. "
         "similar to the reference format: warm yellow/gold background, a large rounded off-white content panel, "
-        "bold black Russian typography, bullet/list structure when useful, a short conclusion, and a realistic cutout "
-        "of the same author from the face reference, pointing toward the CTA or content. The person must not cover important text.\n\n"
-        "Instagram Reels safe-zone is mandatory: keep every important word, headline, bullet, conclusion, CTA, face and gesture "
-        "inside the central safe area of the 1080x1920 canvas. Use generous margins: at least 140 px from the left edge, "
-        "at least 260 px from the top, at least 430 px from the bottom, and keep the right 230 px mostly free for Instagram UI icons. "
+        "bold black Russian typography, bullet/list structure when useful, a short conclusion, subtle icons, and a compact CTA.\n\n"
+        "Instagram Reels safe-zone is mandatory: keep every important word, headline, bullet, conclusion, CTA, icon, and panel "
+        "inside a compact central safe area of the 1080x1920 canvas. Use strict margins: at least 150 px from the left edge, "
+        "at least 280 px from the top, at least 620 px from the bottom, and keep the right 250 px mostly free for Instagram UI icons. "
+        "The lower 30% of the canvas must remain mostly empty decorative background; do not place CTA, text, icons, or panels "
+        "near the bottom edge. Place the CTA above the lower safe-zone boundary, integrated naturally under the main panel. "
         "Do not stretch the content vertically across the full canvas. The card may have decorative background outside the safe zone, "
         "but readable content must stay compact, centered, and comfortably inside the safe area.\n\n"
         "Exact Russian headline to include prominently near the top:\n"
@@ -46,7 +63,7 @@ def build_integrated_card_prompt(
         f"{(description or title)[:900]}\n\n"
         "Exact CTA text to include as a natural lower CTA box inside the generated card:\n"
         f"{cta_block}\n\n"
-        "Layout rules: no red rectangles, no separate overlay plate, no app UI, no logos, no watermarks, no random extra CTA. "
+        "Layout rules: no people, no faces, no hands, no characters, no red rectangles, no separate overlay plate, no app UI, no logos, no watermarks, no random extra CTA. "
         "The card must look like a complete designed social post screenshot, with readable Russian text and enough spacing."
     )
     if user_direction:
