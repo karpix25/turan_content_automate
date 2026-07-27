@@ -34,6 +34,11 @@ def build_integrated_card_prompt(
         "similar to the reference format: warm yellow/gold background, a large rounded off-white content panel, "
         "bold black Russian typography, bullet/list structure when useful, a short conclusion, and a realistic cutout "
         "of the same author from the face reference, pointing toward the CTA or content. The person must not cover important text.\n\n"
+        "Instagram Reels safe-zone is mandatory: keep every important word, headline, bullet, conclusion, CTA, face and gesture "
+        "inside the central safe area of the 1080x1920 canvas. Use generous margins: at least 140 px from the left edge, "
+        "at least 260 px from the top, at least 430 px from the bottom, and keep the right 230 px mostly free for Instagram UI icons. "
+        "Do not stretch the content vertically across the full canvas. The card may have decorative background outside the safe zone, "
+        "but readable content must stay compact, centered, and comfortably inside the safe area.\n\n"
         "Exact Russian headline to include prominently near the top:\n"
         f"{title}\n\n"
         "Use this rewritten context to create concise bullet points and/or a conclusion on the card, without copying ads, "
@@ -47,7 +52,7 @@ def build_integrated_card_prompt(
     if user_direction:
         prompt += (
             "\n\nMandatory user creative direction. Follow this unless it conflicts with readable Russian text, "
-            "the exact CTA/headline, or safety rules:\n"
+            "the Instagram Reels safe-zone, the exact CTA/headline, or safety rules:\n"
             f"{user_direction[:1200]}"
         )
     return prompt
