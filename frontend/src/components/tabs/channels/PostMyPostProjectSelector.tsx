@@ -1,7 +1,6 @@
 import React from 'react';
 import { ChevronDown, Loader2 } from 'lucide-react';
-import { PostMyPostProject, UniqueizationMode } from '../../../types';
-import { UniqueizationModeSelector } from './UniqueizationModeSelector';
+import { PostMyPostProject } from '../../../types';
 
 type PostMyPostProjectSelectorProps = {
   projects: PostMyPostProject[];
@@ -9,8 +8,6 @@ type PostMyPostProjectSelectorProps = {
   loading: boolean;
   disabled: boolean;
   accountsCount: number;
-  uniqueizationMode: UniqueizationMode;
-  onUniqueizationModeChange: (mode: UniqueizationMode) => void;
   onChange: (projectId: number) => void;
 };
 
@@ -20,8 +17,6 @@ export const PostMyPostProjectSelector: React.FC<PostMyPostProjectSelectorProps>
   loading,
   disabled,
   accountsCount,
-  uniqueizationMode,
-  onUniqueizationModeChange,
   onChange,
 }) => {
   const selectedProject = projects.find(project => project.id === selectedProjectId);
@@ -64,11 +59,6 @@ export const PostMyPostProjectSelector: React.FC<PostMyPostProjectSelectorProps>
         </div>
       </div>
 
-      <UniqueizationModeSelector
-        mode={uniqueizationMode}
-        disabled={disabled || loading || !selectedProjectId}
-        onChange={onUniqueizationModeChange}
-      />
     </div>
   );
 };

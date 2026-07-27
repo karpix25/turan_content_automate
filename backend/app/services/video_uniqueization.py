@@ -16,17 +16,7 @@ def normalize_uniqueization_mode(value: str | None) -> str:
 
 
 def get_project_uniqueization_mode(db: Session, user_id: int, project_id: int | None) -> str:
-    if project_id is None:
-        return DEFAULT_UNIQUEIZATION_MODE
-    row = (
-        db.query(models.PostMyPostProjectSetting)
-        .filter(
-            models.PostMyPostProjectSetting.user_id == user_id,
-            models.PostMyPostProjectSetting.project_id == int(project_id),
-        )
-        .first()
-    )
-    return normalize_uniqueization_mode(row.uniqueization_mode if row else None)
+    return DEFAULT_UNIQUEIZATION_MODE
 
 
 def set_project_uniqueization_mode(

@@ -7,19 +7,14 @@ import { usePostMyPostProject } from '../../context/PostMyPostProjectContext';
 import { useTelegram } from '../../context/TelegramContext';
 import { EndingClip, PublishAccount } from '../../types';
 import { ChannelAccountCard } from './channels/ChannelAccountCard';
-import { UniqueizationModeSelector } from './channels/UniqueizationModeSelector';
 
 export const ChannelsTab: React.FC = () => {
   const { telegramId } = useTelegram();
   const {
     selectedProjectId,
-    selectedProject,
-    selectedUniqueizationMode,
     loading: projectsLoading,
     savingProject,
-    savingUniqueizationMode,
     refreshProjects,
-    setUniqueizationMode,
   } = usePostMyPostProject();
   const [publishAccounts, setPublishAccounts] = useState<PublishAccount[]>([]);
   const [channelDescriptions, setChannelDescriptions] = useState<Record<number, string>>({});
@@ -266,33 +261,14 @@ export const ChannelsTab: React.FC = () => {
         </button>
         <button
           onClick={saveChannelSettings}
-          disabled={savingChannelSettings || savingProject || savingUniqueizationMode}
+          disabled={savingChannelSettings || savingProject}
           className={`h-10 px-3 sm:px-5 text-xs sm:text-sm font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg transition-all ${
             saved ? 'bg-[#34c759] text-white shadow-green-500/20' : 'bg-[#24a1de] text-white shadow-blue-500/20'
           } disabled:opacity-50`}
         >
-          {(savingChannelSettings || savingProject || savingUniqueizationMode) ? <Loader2 className="animate-spin" size={16} /> : null}
+          {(savingChannelSettings || savingProject) ? <Loader2 className="animate-spin" size={16} /> : null}
           {saved ? 'Сохранено!' : 'Сохранить настройки'}
         </button>
-      </div>
-
-      <div className="tg-card p-3 space-y-2">
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[11px] font-bold text-[#707579] uppercase tracking-wider">Уникализация проекта</p>
-            <p className="text-xs text-slate-500 truncate">{selectedProject?.name || 'Проект не выбран'}</p>
-          </div>
-          <span className="px-2 py-1 rounded-lg bg-slate-100 text-[10px] font-bold text-slate-500 whitespace-nowrap">
-            {publishAccounts.length} аккаунт{publishAccounts.length === 1 ? '' : 'ов'}
-          </span>
-        </div>
-        <UniqueizationModeSelector
-          mode={selectedUniqueizationMode}
-          disabled={savingProject || savingUniqueizationMode || projectsLoading || !selectedProjectId}
-          onChange={(mode) => {
-            setUniqueizationMode(mode).then(flashSaved);
-          }}
-        />
       </div>
 
       {channelsError && (
