@@ -185,8 +185,20 @@ export const apiClient = {
     });
     return res.data;
   },
-  getInstagramPost5sSettings: async (telegramId: string) => {
-    const res = await axios.get<InstagramPost5sSettings>(`${API_BASE}/instagram-post-5s/settings/${telegramId}`);
+  getInstagramPost5sSettings: async (telegramId: string, projectId?: number | null) => {
+    const res = await axios.get<InstagramPost5sSettings>(`${API_BASE}/instagram-post-5s/settings/${telegramId}`, {
+      params: projectId ? { project_id: projectId } : undefined,
+    });
+    return res.data;
+  },
+  updateInstagramPost5sSettings: async (
+    telegramId: string,
+    projectId: number,
+    data: { cta_text?: string | null; image_prompt?: string | null },
+  ) => {
+    const res = await axios.post<InstagramPost5sSettings>(`${API_BASE}/instagram-post-5s/settings/${telegramId}`, data, {
+      params: { project_id: projectId },
+    });
     return res.data;
   },
   refreshInstagramPost5sAudioProfile: async (telegramId: string, profile: string) => {

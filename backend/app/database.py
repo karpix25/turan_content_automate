@@ -405,6 +405,28 @@ def _init_database_unlocked() -> None:
                 )
             )
         add_column_if_missing("postmypost_project_settings", "uniqueization_mode", "VARCHAR(32) DEFAULT 'auto'")
+        add_column_if_missing("postmypost_project_settings", "instagram_post_5s_cta_text", "TEXT")
+        add_column_if_missing("postmypost_project_settings", "instagram_post_5s_image_prompt", "TEXT")
+        conn.execute(
+            text(
+                "UPDATE postmypost_project_settings pps "
+                "SET instagram_post_5s_cta_text = users.instagram_post_5s_cta_text "
+                "FROM users "
+                "WHERE pps.user_id = users.id "
+                "AND pps.instagram_post_5s_cta_text IS NULL "
+                "AND users.instagram_post_5s_cta_text IS NOT NULL"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE postmypost_project_settings pps "
+                "SET instagram_post_5s_image_prompt = users.instagram_post_5s_image_prompt "
+                "FROM users "
+                "WHERE pps.user_id = users.id "
+                "AND pps.instagram_post_5s_image_prompt IS NULL "
+                "AND users.instagram_post_5s_image_prompt IS NOT NULL"
+            )
+        )
         conn.execute(
             text(
                 "UPDATE postmypost_project_settings "

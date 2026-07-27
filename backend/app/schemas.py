@@ -235,6 +235,10 @@ class InstagramPost5sSettingsOut(BaseModel):
     image_prompt: Optional[str] = None
     audio_tracks: list[InstagramPost5sAudioTrackOut] = []
 
+class InstagramPost5sProjectSettingsUpdate(BaseModel):
+    cta_text: Optional[str] = None
+    image_prompt: Optional[str] = None
+
 class UserSettings(BaseModel):
     id: int
     telegram_id: str

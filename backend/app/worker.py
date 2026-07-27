@@ -94,6 +94,7 @@ from .services.instagram_post_5s import (
     normalize_multiline_text,
     render_static_card_video,
 )
+from .services.instagram_post_5s_settings import get_instagram_post_5s_project_settings
 from .utils.voice_calibration import (
     count_script_chars,
     get_audio_duration_seconds,
@@ -4425,12 +4426,17 @@ def process_content_task(self, task_id: int):
             task.script_text = rewritten_description or final_title
             db.commit()
 
+            five_second_project_settings = get_instagram_post_5s_project_settings(
+                db,
+                user=user,
+                project_id=getattr(task, "postmypost_project_id", None),
+            )
             five_second_cta_text = normalize_multiline_text(
-                getattr(user, "instagram_post_5s_cta_text", None),
+                five_second_project_settings.cta_text,
                 max_length=220,
             )
             five_second_image_prompt = " ".join(
-                str(getattr(user, "instagram_post_5s_image_prompt", None) or "").split()
+                str(five_second_project_settings.image_prompt or "").split()
             ).strip()
             update_task_status_message(db, task, stage="Изображение", detail="Генерирую цельную 5-секундную карточку с CTA.")
             card_image_prompt = build_integrated_card_prompt(

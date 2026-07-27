@@ -180,5 +180,7 @@ class PostMyPostProjectSetting(Base):
     user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
     project_id = Column(Integer, index=True, nullable=False)
     uniqueization_mode = Column(String, default="auto", nullable=False)
+    instagram_post_5s_cta_text = Column(String, nullable=True)
+    instagram_post_5s_image_prompt = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

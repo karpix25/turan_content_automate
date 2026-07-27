@@ -7,6 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from ... import models, schemas
 from ...core.config import celery_client
+from ...services.instagram_post_5s_settings import (
+    get_instagram_post_5s_project_settings,
+    set_instagram_post_5s_project_settings,
+)
 from ...telegram_progress import update_task_status_message
 from ...utils.plate_media import PLATE_ALLOWED_EXTENSIONS, get_plate_media_type
 from ..deps import get_db, ensure_admin_access, get_or_create_user
@@ -89,21 +93,26 @@ def _validate_instagram_post_5s_audio(file: UploadFile) -> str:
     return safe_name
 
 
-def _instagram_post_5s_settings_response(user: models.User, db: Session) -> schemas.InstagramPost5sSettingsOut:
+def _instagram_post_5s_settings_response(
+    user: models.User,
+    db: Session,
+    project_id: int | None = None,
+) -> schemas.InstagramPost5sSettingsOut:
     tracks = (
         db.query(models.InstagramPost5sAudioTrack)
         .filter(models.InstagramPost5sAudioTrack.user_id == user.id)
         .order_by(models.InstagramPost5sAudioTrack.created_at.desc(), models.InstagramPost5sAudioTrack.id.desc())
         .all()
     )
+    project_settings = get_instagram_post_5s_project_settings(db, user=user, project_id=project_id)
     return schemas.InstagramPost5sSettingsOut(
         audio_profile=user.instagram_post_5s_audio_profile,
         audio_status=user.instagram_post_5s_audio_status,
         audio_error=user.instagram_post_5s_audio_error,
         audio_refreshed_at=user.instagram_post_5s_audio_refreshed_at,
         overlay_path=user.instagram_post_5s_overlay_path,
-        cta_text=getattr(user, "instagram_post_5s_cta_text", None),
-        image_prompt=getattr(user, "instagram_post_5s_image_prompt", None),
+        cta_text=project_settings.cta_text,
+        image_prompt=project_settings.image_prompt,
         audio_tracks=tracks,
     )
 
@@ -281,10 +290,35 @@ async def upload_plate(
 
 
 @router.get("/instagram-post-5s/settings/{telegram_id}", response_model=schemas.InstagramPost5sSettingsOut)
-def get_instagram_post_5s_settings(telegram_id: str, db: Session = Depends(get_db)):
+def get_instagram_post_5s_settings(
+    telegram_id: str,
+    project_id: int | None = None,
+    db: Session = Depends(get_db),
+):
     ensure_admin_access(telegram_id)
     user = get_or_create_user(db, telegram_id)
-    return _instagram_post_5s_settings_response(user, db)
+    return _instagram_post_5s_settings_response(user, db, project_id=project_id)
+
+
+@router.post("/instagram-post-5s/settings/{telegram_id}", response_model=schemas.InstagramPost5sSettingsOut)
+def update_instagram_post_5s_settings(
+    telegram_id: str,
+    payload: schemas.InstagramPost5sProjectSettingsUpdate,
+    project_id: int,
+    db: Session = Depends(get_db),
+):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    set_instagram_post_5s_project_settings(
+        db,
+        user=user,
+        project_id=project_id,
+        cta_text=payload.cta_text,
+        image_prompt=payload.image_prompt,
+    )
+    db.commit()
+    db.refresh(user)
+    return _instagram_post_5s_settings_response(user, db, project_id=project_id)
 
 
 @router.post("/instagram-post-5s/audio-profile/{telegram_id}", response_model=schemas.InstagramPost5sSettingsOut)

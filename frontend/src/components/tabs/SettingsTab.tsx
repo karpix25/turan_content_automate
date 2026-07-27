@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Settings, Save, Loader2, Link2, BookOpen, User, Mic, Upload, Image as ImageIcon, Trash2, Film, Music2, ImagePlus } from 'lucide-react';
 import { apiClient } from '../../api/client';
+import { usePostMyPostProject } from '../../context/PostMyPostProjectContext';
 import { useTelegram } from '../../context/TelegramContext';
 import { ThumbnailReference, ThumbnailFaceReference, AvatarInsertClip, InstagramPost5sSettings } from '../../types';
 import { AvatarOverlayPositionControl } from '../ui/AvatarOverlayPositionControl';
@@ -32,6 +33,7 @@ type HeyGenAvatar = {
 
 export const SettingsTab: React.FC = () => {
   const { telegramId } = useTelegram();
+  const { selectedProjectId, selectedProject } = usePostMyPostProject();
   const [styleProfile, setStyleProfile] = useState('');
   const [trainingSource, setTrainingSource] = useState('');
   const [videoCount, setVideoCount] = useState('5');
@@ -90,7 +92,7 @@ export const SettingsTab: React.FC = () => {
   const loadFiveSecondSettings = async () => {
     if (!telegramId) return;
     try {
-      const data = await apiClient.getInstagramPost5sSettings(telegramId);
+      const data = await apiClient.getInstagramPost5sSettings(telegramId, selectedProjectId);
       setFiveSecondSettings(data);
       setFiveSecondCtaText(data.cta_text || '');
       setFiveSecondImagePrompt(data.image_prompt || '');
@@ -129,8 +131,6 @@ export const SettingsTab: React.FC = () => {
         setAvatarOverlaySizePercent(data.avatar_overlay_size_percent ?? 61);
         setAvatarOverlayOpacityPercent(data.avatar_overlay_opacity_percent ?? 100);
         setYoutubeDescriptionTemplate(data.youtube_description_template || '');
-        setFiveSecondCtaText(data.instagram_post_5s_cta_text || '');
-        setFiveSecondImagePrompt(data.instagram_post_5s_image_prompt || '');
       } catch (error) {
       } finally {
         setLoadingStyle(false);
@@ -227,8 +227,11 @@ export const SettingsTab: React.FC = () => {
     loadAvatars();
     loadThumbnailAssets();
     loadAvatarInsertClips();
-    loadFiveSecondSettings();
   }, [telegramId]);
+
+  useEffect(() => {
+    loadFiveSecondSettings();
+  }, [telegramId, selectedProjectId]);
 
   useEffect(() => {
     if (!telegramId || trainingStatus !== 'loading') return;
@@ -294,8 +297,6 @@ export const SettingsTab: React.FC = () => {
         avatar_script_duration_minutes: avatarScriptDurationMinutes,
         avatar_vertical_duration_seconds: avatarVerticalDurationSeconds,
         youtube_description_template: youtubeDescriptionTemplate,
-        instagram_post_5s_cta_text: fiveSecondCtaText,
-        instagram_post_5s_image_prompt: fiveSecondImagePrompt,
       });
       setSavedSettings(true);
       setTimeout(() => setSavedSettings(false), 2000);
@@ -306,14 +307,13 @@ export const SettingsTab: React.FC = () => {
   };
 
   const handleSaveFiveSecondSettings = async () => {
-    if (!telegramId) return;
+    if (!telegramId || !selectedProjectId) return;
     setSavingFiveSecondSettings(true);
     try {
-      await apiClient.updateSettings(telegramId, {
-        instagram_post_5s_cta_text: fiveSecondCtaText,
-        instagram_post_5s_image_prompt: fiveSecondImagePrompt,
+      const data = await apiClient.updateInstagramPost5sSettings(telegramId, selectedProjectId, {
+        cta_text: fiveSecondCtaText,
+        image_prompt: fiveSecondImagePrompt,
       });
-      const data = await apiClient.getInstagramPost5sSettings(telegramId);
       setFiveSecondSettings(data);
       setFiveSecondCtaText(data.cta_text || '');
       setFiveSecondImagePrompt(data.image_prompt || '');
@@ -711,7 +711,12 @@ export const SettingsTab: React.FC = () => {
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Music2 size={18} className="text-[#24a1de]" />
-            <h3 className="text-[15px] font-bold text-slate-900">5 секунд</h3>
+            <div>
+              <h3 className="text-[15px] font-bold text-slate-900">5 секунд</h3>
+              <p className="text-[11px] font-semibold text-slate-400 truncate max-w-[190px]">
+                {selectedProject?.name || 'Выберите проект PostMyPost'}
+              </p>
+            </div>
           </div>
           <button
             type="button"
@@ -719,7 +724,7 @@ export const SettingsTab: React.FC = () => {
               event.preventDefault();
               handleSaveFiveSecondSettings();
             }}
-            disabled={savingFiveSecondSettings}
+            disabled={savingFiveSecondSettings || !selectedProjectId}
             className={`h-8 px-3 text-[11px] font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition-colors ${
               savedFiveSecondSettings ? 'bg-[#34c759] text-white' : 'bg-[#24a1de] text-white'
             } disabled:opacity-50`}

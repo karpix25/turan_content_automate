@@ -45,7 +45,11 @@ def build_integrated_card_prompt(
         "The card must look like a complete designed social post screenshot, with readable Russian text and enough spacing."
     )
     if user_direction:
-        prompt += f"\n\nAdditional user creative direction:\n{user_direction[:1200]}"
+        prompt += (
+            "\n\nMandatory user creative direction. Follow this unless it conflicts with readable Russian text, "
+            "the exact CTA/headline, or safety rules:\n"
+            f"{user_direction[:1200]}"
+        )
     return prompt
 
 
