@@ -4215,7 +4215,12 @@ def process_content_task(self, task_id: int):
                 else:
                     download_url = _normalize_external_url(((details or {}).get("download_url") or "").strip())
                     if not download_url:
-                        raise Exception("Failed to retrieve image or video URL for infographic format")
+                        provider_error = ((details or {}).get("error") or "").strip()
+                        raise Exception(
+                            "Не удалось получить изображение или видео из Instagram для инфографики. "
+                            f"Провайдер: {provider_error or 'медиа URL отсутствует в ответе'}. "
+                            f"caption={'yes' if caption else 'no'}, images={len(image_urls)}"
+                        )
                     source_kind = "instagram_video"
                     source_media_path = downloader.download_video(download_url, f"infographic_source_video_{task_id}")
                     frame_output = os.path.join(output_dir, f"infographic_frame_{task_id}.jpg")

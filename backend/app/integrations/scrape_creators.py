@@ -40,6 +40,32 @@ def _first_download_url_from_items(items: Any) -> str | None:
     return None
 
 
+def _is_http_url(value: Any) -> bool:
+    return isinstance(value, str) and value.startswith(("http://", "https://"))
+
+
+def _extract_instagram_video_url(payload: Any) -> str | None:
+    if isinstance(payload, dict):
+        for key in ("download_url", "video_url", "playable_url", "dash_manifest_video_url"):
+            value = payload.get(key)
+            if _is_http_url(value):
+                return value
+        for key in ("video_versions", "videoVersions", "clips", "items", "sources"):
+            candidate = _first_download_url_from_items(payload.get(key))
+            if candidate:
+                return candidate
+        for value in payload.values():
+            candidate = _extract_instagram_video_url(value)
+            if candidate:
+                return candidate
+    elif isinstance(payload, list):
+        for item in payload:
+            candidate = _extract_instagram_video_url(item)
+            if candidate:
+                return candidate
+    return None
+
+
 def _extract_youtube_download_url(data: Dict[str, Any]) -> str | None:
     for key in ("download_url", "video_url"):
         value = data.get(key)
@@ -163,11 +189,7 @@ class ScrapeCreatorsClient:
         add_image_url(data.get("thumbnailUrl"))
 
         return {
-            "download_url": (
-                data.get("video_url")
-                or data.get("download_url")
-                or media.get("video_url")
-            ),
+            "download_url": _extract_instagram_video_url({"root": data, "media": media}),
             "image_urls": image_urls,
             "caption": data.get("caption") or caption_text,
             "view_count": data.get("viewCountInt") or media.get("video_view_count"),
