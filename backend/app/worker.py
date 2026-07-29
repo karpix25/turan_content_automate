@@ -4274,36 +4274,37 @@ def process_content_task(self, task_id: int):
             if not card_payload:
                 raise Exception("Failed to generate infographic card payload")
 
-            references = (
-                db.query(models.ThumbnailReference)
-                .filter(models.ThumbnailReference.user_id == user.id, models.ThumbnailReference.kind.in_(["vertical", "both"]))
-                .order_by(models.ThumbnailReference.created_at.desc(), models.ThumbnailReference.id.desc())
-                .all()
+            infographic_project_settings = get_instagram_post_5s_project_settings(
+                db,
+                user=user,
+                project_id=postmypost_project_id,
             )
-            reference_paths = []
-            for item in references:
-                resolved = _resolve_media_file_path(item.file_path, media_kind="thumbnails")
-                if resolved:
-                    reference_paths.append(resolved)
-                elif item.file_path:
-                    reference_paths.append(item.file_path)
-            active_infographic_face_path = user.vertical_thumbnail_face_path or user.thumbnail_face_path
-            face_paths = [active_infographic_face_path] if active_infographic_face_path else []
-            if not active_infographic_face_path:
-                logging.warning("Task %s: infographic image generation has no active face reference", task_id)
-            max_refs = int(os.getenv("VERTICAL_THUMBNAIL_MAX_STYLE_REFERENCES", "4"))
+            infographic_cta_text = normalize_multiline_text(
+                infographic_project_settings.cta_text,
+                max_length=220,
+            )
+            infographic_user_direction = " ".join(
+                str(infographic_project_settings.image_prompt or "").split()
+            ).strip()
+            infographic_image_prompt = build_integrated_card_prompt(
+                title=card_payload.get("title") or source_title or "Главная мысль",
+                description=card_payload.get("description") or caption,
+                cta_text=infographic_cta_text,
+                user_direction=infographic_user_direction or None,
+            )
+            card_payload["image_prompt"] = infographic_image_prompt
 
             update_task_status_message(db, task, stage="Инфографика", detail="Генерирую финальную карточку в нашем стиле.")
             infographic_image_path = os.path.join(output_dir, f"infographic_reels_{task_id}.png")
             infographic_image = thumbnail_generator.generate_thumbnail(
-                prompt=card_payload["image_prompt"],
-                face_path=active_infographic_face_path,
-                face_paths=face_paths,
-                reference_paths=reference_paths,
+                prompt=infographic_image_prompt,
+                face_path=None,
+                face_paths=[],
+                reference_paths=[source_frame_path],
                 output_path=infographic_image_path,
                 aspect_ratio="9:16",
                 resolution="1K",
-                max_style_references=max_refs,
+                max_style_references=1,
             )
             if not infographic_image:
                 raise Exception(
