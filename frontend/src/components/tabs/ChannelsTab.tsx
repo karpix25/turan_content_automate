@@ -243,7 +243,7 @@ export const ChannelsTab: React.FC = () => {
 
   return (
     <motion.div key="channels" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4 pb-20">
-      <div className="sticky top-[101px] z-30 -mx-4 px-4 py-2 bg-[#f1f2f6]/95 backdrop-blur flex items-center justify-between gap-2">
+      <div className="sticky top-[var(--app-sticky-top)] z-30 -mx-4 px-4 py-2 bg-[#f1f2f6]/95 backdrop-blur flex items-center justify-between gap-2">
         <button
           onClick={() => {
             refreshProjects().then(projectId => {

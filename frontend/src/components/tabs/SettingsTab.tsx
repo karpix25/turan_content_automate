@@ -647,7 +647,7 @@ export const SettingsTab: React.FC = () => {
 
   return (
     <motion.div key="style" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4 pb-20">
-      <div className="sticky top-[61px] z-30 -mx-4 px-4 py-2 bg-[#f1f2f6]/95 backdrop-blur flex justify-between items-center mb-2">
+      <div className="sticky top-[var(--app-sticky-top)] z-30 -mx-4 px-4 py-2 bg-[#f1f2f6]/95 backdrop-blur flex justify-between items-center mb-2">
         <div className="flex justify-between items-center bg-white p-3 rounded-2xl shadow-sm border border-slate-100 w-full">
         <div className="flex items-center gap-2 text-slate-700">
           <Settings size={20} className="text-[#24a1de]" />

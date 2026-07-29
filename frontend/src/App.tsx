@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { Rocket } from 'lucide-react';
 
@@ -21,6 +21,7 @@ const TAB_TITLES: Record<string, string> = {
 const App: React.FC = () => {
   const { telegramId, telegramIdInput, setTelegramIdInput, applyTelegramId } = useTelegram();
   const [activeTab, setActiveTab] = useState('queue');
+  const stickyHeaderRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const storedTab = window.localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
@@ -28,6 +29,18 @@ const App: React.FC = () => {
       setActiveTab(storedTab);
     }
   }, []);
+
+  useEffect(() => {
+    const node = stickyHeaderRef.current;
+    if (!node) return;
+    const updateStickyTop = () => {
+      document.documentElement.style.setProperty('--app-sticky-top', `${node.offsetHeight}px`);
+    };
+    updateStickyTop();
+    const observer = new ResizeObserver(updateStickyTop);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [telegramId]);
 
   if (!telegramId) {
     return (
@@ -68,35 +81,37 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#f1f2f6] text-slate-900 font-sans app-container max-w-2xl mx-auto relative shadow-2xl">
-      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-slate-100 px-4 py-2.5 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-gradient-to-br from-[#24a1de] to-sky-400 rounded-xl flex items-center justify-center shadow-md shadow-blue-500/20">
-            <Rocket size={18} className="text-white" />
+      <div ref={stickyHeaderRef} className="sticky top-0 z-50 app-sticky-shell">
+        <header className="bg-white/80 backdrop-blur-xl border-b border-slate-100 px-4 py-2.5 flex items-center justify-between gap-3 shadow-sm">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 bg-gradient-to-br from-[#24a1de] to-sky-400 rounded-xl flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
+              <Rocket size={18} className="text-white" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-[16px] font-bold tracking-tight text-slate-900 leading-none truncate">{TAB_TITLES[activeTab] || 'Content Studio'}</h1>
+              <p className="text-[10px] font-medium text-slate-500 mt-0.5 truncate">Content Studio</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-[16px] font-bold tracking-tight text-slate-900 leading-none">{TAB_TITLES[activeTab] || 'Content Studio'}</h1>
-            <p className="text-[10px] font-medium text-slate-500 mt-0.5">Content Studio</p>
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 rounded-lg">
+              <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></div>
+              <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Online</span>
+            </div>
+            <button
+              onClick={() => {
+                if (window.confirm('Выйти из аккаунта?')) {
+                  setTelegramIdInput('');
+                  applyTelegramId();
+                }
+              }}
+              className="text-[10px] font-bold text-slate-400 hover:text-rose-500 uppercase px-2 py-1.5 rounded-lg hover:bg-rose-50 transition-colors"
+            >
+              Выход
+            </button>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 rounded-lg">
-            <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></div>
-            <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Online</span>
-          </div>
-          <button 
-            onClick={() => {
-              if (window.confirm('Выйти из аккаунта?')) {
-                setTelegramIdInput('');
-                applyTelegramId();
-              }
-            }}
-            className="text-[10px] font-bold text-slate-400 hover:text-rose-500 uppercase px-2 py-1.5 rounded-lg hover:bg-rose-50 transition-colors"
-          >
-            Выход
-          </button>
-        </div>
-      </header>
-      <ProjectSwitcherBar />
+        </header>
+        <ProjectSwitcherBar />
+      </div>
 
       <main className="p-4">
         <AnimatePresence mode="wait">

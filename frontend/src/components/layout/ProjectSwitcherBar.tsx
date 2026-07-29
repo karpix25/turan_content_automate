@@ -13,7 +13,7 @@ export const ProjectSwitcherBar: React.FC = () => {
   } = usePostMyPostProject();
 
   return (
-    <div className="sticky top-[57px] z-40 bg-[#f1f2f6]/95 backdrop-blur border-b border-slate-200/70 px-4 py-1.5">
+    <div className="bg-[#f1f2f6]/95 backdrop-blur border-b border-slate-200/70 px-4 py-1.5">
       <div className="flex items-center gap-2">
         <span className="text-[10px] font-bold text-slate-400 uppercase shrink-0">Проект</span>
         <div className="relative min-w-0 flex-1">
@@ -21,7 +21,7 @@ export const ProjectSwitcherBar: React.FC = () => {
             value={selectedProjectId ?? ''}
             onChange={(event) => selectProject(Number(event.target.value))}
             disabled={loading || savingProject || projects.length === 0}
-            className="w-full h-8 appearance-none rounded-lg border border-slate-200 bg-white pl-2.5 pr-8 text-xs font-bold text-slate-800 outline-none disabled:opacity-60"
+            className="w-full h-8 appearance-none rounded-lg border border-slate-200 bg-white pl-2.5 pr-8 text-xs font-bold text-slate-800 outline-none disabled:opacity-60 truncate"
           >
             <option value="" disabled>
               {loading ? 'Загружаю...' : 'Выберите проект'}
