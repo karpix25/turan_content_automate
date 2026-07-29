@@ -56,8 +56,9 @@ def build_integrated_card_prompt(
         "Use the provided Instagram post only to understand the source topic, text, and meaning. "
         "Do not copy its people, face, presenter, pose, CTA, watermark, colors, or layout. "
         "Build a new clean Russian infographic card without any people, portraits, faces, hands, characters, mascots, or presenters. "
-        "Use a large readable content panel, bold Russian typography, bullet/list structure when useful, a short conclusion, subtle icons, and a compact CTA. "
-        "If user creative direction is provided, it controls background color, visual style, font weight, icons, and overall look.\n\n"
+        "Use bold Russian typography, up to 5 short bullet/list rows when useful, one short conclusion, subtle icons, and a compact CTA. "
+        "If user creative direction is provided, it controls background color, visual style, font weight, icons, and overall look, "
+        "but it must not change Instagram safe-zone margins or request text near screen edges.\n\n"
         f"{direction_block}"
         "Instagram Reels safe-zone is mandatory: keep every important word, headline, bullet, conclusion, CTA, icon, and panel "
         "inside a compact central safe area of the 1080x1920 canvas. Use strict margins: at least 150 px from the left edge, "
@@ -74,7 +75,10 @@ def build_integrated_card_prompt(
         "Exact CTA text to include as a natural lower CTA box inside the generated card:\n"
         f"{cta_block}\n\n"
         "Layout rules: no people, no faces, no hands, no characters, no red rectangles, no separate overlay plate, no app UI, no logos, no watermarks, no random extra CTA. "
-        "The card must look like a complete designed social post screenshot, with readable Russian text and enough spacing."
+        "The card must look like a complete designed social post screenshot, with readable Russian text and enough spacing.\n\n"
+        "FINAL NON-NEGOTIABLE SAFE-ZONE CHECK: before finalizing, shrink and move the whole readable design into the central safe area. "
+        "No readable text, CTA, icons, panels, borders, or decorative lines may touch or approach the top, bottom, left, or right screen edges. "
+        "Leave visibly empty background above the headline and below the CTA. If content does not fit, remove rows and shorten text; never expand toward the bottom edge."
     )
     return prompt
 
@@ -89,6 +93,7 @@ def _demo() -> None:
     assert "warm yellow/gold" not in prompt
     assert "Фон светло зеленый #ccff7b" in prompt
     assert "Do not copy its people, face" in prompt
+    assert "FINAL NON-NEGOTIABLE SAFE-ZONE CHECK" in prompt
 
 
 if __name__ == "__main__":
