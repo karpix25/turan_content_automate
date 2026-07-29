@@ -41,14 +41,24 @@ def build_integrated_card_prompt(
     user_direction: str | None,
 ) -> str:
     cta_block = cta_text or "У меня про тендеры и бизнес\nПОДПИШИСЬ ↓"
+    creative_direction = (user_direction or "").strip()
+    direction_block = (
+        "Mandatory user creative direction. Follow this unless it conflicts with readable Russian text, "
+        "the Instagram Reels safe-zone, the exact CTA/headline, or the no-people rule:\n"
+        f"{creative_direction[:1200]}\n\n"
+        if creative_direction
+        else "Default visual direction: clean light editorial infographic background, no gold/yellow template unless explicitly requested.\n\n"
+    )
     prompt = (
         "Create a final ready-to-publish vertical Instagram card image, 9:16. "
         "Do not create a background for later overlays. Do not add a red title plate. "
         "All text must be naturally designed inside the generated image itself.\n\n"
-        "Use the provided Instagram post as content/style reference. "
+        "Use the provided Instagram post only to understand the source topic, text, and meaning. "
+        "Do not copy its people, face, presenter, pose, CTA, watermark, colors, or layout. "
         "Build a new clean Russian infographic card without any people, portraits, faces, hands, characters, mascots, or presenters. "
-        "similar to the reference format: warm yellow/gold background, a large rounded off-white content panel, "
-        "bold black Russian typography, bullet/list structure when useful, a short conclusion, subtle icons, and a compact CTA.\n\n"
+        "Use a large readable content panel, bold Russian typography, bullet/list structure when useful, a short conclusion, subtle icons, and a compact CTA. "
+        "If user creative direction is provided, it controls background color, visual style, font weight, icons, and overall look.\n\n"
+        f"{direction_block}"
         "Instagram Reels safe-zone is mandatory: keep every important word, headline, bullet, conclusion, CTA, icon, and panel "
         "inside a compact central safe area of the 1080x1920 canvas. Use strict margins: at least 150 px from the left edge, "
         "at least 280 px from the top, at least 620 px from the bottom, and keep the right 250 px mostly free for Instagram UI icons. "
@@ -66,13 +76,23 @@ def build_integrated_card_prompt(
         "Layout rules: no people, no faces, no hands, no characters, no red rectangles, no separate overlay plate, no app UI, no logos, no watermarks, no random extra CTA. "
         "The card must look like a complete designed social post screenshot, with readable Russian text and enough spacing."
     )
-    if user_direction:
-        prompt += (
-            "\n\nMandatory user creative direction. Follow this unless it conflicts with readable Russian text, "
-            "the Instagram Reels safe-zone, the exact CTA/headline, or safety rules:\n"
-            f"{user_direction[:1200]}"
-        )
     return prompt
+
+
+def _demo() -> None:
+    prompt = build_integrated_card_prompt(
+        title="Тест",
+        description="Контекст",
+        cta_text="CTA",
+        user_direction="Фон светло зеленый #ccff7b",
+    )
+    assert "warm yellow/gold" not in prompt
+    assert "Фон светло зеленый #ccff7b" in prompt
+    assert "Do not copy its people, face" in prompt
+
+
+if __name__ == "__main__":
+    _demo()
 
 
 def render_static_card_video(
