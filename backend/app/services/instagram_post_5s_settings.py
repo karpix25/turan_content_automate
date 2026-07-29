@@ -82,6 +82,26 @@ def get_instagram_post_5s_project_settings(
     )
 
 
+def materialize_instagram_post_5s_project_settings(
+    db: Session,
+    *,
+    user: models.User,
+    project_id: int | None,
+) -> InstagramPost5sProjectSettings:
+    settings = get_instagram_post_5s_project_settings(db, user=user, project_id=project_id)
+    if project_id is None:
+        return settings
+    row = get_or_create_project_settings(db, user_id=user.id, project_id=int(project_id))
+    if getattr(row, "instagram_post_5s_cta_text", None) is None:
+        row.instagram_post_5s_cta_text = settings.cta_text or ""
+    if getattr(row, "instagram_post_5s_image_prompt", None) is None:
+        row.instagram_post_5s_image_prompt = settings.image_prompt or ""
+    return InstagramPost5sProjectSettings(
+        cta_text=normalize_cta_text(row.instagram_post_5s_cta_text),
+        image_prompt=normalize_image_prompt(row.instagram_post_5s_image_prompt),
+    )
+
+
 def set_instagram_post_5s_project_settings(
     db: Session,
     *,

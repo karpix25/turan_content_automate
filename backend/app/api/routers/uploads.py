@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from ... import models, schemas
 from ...core.config import celery_client
 from ...services.instagram_post_5s_settings import (
-    get_instagram_post_5s_project_settings,
+    materialize_instagram_post_5s_project_settings,
     set_instagram_post_5s_project_settings,
 )
 from ...telegram_progress import update_task_status_message
@@ -104,7 +104,9 @@ def _instagram_post_5s_settings_response(
         .order_by(models.InstagramPost5sAudioTrack.created_at.desc(), models.InstagramPost5sAudioTrack.id.desc())
         .all()
     )
-    project_settings = get_instagram_post_5s_project_settings(db, user=user, project_id=project_id)
+    project_settings = materialize_instagram_post_5s_project_settings(db, user=user, project_id=project_id)
+    if project_id is not None:
+        db.commit()
     return schemas.InstagramPost5sSettingsOut(
         audio_profile=user.instagram_post_5s_audio_profile,
         audio_status=user.instagram_post_5s_audio_status,
