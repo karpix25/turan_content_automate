@@ -4311,6 +4311,11 @@ def process_content_task(self, task_id: int):
                     "Не удалось сгенерировать картинку инфографики через KIE. "
                     f"{thumbnail_generator.get_last_error_message_ru()}"
                 )
+            send_thumbnail_to_telegram(
+                task,
+                infographic_image,
+                caption=f"🖼 Что получилось для 5 секунд.\n{build_task_context_text(task)}",
+            )
 
             audio_tracks = (
                 db.query(models.InstagramPost5sAudioTrack)
@@ -4493,6 +4498,11 @@ def process_content_task(self, task_id: int):
                         "Не удалось сгенерировать цельную карточку для формата 5 секунд через KIE. "
                         f"{kie_error_detail}"
                     )
+            send_thumbnail_to_telegram(
+                task,
+                generated_card_image,
+                caption=f"🖼 Что получилось для 5 секунд.\n{build_task_context_text(task)}",
+            )
 
             audio_tracks = (
                 db.query(models.InstagramPost5sAudioTrack)
