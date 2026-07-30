@@ -44,10 +44,21 @@ def build_project_choice_keyboard(projects: list[dict], token: str, selected_pro
         if project_id is None:
             continue
         name = str(project.get("name") or f"Project {project_id}").strip()
+        display_name = {
+            353698: "Кларкк Логистика 🚚",
+            266646: "TURAN TENDER 💰",
+        }.get(
+            int(project_id),
+            {
+                "Clark Logistics": "Кларкк Логистика 🚚",
+                "CLARK LOGISTICS": "Кларкк Логистика 🚚",
+                "TURAN TENDER": "TURAN TENDER 💰",
+            }.get(name, name),
+        )
         prefix = "✅ " if selected_project_id is not None and int(project_id) == int(selected_project_id) else ""
         rows.append([
             {
-                "text": f"{prefix}{name[:44]}",
+                "text": f"{prefix}{display_name[:44]}",
                 "callback_data": f"pmp:{token}:{int(project_id)}",
                 "style": "primary",
             }

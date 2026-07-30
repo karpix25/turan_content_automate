@@ -474,7 +474,7 @@ async def handle_link(message: types.Message):
             "inline_keyboard": [
                 [
                     {
-                        "text": "🎬 Отправить в VIZARD",
+                        "text": "🎬 Нарезка в VIZARD",
                         "callback_data": f"vizard:yt:{video_id}",
                         "style": "primary"
                     }
@@ -488,7 +488,7 @@ async def handle_link(message: types.Message):
                 ],
                 [
                     {
-                        "text": "📌 Золотой фон (5 сек.)",
+                        "text": "📌 5 сек. видео",
                         "callback_data": f"info:yt:{video_id}",
                         "style": "primary"
                     }
@@ -516,7 +516,7 @@ async def handle_link(message: types.Message):
                     ],
                     [
                         {
-                            "text": "📌 Золотой фон (5 сек.)",
+                            "text": "📌 5 сек. видео",
                             "callback_data": f"info:shorts:{video_id}",
                             "style": "primary",
                         }
@@ -552,7 +552,7 @@ async def handle_link(message: types.Message):
                     ],
                     [
                         {
-                            "text": "📌 Золотой фон (5 сек.)",
+                            "text": "📌 5 сек. видео",
                             "callback_data": f"info:igp:{instagram_shortcode_value}",
                             "style": "primary",
                         }
@@ -592,7 +592,7 @@ async def handle_link(message: types.Message):
                 ],
                 [
                     {
-                        "text": "📌 Золотой фон (5 сек.)",
+                        "text": "📌 5 сек. видео",
                         "callback_data": f"info:ig:{instagram_shortcode_value}",
                         "style": "primary",
                     }
