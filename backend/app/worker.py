@@ -4277,7 +4277,7 @@ def process_content_task(self, task_id: int):
             infographic_project_settings = get_instagram_post_5s_project_settings(
                 db,
                 user=user,
-                project_id=postmypost_project_id,
+                project_id=getattr(task, "postmypost_project_id", None),
             )
             infographic_cta_text = normalize_multiline_text(
                 infographic_project_settings.cta_text,
