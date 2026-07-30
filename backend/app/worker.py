@@ -4369,8 +4369,8 @@ def process_content_task(self, task_id: int):
                 "selected_audio_track_id": selected_audio_track.id if selected_audio_track else None,
                 "selected_audio_path": selected_audio_path,
                 "render": infographic_render_meta,
-                "used_reference_count": len(reference_paths[:max_refs]),
-                "face_path": active_infographic_face_path,
+                "used_reference_count": 1,
+                "face_path": None,
             }
             task.script_meta = current_meta
             db.commit()
@@ -4651,6 +4651,17 @@ def process_content_task(self, task_id: int):
                 if source_title and not task.source_title:
                     task.source_title = str(source_title).strip()
                     db.commit()
+                if not transcript and deepgram_client.is_configured:
+                    logging.warning(
+                        "Task %s: YouTube transcript endpoint returned empty; falling back to Deepgram.",
+                        task_id,
+                    )
+                    update_task_status_message(db, task, stage="Сценарий", detail="Транскрибирую аудио YouTube через Deepgram.")
+                    youtube_details = youtube_downloader.get_youtube_details(source_url)
+                    download_url = _normalize_external_url(((youtube_details or {}).get("download_url") or "").strip())
+                    local_youtube_source = downloader.download_video(download_url, f"youtube_avatar_source_{task_id}") if download_url else None
+                    if local_youtube_source:
+                        transcript = (deepgram_client.transcribe_media_text(local_youtube_source) or "").strip()
                 
                 if not transcript:
                     raise Exception("Failed to retrieve transcript for Avatar task")
