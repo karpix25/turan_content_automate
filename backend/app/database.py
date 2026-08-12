@@ -319,6 +319,26 @@ def _init_database_unlocked() -> None:
                     ")"
                 )
             )
+        if not table_exists("broll_assets"):
+            conn.execute(
+                text(
+                    "CREATE TABLE broll_assets ("
+                    "id SERIAL PRIMARY KEY, "
+                    "user_id INTEGER NOT NULL REFERENCES users(id), "
+                    "postmypost_project_id INTEGER NOT NULL, "
+                    "file_path TEXT NOT NULL, "
+                    "original_filename TEXT NOT NULL, "
+                    "is_active BOOLEAN NOT NULL DEFAULT TRUE, "
+                    "created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()"
+                    ")"
+                )
+            )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_broll_assets_user_project "
+                "ON broll_assets(user_id, postmypost_project_id)"
+            )
+        )
         if not table_exists("instagram_post_5s_audio_tracks"):
             conn.execute(
                 text(

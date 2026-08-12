@@ -60,6 +60,8 @@ from .services.video_uniqueization import (
     resolve_output_uniqueization_mode,
     uniqueization_variations_enabled,
 )
+from .services.broll_pipeline import apply_project_broll
+from .services.subtitle_generator import build_ass, write_ass_file
 from .utils.youtube_utils import (
     _validate_youtube_url_or_raise,
     _extract_youtube_video_id,
@@ -5351,7 +5353,7 @@ def process_content_task(self, task_id: int):
                     ratio_of_clip=1,
                     get_clips=1,
                     highlight_switch=0,
-                    subtitle_switch=1,
+                    subtitle_switch=0,
                     auto_broll_switch=0,
                     headline_switch=0,
                     remove_silence_switch=1,
@@ -5390,8 +5392,7 @@ def process_content_task(self, task_id: int):
         if not process_all_clips and len(input_videos) > 1:
             logging.info(f"Task {task_id}: got {len(input_videos)} source clips, processing first clip only")
 
-        subtitles_enabled = False
-        ass_path = None
+        subtitles_enabled = bool(task.vizard_project_id and getattr(user, "subtitles_enabled", True))
         postmypost_project_id = getattr(task, "postmypost_project_id", None) or getattr(
             user,
             "postmypost_project_id",
@@ -5627,6 +5628,32 @@ def process_content_task(self, task_id: int):
         for clip_index, video_path, clip_title, clip_context in source_items:
             if not video_path:
                 raise Exception("Downloaded video path is empty")
+            if task.vizard_project_id:
+                video_root, _ = os.path.splitext(video_path)
+                broll_output = f"{video_root}_broll.mp4"
+                broll_seed = build_unique_seed(
+                    project_id=postmypost_project_id,
+                    clip_index=clip_index,
+                    account_id=None,
+                    slot_index=0,
+                )
+                video_path, broll_meta = apply_project_broll(
+                    db,
+                    user_id=user.id,
+                    project_id=postmypost_project_id,
+                    input_path=video_path,
+                    output_path=broll_output,
+                    seed=broll_seed,
+                    timeout_seconds=900,
+                )
+                current_meta = dict(task.script_meta or {})
+                broll_reports = list(current_meta.get("broll_reports") or [])
+                broll_reports.append({"clip_index": clip_index, **broll_meta})
+                current_meta["broll_reports"] = broll_reports
+                task.script_meta = current_meta
+                db.commit()
+            subtitle_source_path = video_path
+            clip_ass_path = None
             needs_youtube_title = (
                 task.type == "youtube"
                 or any(
@@ -5640,6 +5667,7 @@ def process_content_task(self, task_id: int):
                 else None
             )
             should_apply_vertical_cover = bool(task.vizard_project_id) or task.type in {"instagram", "youtube"}
+            vertical_meta: dict = {}
             if should_apply_vertical_cover:
                 vertical_context = (
                     task.script_text
@@ -5656,6 +5684,31 @@ def process_content_task(self, task_id: int):
                     clip_index=clip_index,
                 )
                 vertical_thumbnail_intro_meta.append({"clip_index": clip_index, **vertical_meta})
+
+            if subtitles_enabled:
+                if not deepgram_client.is_configured:
+                    raise Exception("DEEPGRAM_API_KEY is required to generate Vizard subtitles")
+                update_task_status_message(
+                    db,
+                    task,
+                    stage="Субтитры",
+                    detail=f"Транскрибирую клип Vizard {clip_index}.",
+                )
+                transcript_payload = deepgram_client.transcribe_media(subtitle_source_path) or {}
+                ass_content = build_ass(
+                    transcript_payload,
+                    font_name=getattr(user, "font_name", "Montserrat"),
+                    font_size=getattr(user, "font_size", 60),
+                    font_color=getattr(user, "font_color", "FFFFFF"),
+                    start_offset=float((vertical_meta or {}).get("intro_duration_seconds") or 0.0),
+                )
+                if not ass_content:
+                    raise Exception(f"Не удалось получить тайминги субтитров для Vizard-клипа {clip_index}")
+                clip_ass_path = write_ass_file(
+                    ass_content,
+                    directory=os.path.dirname(video_path) or os.getenv("OUTPUT_DIR", "./output"),
+                    prefix=f"vizard_{task.id}_{clip_index}",
+                )
 
             video_root, _ = os.path.splitext(video_path)
             clip_used_ending_ids_by_platform: dict[str, set[int]] = {}
@@ -5810,7 +5863,7 @@ def process_content_task(self, task_id: int):
                         output_path=account_output,
                         plate_path=plate_path,
                         plate_start_percent=plate_start_percent,
-                        ass_path=ass_path,
+                        ass_path=clip_ass_path,
                         cta_path=ending_path,
                         subtitles_enabled=subtitles_enabled,
                         unique_seed=unique_seed,
@@ -5926,7 +5979,7 @@ def process_content_task(self, task_id: int):
                     output_path=base_output,
                     plate_path=plate_path,
                     plate_start_percent=plate_start_percent,
-                    ass_path=ass_path,
+                    ass_path=clip_ass_path,
                     cta_path=None,
                     subtitles_enabled=subtitles_enabled,
                     unique_seed=unique_seed,

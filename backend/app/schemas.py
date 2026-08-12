@@ -139,6 +139,18 @@ class PlateAssetOut(BaseModel):
     class Config:
         from_attributes = True
 
+
+class BrollAssetOut(BaseModel):
+    id: int
+    postmypost_project_id: int
+    file_path: str
+    original_filename: str
+    is_active: bool = True
+    created_at: datetime.datetime
+
+    class Config:
+        from_attributes = True
+
 class PostMyPostAccountOut(BaseModel):
     account_id: int
     account_name: str

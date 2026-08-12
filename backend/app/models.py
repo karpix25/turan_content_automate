@@ -70,6 +70,18 @@ class Plate(Base):
     file_path = Column(String)
     is_active = Column(Boolean, default=True)
 
+
+class BrollAsset(Base):
+    __tablename__ = "broll_assets"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    postmypost_project_id = Column(Integer, index=True, nullable=False)
+    file_path = Column(String, nullable=False)
+    original_filename = Column(String, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
 class CTAClip(Base):
     __tablename__ = "cta_clips"
     id = Column(Integer, primary_key=True)

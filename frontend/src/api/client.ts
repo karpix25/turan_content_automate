@@ -5,6 +5,7 @@ import {
   PublishAccount,
   PostMyPostProjectsResponse,
   PlateAsset,
+  BrollAsset,
   EndingClip,
   UniqueizationMode,
   ThumbnailReference,
@@ -173,6 +174,25 @@ export const apiClient = {
         ...(projectId ? { project_id: projectId } : {}),
         ...(accountId ? { account_id: accountId } : {}),
       },
+    });
+    return res.data;
+  },
+  getBrollAssets: async (telegramId: string, projectId: number) => {
+    const res = await axios.get<BrollAsset[]>(`${API_BASE}/broll/${telegramId}`, {
+      params: { project_id: projectId },
+    });
+    return res.data;
+  },
+  uploadBroll: async (telegramId: string, files: File[], projectId: number) => {
+    const formData = new FormData();
+    formData.append('project_id', projectId.toString());
+    files.forEach(file => formData.append('files', file));
+    const res = await axios.post<BrollAsset[]>(`${API_BASE}/upload/broll/${telegramId}`, formData);
+    return res.data;
+  },
+  deleteBroll: async (telegramId: string, assetId: number, projectId: number) => {
+    const res = await axios.delete(`${API_BASE}/broll/${telegramId}/${assetId}`, {
+      params: { project_id: projectId },
     });
     return res.data;
   },

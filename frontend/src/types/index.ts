@@ -71,6 +71,15 @@ export type PlateAsset = {
   media_type?: 'image' | 'video';
 };
 
+export type BrollAsset = {
+  id: number;
+  postmypost_project_id: number;
+  file_path: string;
+  original_filename: string;
+  is_active: boolean;
+  created_at: string;
+};
+
 export type UniqueizationMode = 'auto' | 'light' | 'standard' | 'aggressive' | 'off';
 
 export type PublishAccount = {

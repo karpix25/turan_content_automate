@@ -7,6 +7,7 @@ import { usePostMyPostProject } from '../../context/PostMyPostProjectContext';
 import { useTelegram } from '../../context/TelegramContext';
 import { EndingClip, PublishAccount } from '../../types';
 import { ChannelAccountCard } from './channels/ChannelAccountCard';
+import { ProjectBrollLibrary } from './broll/ProjectBrollLibrary';
 
 export const ChannelsTab: React.FC = () => {
   const { telegramId } = useTelegram();
@@ -276,6 +277,8 @@ export const ChannelsTab: React.FC = () => {
           {channelsError}
         </div>
       )}
+
+      <ProjectBrollLibrary telegramId={telegramId} projectId={selectedProjectId} />
 
       {channelsLoading && publishAccounts.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-10 gap-3 text-slate-400">
