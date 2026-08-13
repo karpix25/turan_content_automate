@@ -24,6 +24,47 @@ def _escape_text(value: object) -> str:
     return text.replace("{", "\\{").replace("}", "\\}").replace("\n", "\\N")
 
 
+def _word_timings(utterance: dict[str, Any]) -> list[tuple[str, float, float]]:
+    try:
+        start = float(utterance.get("start", 0.0))
+        end = float(utterance.get("end", start))
+    except (TypeError, ValueError):
+        return []
+    if end <= start:
+        return []
+
+    words = utterance.get("words") or []
+    timed_words: list[tuple[str, float, float]] = []
+    for word in words:
+        text = word.get("punctuated_word") or word.get("word") or word.get("text")
+        if not text:
+            continue
+        try:
+            word_start = float(word.get("start", start))
+            word_end = float(word.get("end", word_start))
+        except (TypeError, ValueError):
+            continue
+        if word_end > word_start:
+            timed_words.append((str(text), word_start, word_end))
+    if timed_words:
+        return timed_words
+
+    fallback_words = re.findall(r"\S+", str(utterance.get("transcript") or ""))
+    if not fallback_words:
+        return []
+    total_weight = sum(max(1, len(word)) for word in fallback_words)
+    cursor = start
+    result: list[tuple[str, float, float]] = []
+    for index, word in enumerate(fallback_words):
+        if index == len(fallback_words) - 1:
+            word_end = end
+        else:
+            word_end = cursor + (end - start) * max(1, len(word)) / total_weight
+        result.append((word, cursor, word_end))
+        cursor = word_end
+    return result
+
+
 def build_ass(
     transcript_payload: dict[str, Any],
     *,
@@ -37,19 +78,10 @@ def build_ass(
     utterances = ((transcript_payload or {}).get("results") or {}).get("utterances") or []
     events: list[str] = []
     for utterance in utterances:
-        text = _escape_text(utterance.get("transcript"))
-        if not text:
-            continue
-        try:
-            start = float(utterance.get("start", 0.0))
-            end = float(utterance.get("end", start))
-        except (TypeError, ValueError):
-            continue
-        if end <= start:
-            continue
-        events.append(
-            f"Dialogue: 0,{_ass_time(start + start_offset)},{_ass_time(end + start_offset)},Default,,0,0,0,,{text}"
-        )
+        for word, start, end in _word_timings(utterance):
+            events.append(
+                f"Dialogue: 0,{_ass_time(start + start_offset)},{_ass_time(end + start_offset)},Default,,0,0,0,,{_escape_text(word)}"
+            )
     if not events:
         return None
 
@@ -65,7 +97,7 @@ def build_ass(
             "",
             "[V4+ Styles]",
             "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-            f"Style: Default,{safe_font},{safe_size},{_ass_color(font_color)},&H00000000,&H80000000,&H80000000,0,0,0,0,100,100,0,0,1,3,1,2,60,60,100,1",
+            f"Style: Default,{safe_font},{safe_size},{_ass_color(font_color)},&H00000000,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,4,0,2,60,60,100,1",
             "",
             "[Events]",
             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",

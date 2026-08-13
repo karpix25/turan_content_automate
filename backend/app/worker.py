@@ -5699,7 +5699,7 @@ def process_content_task(self, task_id: int):
                     transcript_payload,
                     font_name=getattr(user, "font_name", "Montserrat"),
                     font_size=getattr(user, "font_size", 60),
-                    font_color=getattr(user, "font_color", "FFFFFF"),
+                    font_color="FFFFFF",
                     start_offset=float((vertical_meta or {}).get("intro_duration_seconds") or 0.0),
                 )
                 if not ass_content:
