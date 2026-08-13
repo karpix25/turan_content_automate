@@ -5628,31 +5628,8 @@ def process_content_task(self, task_id: int):
         for clip_index, video_path, clip_title, clip_context in source_items:
             if not video_path:
                 raise Exception("Downloaded video path is empty")
-            if task.vizard_project_id:
-                video_root, _ = os.path.splitext(video_path)
-                broll_output = f"{video_root}_broll.mp4"
-                broll_seed = build_unique_seed(
-                    project_id=postmypost_project_id,
-                    clip_index=clip_index,
-                    account_id=None,
-                    slot_index=0,
-                )
-                video_path, broll_meta = apply_project_broll(
-                    db,
-                    user_id=user.id,
-                    project_id=postmypost_project_id,
-                    input_path=video_path,
-                    output_path=broll_output,
-                    seed=broll_seed,
-                    timeout_seconds=900,
-                )
-                current_meta = dict(task.script_meta or {})
-                broll_reports = list(current_meta.get("broll_reports") or [])
-                broll_reports.append({"clip_index": clip_index, **broll_meta})
-                current_meta["broll_reports"] = broll_reports
-                task.script_meta = current_meta
-                db.commit()
-            subtitle_source_path = video_path
+            source_video_path = video_path
+            subtitle_source_path = source_video_path
             clip_ass_path = None
             needs_youtube_title = (
                 task.type == "youtube"
@@ -5678,7 +5655,7 @@ def process_content_task(self, task_id: int):
                     or ""
                 )
                 video_path, vertical_meta = _apply_vertical_thumbnail_intro(
-                    source_video_path=video_path,
+                    source_video_path=source_video_path,
                     clip_title=clip_title,
                     context_text=vertical_context,
                     clip_index=clip_index,
@@ -5700,7 +5677,11 @@ def process_content_task(self, task_id: int):
                     font_name=getattr(user, "font_name", "Montserrat"),
                     font_size=getattr(user, "font_size", 60),
                     font_color="FFFFFF",
-                    start_offset=float((vertical_meta or {}).get("intro_duration_seconds") or 0.0),
+                    start_offset=(
+                        float((vertical_meta or {}).get("intro_duration_seconds") or 0.0)
+                        if (vertical_meta or {}).get("status") == "applied"
+                        else 0.0
+                    ),
                 )
                 if not ass_content:
                     raise Exception(f"Не удалось получить тайминги субтитров для Vizard-клипа {clip_index}")
@@ -5710,13 +5691,57 @@ def process_content_task(self, task_id: int):
                     prefix=f"vizard_{task.id}_{clip_index}",
                 )
 
-            video_root, _ = os.path.splitext(video_path)
+            broll_reports = list((task.script_meta or {}).get("broll_reports") or [])
+
+            def _prepare_render_variant(account_id: int | None, slot_index: int) -> tuple[str, dict]:
+                variant_path = source_video_path
+                broll_meta: dict = {"status": "skipped", "reason": "not_vizard"}
+                account_token = f"a{account_id}" if account_id is not None else "base"
+                if task.vizard_project_id:
+                    source_root, _ = os.path.splitext(source_video_path)
+                    broll_output = f"{source_root}_broll_{account_token}_s{slot_index}.mp4"
+                    broll_seed = build_unique_seed(
+                        project_id=postmypost_project_id,
+                        clip_index=clip_index,
+                        account_id=account_id,
+                        slot_index=slot_index,
+                    )
+                    variant_path, broll_meta = apply_project_broll(
+                        db,
+                        user_id=user.id,
+                        project_id=postmypost_project_id,
+                        input_path=source_video_path,
+                        output_path=broll_output,
+                        seed=broll_seed,
+                        timeout_seconds=900,
+                    )
+                    broll_reports.append({
+                        "clip_index": clip_index,
+                        "account_id": account_id,
+                        "slot_index": slot_index,
+                        **broll_meta,
+                    })
+
+                if (vertical_meta or {}).get("status") == "applied" and (vertical_meta or {}).get("image_path"):
+                    variant_root, _ = os.path.splitext(variant_path)
+                    intro_output = f"{variant_root}_intro.mp4"
+                    intro_video, _intro_meta = processor.prepend_image_intro(
+                        input_path=variant_path,
+                        image_path=vertical_meta["image_path"],
+                        output_path=intro_output,
+                        duration_seconds=float(vertical_meta.get("intro_duration_seconds") or 0.1),
+                    )
+                    if intro_video:
+                        variant_path = intro_video
+                return variant_path, broll_meta
+
             clip_used_ending_ids_by_platform: dict[str, set[int]] = {}
 
             if target_account_ids:
                 for account_id in target_account_ids:
                     slot_idx = account_variant_index.get(account_id, 1)
                     platform_code = account_platform_map.get(account_id, "universal")
+                    account_video_path, _account_broll_meta = _prepare_render_variant(account_id, slot_idx)
                     unique_seed, uniqueization_mode, uniqueization_meta = _build_uniqueization_context(
                         account_id=account_id,
                         clip_index=clip_index,
@@ -5728,7 +5753,8 @@ def process_content_task(self, task_id: int):
                         if _normalize_platform_code(platform_code) == "youtube" or task.type == "youtube"
                         else clip_title
                     )
-                    account_output = f"{video_root}_final_s{slot_idx}_a{account_id}.mp4"
+                    account_video_root, _ = os.path.splitext(account_video_path)
+                    account_output = f"{account_video_root}_final_s{slot_idx}_a{account_id}.mp4"
 
                     if task.type in READY_TO_PUBLISH_VIDEO_TASK_TYPES:
                         logging.info(
@@ -5741,7 +5767,7 @@ def process_content_task(self, task_id: int):
                         )
                         if should_uniqueize_output:
                             processor.process_video(
-                                input_path=video_path,
+                                input_path=account_video_path,
                                 output_path=account_output,
                                 subtitles_enabled=False,
                                 unique_seed=unique_seed,
@@ -5749,7 +5775,7 @@ def process_content_task(self, task_id: int):
                                 force_unique_variations=True,
                             )
                         else:
-                            shutil.copy2(video_path, account_output)
+                            shutil.copy2(account_video_path, account_output)
                         publish_at = publish_times[publish_index] if len(publish_times) > publish_index else None
                         publish_index += 1
                         rendered_output = {
@@ -5782,7 +5808,7 @@ def process_content_task(self, task_id: int):
                         )
                         if should_uniqueize_output:
                             processor.process_video(
-                                input_path=video_path,
+                                input_path=account_video_path,
                                 output_path=account_output,
                                 subtitles_enabled=False,
                                 unique_seed=unique_seed,
@@ -5790,7 +5816,7 @@ def process_content_task(self, task_id: int):
                                 force_unique_variations=True,
                             )
                         else:
-                            shutil.copy2(video_path, account_output)
+                            shutil.copy2(account_video_path, account_output)
                         publish_at = publish_times[publish_index] if len(publish_times) > publish_index else None
                         publish_index += 1
                         rendered_output = {
@@ -5859,7 +5885,7 @@ def process_content_task(self, task_id: int):
                             platform_code,
                         )
                     processor.process_video(
-                        input_path=video_path,
+                        input_path=account_video_path,
                         output_path=account_output,
                         plate_path=plate_path,
                         plate_start_percent=plate_start_percent,
@@ -5890,6 +5916,8 @@ def process_content_task(self, task_id: int):
                     rendered_outputs.append(rendered_output)
                     _sync_rendered_output_now(rendered_output)
             else:
+                base_video_path, _base_broll_meta = _prepare_render_variant(None, 1)
+                video_root, _ = os.path.splitext(base_video_path)
                 base_output = f"{video_root}_final.mp4"
                 unique_seed, uniqueization_mode, uniqueization_meta = _build_uniqueization_context(
                     account_id=None,
@@ -5900,7 +5928,7 @@ def process_content_task(self, task_id: int):
                 if task.type in READY_TO_PUBLISH_VIDEO_TASK_TYPES:
                     if should_uniqueize_output:
                         processor.process_video(
-                            input_path=video_path,
+                            input_path=base_video_path,
                             output_path=base_output,
                             subtitles_enabled=False,
                             unique_seed=unique_seed,
@@ -5908,7 +5936,7 @@ def process_content_task(self, task_id: int):
                             force_unique_variations=True,
                         )
                     else:
-                        shutil.copy2(video_path, base_output)
+                        shutil.copy2(base_video_path, base_output)
                     publish_at = publish_times[publish_index] if len(publish_times) > publish_index else None
                     publish_index += 1
                     rendered_outputs.append(
@@ -5929,7 +5957,7 @@ def process_content_task(self, task_id: int):
                 if task.type in AVATAR_TASK_TYPES:
                     if should_uniqueize_output:
                         processor.process_video(
-                            input_path=video_path,
+                            input_path=base_video_path,
                             output_path=base_output,
                             subtitles_enabled=False,
                             unique_seed=unique_seed,
@@ -5937,7 +5965,7 @@ def process_content_task(self, task_id: int):
                             force_unique_variations=True,
                         )
                     else:
-                        shutil.copy2(video_path, base_output)
+                        shutil.copy2(base_video_path, base_output)
                     rendered_outputs.append(
                         {
                             "output_path": base_output,
@@ -5975,7 +6003,7 @@ def process_content_task(self, task_id: int):
                         task_id,
                     )
                 processor.process_video(
-                    input_path=video_path,
+                    input_path=base_video_path,
                     output_path=base_output,
                     plate_path=plate_path,
                     plate_start_percent=plate_start_percent,
@@ -5986,6 +6014,7 @@ def process_content_task(self, task_id: int):
                     uniqueization_mode=uniqueization_mode,
                     force_unique_variations=should_uniqueize_output,
                 )
+
                 publish_at = publish_times[publish_index] if len(publish_times) > publish_index else None
                 publish_index += 1
                 rendered_outputs.append(
@@ -6002,6 +6031,11 @@ def process_content_task(self, task_id: int):
                         "uniqueization": uniqueization_meta,
                     }
                 )
+
+            task.script_meta = {
+                **dict(task.script_meta or {}),
+                "broll_reports": broll_reports,
+            }
 
         if not rendered_outputs:
             raise Exception("No rendered outputs were produced")

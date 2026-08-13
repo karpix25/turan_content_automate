@@ -86,7 +86,8 @@ def build_ass(
         return None
 
     safe_font = (font_name or "Montserrat").replace(",", " ").strip() or "Montserrat"
-    safe_size = max(10, int(font_size or 60))
+    safe_size = max(72, round(max(10, int(font_size or 60)) * 1.25))
+    margin_v = max(1, round(int(play_res_y) * 0.35))
     return "\n".join(
         [
             "[Script Info]",
@@ -97,7 +98,7 @@ def build_ass(
             "",
             "[V4+ Styles]",
             "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-            f"Style: Default,{safe_font},{safe_size},{_ass_color(font_color)},&H00000000,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,4,0,2,60,60,100,1",
+            f"Style: Default,{safe_font},{safe_size},{_ass_color(font_color)},&H00000000,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,4,0,2,60,60,{margin_v},1",
             "",
             "[Events]",
             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",

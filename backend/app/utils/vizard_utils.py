@@ -92,6 +92,7 @@ def _vizard_message(data: dict | None) -> str:
 def _download_vizard_project_clips(db, task: models.VideoTask, source_url: str, **create_kwargs) -> List[tuple[str, str | None]]:
     from ..worker import vizard, downloader
     logging.info(f"Task {task.id}: Processing vizard/youtube source: '{source_url}'")
+    create_kwargs.setdefault("subtitle_switch", 0)
     update_task_status_message(
         db,
         task,

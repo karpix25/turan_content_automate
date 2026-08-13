@@ -25,7 +25,9 @@ class SubtitleGeneratorTests(unittest.TestCase):
         self.assertIn("Dialogue: 0,0:00:04.25,0:00:04.80,Default,,0,0,0,,Привет", content)
         self.assertIn("Dialogue: 0,0:00:04.90,0:00:05.50,Default,,0,0,0,,мир", content)
         self.assertNotIn("Привет мир", content)
-        self.assertIn("Style: Default,Montserrat,60,&H00FFFFFF,&H00000000,&H00000000,&H00000000", content)
+        self.assertIn("Style: Default,Montserrat,75,&H00FFFFFF,&H00000000,&H00000000,&H00000000", content)
+        self.assertIn(",&H00000000,1,0,0,0,100,100", content)
+        self.assertIn(",2,60,60,672,1", content)
 
     def test_build_ass_falls_back_to_word_slices_without_deepgram_words(self):
         content = build_ass(
