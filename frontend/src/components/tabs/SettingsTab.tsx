@@ -6,6 +6,7 @@ import { usePostMyPostProject } from '../../context/PostMyPostProjectContext';
 import { useTelegram } from '../../context/TelegramContext';
 import { ThumbnailReference, ThumbnailFaceReference, AvatarInsertClip, InstagramPost5sSettings } from '../../types';
 import { AvatarOverlayPositionControl } from '../ui/AvatarOverlayPositionControl';
+import { ProjectBrollLibrary } from './broll/ProjectBrollLibrary';
 
 type VoiceSpeed = {
   chars_per_second?: number;
@@ -705,6 +706,8 @@ export const SettingsTab: React.FC = () => {
         className="hidden"
         onChange={handleFiveSecondOverlayUpload}
       />
+
+      <ProjectBrollLibrary telegramId={telegramId} projectId={selectedProjectId} />
 
       <details open className="tg-card p-4 settings-section">
         <summary className="list-none">
