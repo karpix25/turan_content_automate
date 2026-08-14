@@ -39,6 +39,7 @@ AVATAR_TASK_TYPES = {
     "avatar_instagram",
     "avatar_instagram_post_5s",
     "avatar_shorts",
+    "avatar_tiktok",
 }
 INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES = {"avatar_instagram_post_5s"}
 INFOGRAPHIC_REELS_TASK_TYPES = {"infographic_reels"}

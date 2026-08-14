@@ -6,6 +6,7 @@ FORMAT_LABELS = {
     "avatar_instagram": "ИИ-аватар Reels",
     "avatar_instagram_post_5s": "5 секунд",
     "avatar_shorts": "ИИ-аватар Shorts",
+    "avatar_tiktok": "ИИ-аватар TikTok",
     "infographic_reels": "Инфографика 5 секунд",
     "local_upload": "Локальное видео",
     "vizard": "Vizard",
@@ -14,6 +15,7 @@ FORMAT_LABELS = {
 EXTERNAL_VIDEO_LABELS = {
     "instagram": "Чужое видео + плашка (Instagram)",
     "youtube": "Чужое видео + плашка (YouTube)",
+    "tiktok": "Чужое видео + плашка (TikTok)",
 }
 
 

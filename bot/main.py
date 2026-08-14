@@ -4,6 +4,7 @@ import re
 import httpx
 import json
 import time
+import uuid
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
@@ -28,7 +29,8 @@ bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 PENDING_THUMBNAIL_PROMPT_EDITS: dict[str, int] = {}
 
-SUPPORTED_URL_RE = re.compile(r"(https?://[^\s]+|(?:www\.)?(?:youtube\.com|youtu\.be|instagram\.com|vizard\.ai)/[^\s]+)", re.IGNORECASE)
+SUPPORTED_URL_RE = re.compile(r"(https?://[^\s]+|(?:www\.)?(?:youtube\.com|youtu\.be|instagram\.com|tiktok\.com|vm\.tiktok\.com|vizard\.ai)/[^\s]+)", re.IGNORECASE)
+PENDING_SOURCE_CHOICES: dict[str, dict[str, object]] = {}
 
 
 def strip_keyboard_styles(markup):
@@ -66,6 +68,22 @@ async def remove_inline_keyboard(message: types.Message | None) -> None:
         )
     except Exception:
         pass
+
+
+def remember_source_choice(url: str) -> str:
+    now = time.time()
+    for token, pending in list(PENDING_SOURCE_CHOICES.items()):
+        if now - float(pending.get("created_at", 0)) > 1800:
+            PENDING_SOURCE_CHOICES.pop(token, None)
+    token = uuid.uuid4().hex[:10]
+    PENDING_SOURCE_CHOICES[token] = {"url": url, "created_at": now}
+    return token
+
+
+def pop_source_choice(token: str) -> str | None:
+    pending = PENDING_SOURCE_CHOICES.pop(token, None)
+    url = pending.get("url") if pending else None
+    return str(url) if isinstance(url, str) else None
 
 def extract_vizard_project_id(url: str) -> str | None:
     raw = (url or "").strip()
@@ -159,6 +177,8 @@ def detect_task_type(url: str) -> str:
     task_type = "youtube"
     if "instagram.com" in url:
         return "instagram"
+    if "tiktok.com" in url:
+        return "tiktok"
     if "youtube.com" in url or "youtu.be" in url:
         return "youtube"
     if "vizard.ai" in url or (url.isdigit() and len(url) > 5):
@@ -395,7 +415,7 @@ async def send_welcome(message: types.Message):
     await message.reply(
         "Welcome to the Content Processor Bot!\n\n"
         "1. Open Settings to upload your logo and choose subtitle styles.\n"
-        "2. Send me a link to a YouTube video or Instagram Reel.\n"
+        "2. Send me a link to a YouTube video, Instagram Reel, or TikTok.\n"
         "   Or send HeyGen video id: heygen:<video_id> | <тема ролика>.\n"
         "3. I will process it and send you the result!",
         reply_markup=kb
@@ -448,7 +468,7 @@ async def handle_heygen_video_id(message: types.Message):
         reply_message_id=message.message_id,
     )
 
-@dp.message_handler(regexp=r'(https?://)?(www\.)?(youtube\.com|youtu\.be|instagram\.com|vizard\.ai)/.+')
+@dp.message_handler(regexp=r'(https?://)?(www\.)?(youtube\.com|youtu\.be|instagram\.com|tiktok\.com|vm\.tiktok\.com|vizard\.ai)/.+')
 async def handle_link(message: types.Message):
     raw_text = message.text or ""
     task_type = detect_task_type(raw_text)
@@ -609,6 +629,23 @@ async def handle_link(message: types.Message):
         await reply_with_keyboard(
             message,
             "🎞️ Это Instagram Reels. Что вы хотите сделать?",
+            kb,
+            disable_web_page_preview=True,
+        )
+        return
+
+    if task_type == "tiktok":
+        choice_token = remember_source_choice(url)
+        kb = {
+            "inline_keyboard": [
+                [{"text": "👤 ИИ аватар", "callback_data": f"avatar:tt:{choice_token}", "style": "success"}],
+                [{"text": "📌 5 сек. видео", "callback_data": f"info:tt:{choice_token}", "style": "primary"}],
+                [{"text": "📌 Чужое видео + плашка", "callback_data": f"publish:tt:{choice_token}", "style": "primary"}],
+            ]
+        }
+        await reply_with_keyboard(
+            message,
+            "🎵 Это TikTok-видео. Что вы хотите сделать?",
             kb,
             disable_web_page_preview=True,
         )
@@ -792,6 +829,11 @@ async def process_choice(callback_query: types.CallbackQuery):
             url = f"https://www.youtube.com/shorts/{identifier}"
         elif platform == "yt":
             url = f"https://www.youtube.com/watch?v={identifier}"
+        elif platform == "tt":
+            url = pop_source_choice(identifier)
+            if not url:
+                await callback_query.answer("Выбор устарел. Отправьте ссылку ещё раз.", show_alert=True)
+                return
         else:
             return
         await callback_query.answer("Выберите контейнер PostMyPost...")
@@ -841,6 +883,13 @@ async def process_choice(callback_query: types.CallbackQuery):
             url = f"https://www.youtube.com/shorts/{identifier}"
             task_type = "avatar_shorts"
             answer_text = "👤 Запускаю Shorts Аватар..."
+        elif platform == "tt":
+            url = pop_source_choice(identifier)
+            if not url:
+                await callback_query.answer("Выбор устарел. Отправьте ссылку ещё раз.", show_alert=True)
+                return
+            task_type = "avatar_tiktok"
+            answer_text = "👤 Запускаю TikTok Аватар..."
         else:
             url = f"https://www.youtube.com/watch?v={identifier}" if platform == "yt" else identifier
             task_type = "avatar_horizontal"
@@ -876,6 +925,14 @@ async def process_choice(callback_query: types.CallbackQuery):
             task_type = "youtube"
             answer_text = "📌 Запускаю чужое видео + плашка для Shorts..."
             selected_text = "⏳ Выбрано чужое видео + плашка\nЭтап: создаю задачу."
+        elif platform == "tt":
+            url = pop_source_choice(identifier)
+            if not url:
+                await callback_query.answer("Выбор устарел. Отправьте ссылку ещё раз.", show_alert=True)
+                return
+            task_type = "tiktok"
+            answer_text = "📌 Запускаю TikTok-видео + плашка..."
+            selected_text = "⏳ Выбрано TikTok-видео + плашка\nЭтап: создаю задачу."
         else:
             return
 

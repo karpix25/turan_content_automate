@@ -657,7 +657,7 @@ processor = VideoProcessor()
 INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES = {"avatar_instagram_post_5s"}
 INFOGRAPHIC_REELS_TASK_TYPES = {"infographic_reels"}
 READY_TO_PUBLISH_VIDEO_TASK_TYPES = {*INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES, *INFOGRAPHIC_REELS_TASK_TYPES}
-AVATAR_VERTICAL_TASK_TYPES = {"avatar_vertical", "avatar_instagram", "avatar_shorts", *INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES}
+AVATAR_VERTICAL_TASK_TYPES = {"avatar_vertical", "avatar_instagram", "avatar_shorts", "avatar_tiktok", *INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES}
 AVATAR_HORIZONTAL_TASK_TYPES = {"avatar_horizontal", "avatar_youtube"}
 AVATAR_READY_HEYGEN_TASK_TYPES = {"avatar_heygen", *AVATAR_VERTICAL_TASK_TYPES, *AVATAR_HORIZONTAL_TASK_TYPES}
 SHORT_AVATAR_TASK_TYPES = AVATAR_VERTICAL_TASK_TYPES
@@ -4252,8 +4252,26 @@ def process_content_task(self, task_id: int):
                 source_frame_path, frame_meta = _extract_frame_at_second(source_media_path, frame_output, second=1.0)
                 if not source_frame_path:
                     raise Exception(f"Failed to extract infographic source frame: {frame_meta.get('reason')}")
+            elif "tiktok.com" in source_url:
+                details = scraper.get_tiktok_details(source_url) or {}
+                creator = ((details.get("creator") or "").strip())
+                source_title = source_title or (f"TikTok @{creator}" if creator else "TikTok")
+                caption = re.sub(
+                    r"\s+",
+                    " ",
+                    ((details.get("transcript_only_text") or details.get("caption") or "").strip()),
+                )
+                download_url = _normalize_external_url((details.get("download_url") or "").strip())
+                if not download_url:
+                    raise Exception(details.get("error") or "Не удалось получить TikTok-видео для инфографики")
+                source_kind = "tiktok_video"
+                source_media_path = downloader.download_video(download_url, f"infographic_source_video_{task_id}")
+                frame_output = os.path.join(output_dir, f"infographic_frame_{task_id}.jpg")
+                source_frame_path, frame_meta = _extract_frame_at_second(source_media_path, frame_output, second=1.0)
+                if not source_frame_path:
+                    raise Exception(f"Failed to extract infographic source frame: {frame_meta.get('reason')}")
             else:
-                raise Exception("Infographic format supports Instagram posts/reels and YouTube Shorts")
+                raise Exception("Infographic format supports Instagram, YouTube Shorts, and TikTok videos")
 
             if not source_frame_path or not os.path.isfile(source_frame_path):
                 raise Exception("Infographic source frame was not created")
@@ -4618,6 +4636,52 @@ def process_content_task(self, task_id: int):
                 ).strip()
                 if not cleaned_reels_transcript:
                     raise Exception(f"Failed to clean {instagram_content_label} text")
+                transcript = cleaned_reels_transcript
+            elif task.type == "avatar_tiktok":
+                update_task_status_message(db, task, stage="Сценарий", detail="Получаю данные TikTok.")
+                t_data = scraper.get_tiktok_details(source_url) or {}
+                caption = ((t_data.get("caption") or "").strip())
+                creator = ((t_data.get("creator") or "").strip())
+                view_count = t_data.get("view_count")
+                download_url = _normalize_external_url((t_data.get("download_url") or "").strip())
+                source_title = (task.source_title or "").strip() or (
+                    f"TikTok @{creator}" if creator else "TikTok video"
+                )
+                if not task.source_title:
+                    task.source_title = source_title
+                    db.commit()
+
+                reel_transcript = (t_data.get("transcript_only_text") or "").strip()
+                if download_url and deepgram_client.is_configured:
+                    update_task_status_message(db, task, stage="Сценарий", detail="Транскрибирую аудио TikTok.")
+                    local_reel_source = downloader.download_video(download_url, f"tiktok_avatar_source_{task_id}")
+                    if local_reel_source and not reel_transcript:
+                        try:
+                            reel_transcript = (deepgram_client.transcribe_media_text(local_reel_source) or "").strip()
+                        except Exception as transcribe_error:
+                            logging.warning(
+                                "Task %s: Deepgram transcription failed for TikTok: %s",
+                                task_id,
+                                transcribe_error,
+                            )
+
+                if not reel_transcript and not caption:
+                    raise Exception("Failed to retrieve usable text for TikTok")
+                raw_reels_transcript = "\n".join(
+                    part for part in [
+                        f"Transcript: {reel_transcript}" if reel_transcript else "",
+                        f"Caption: {caption}" if caption else "",
+                        f"Creator: @{creator}" if creator else "",
+                        f"Views: {view_count}" if view_count else "",
+                    ] if part
+                )
+                update_task_status_message(db, task, stage="Сценарий", detail="Удаляю CTA и промо из TikTok.")
+                cleaned_reels_transcript = (
+                    llm.remove_cta_from_transcript(raw_reels_transcript)
+                    or _strip_cta_fallback(raw_reels_transcript)
+                ).strip()
+                if not cleaned_reels_transcript:
+                    raise Exception("Failed to clean TikTok text")
                 transcript = cleaned_reels_transcript
             elif task.type == "avatar_shorts":
                 update_task_status_message(db, task, stage="Сценарий", detail="Получаю транскрипт YouTube Shorts.")
@@ -5233,20 +5297,22 @@ def process_content_task(self, task_id: int):
             # Continue to standard processing loop below
 
 
-        elif task.type == "instagram":
-            update_task_status_message(db, task, stage="Скачивание", detail="Скачиваю видео из Instagram.")
-            details = scraper.get_instagram_details(source_url)
+        elif task.type in {"instagram", "tiktok"}:
+            is_tiktok = task.type == "tiktok"
+            source_label = "TikTok" if is_tiktok else "Instagram"
+            update_task_status_message(db, task, stage="Скачивание", detail=f"Скачиваю видео из {source_label}.")
+            details = scraper.get_tiktok_details(source_url) if is_tiktok else scraper.get_instagram_details(source_url)
             caption = ((details or {}).get("caption") or "").strip()
             creator = ((details or {}).get("creator") or "").strip()
             source_title = (task.source_title or "").strip()
             if not source_title:
                 first_caption_line = re.sub(r"\s+", " ", caption).strip()
                 source_title = first_caption_line[:140].strip() or (
-                    f"Instagram Reel @{creator}" if creator else "Instagram Reel"
+                    f"{source_label} @{creator}" if creator else source_label
                 )
                 task.source_title = source_title
                 current_meta = dict(task.script_meta or {})
-                current_meta["instagram_source"] = {
+                current_meta[f"{source_label.lower()}_source"] = {
                     "creator": creator or None,
                     "caption": caption or None,
                 }
@@ -5254,12 +5320,12 @@ def process_content_task(self, task_id: int):
                 db.commit()
             download_url = _normalize_external_url((details or {}).get("download_url") or "")
             if not download_url:
-                error_text = (details or {}).get("error") or "Failed to get Instagram download link"
+                error_text = (details or {}).get("error") or f"Failed to get {source_label} download link"
                 raise Exception(error_text)
 
-            local_file = downloader.download_video(download_url, f"insta_{task_id}")
+            local_file = downloader.download_video(download_url, f"{'tiktok' if is_tiktok else 'insta'}_{task_id}")
             if not local_file:
-                raise Exception("Failed to download Instagram video from ScrapeCreators URL")
+                raise Exception(f"Failed to download {source_label} video from ScrapeCreators URL")
             input_videos.append(local_file)
             input_video_titles.append(source_title)
             input_video_contexts.append(caption or source_title)
@@ -5419,7 +5485,7 @@ def process_content_task(self, task_id: int):
                 )
         elif task.type in AVATAR_TASK_TYPES:
             target_account_ids = []
-        if task.type in {"instagram", "youtube"} and not target_account_ids and not process_all_clips:
+        if task.type in {"instagram", "youtube", "tiktok"} and not target_account_ids and not process_all_clips:
             raise Exception(
                 "No PostMyPost accounts configured/enabled for this user. "
                 "Enable channels in UI or set POSTMYPOST_CHANNEL_IDS."
@@ -5643,7 +5709,7 @@ def process_content_task(self, task_id: int):
                 if needs_youtube_title
                 else None
             )
-            should_apply_vertical_cover = bool(task.vizard_project_id) or task.type in {"instagram", "youtube"}
+            should_apply_vertical_cover = bool(task.vizard_project_id) or task.type in {"instagram", "youtube", "tiktok"}
             vertical_meta: dict = {}
             if should_apply_vertical_cover:
                 vertical_context = (

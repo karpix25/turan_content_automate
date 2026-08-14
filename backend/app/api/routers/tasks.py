@@ -23,6 +23,7 @@ AVATAR_TASK_TYPES = {
     "avatar_instagram",
     "avatar_instagram_post_5s",
     "avatar_shorts",
+    "avatar_tiktok",
 }
 
 

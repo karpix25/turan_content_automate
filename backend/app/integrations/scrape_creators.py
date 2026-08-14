@@ -87,6 +87,37 @@ def _extract_youtube_download_url(data: Dict[str, Any]) -> str | None:
     return None
 
 
+def _first_url(value: Any) -> str | None:
+    if isinstance(value, dict):
+        for item in value.get("url_list") or []:
+            if _is_http_url(item):
+                return item
+    return None
+
+
+def _extract_tiktok_download_url(data: Dict[str, Any]) -> str | None:
+    aweme_detail = data.get("aweme_detail") or {}
+    video = aweme_detail.get("video") or {}
+    no_watermark = _first_url(video.get("download_no_watermark_addr"))
+    if no_watermark:
+        return no_watermark
+    if video.get("has_watermark") is False:
+        return _first_url(video.get("play_addr"))
+    return None
+
+
+def _extract_tiktok_transcript_text(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    lines = []
+    for line in value.splitlines():
+        clean = re.sub(r"<[^>]+>", "", line).strip()
+        if not clean or "-->" in clean or clean.isdigit() or clean.upper() == "WEBVTT":
+            continue
+        lines.append(clean)
+    return re.sub(r"\s+", " ", " ".join(lines)).strip()
+
+
 def normalize_instagram_handle(value: str | None) -> str:
     raw = (value or "").strip()
     if not raw:
@@ -112,7 +143,7 @@ class ScrapeCreatorsClient:
         }
 
     def _get_json(self, path: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        url = f"{self.BASE_URL}/{path.lstrip('/')}"
+        url = path if path.startswith(("http://", "https://")) else f"{self.BASE_URL}/{path.lstrip('/')}"
         try:
             with httpx.Client(timeout=30.0) as client:
                 response = client.get(url, headers=self.headers, params=params)
@@ -226,6 +257,34 @@ class ScrapeCreatorsClient:
         Extracts YouTube transcript directly using the specific transcript endpoint.
         """
         return self._get_json("youtube/video/transcript", {"url": video_url})
+
+    def get_tiktok_details(self, video_url: str) -> Optional[Dict]:
+        """Extract TikTok metadata, transcript, and a no-watermark download URL."""
+        data = self._get_json(
+            "https://api.scrapecreators.com/v2/tiktok/video",
+            {"url": video_url, "get_transcript": "true"},
+        )
+        if not data:
+            return {"download_url": None, "error": "ScrapeCreators request failed"}
+        if data.get("success") is False:
+            return {
+                "download_url": None,
+                "error": data.get("message") or "ScrapeCreators returned success=false",
+            }
+
+        aweme_detail = data.get("aweme_detail") or {}
+        author = aweme_detail.get("author") or {}
+        statistics = aweme_detail.get("statistics") or {}
+        return {
+            "download_url": _extract_tiktok_download_url(data),
+            "caption": (aweme_detail.get("desc") or "").strip(),
+            "creator": author.get("unique_id") or author.get("nickname"),
+            "view_count": statistics.get("play_count"),
+            "transcript_only_text": _extract_tiktok_transcript_text(data.get("transcript")),
+            "has_watermark": bool((aweme_detail.get("video") or {}).get("has_watermark")),
+            "error": None,
+            "raw": data,
+        }
 
     def _extract_channel_lookup_from_input(self, channel_url_or_handle: str) -> Optional[Dict[str, str]]:
         raw = (channel_url_or_handle or "").strip()
