@@ -476,9 +476,13 @@ class PostMyPostClient:
                 f"/publications/{publication_id}",
                 params={"delete_option": delete_option, "account_ids": account_ids_csv},
             )
-        except httpx.HTTPStatusError as exc:
-            response = exc.response
-            if response is not None and response.status_code == 404:
+        except (httpx.HTTPStatusError, PostMyPostApiError) as exc:
+            status_code = (
+                exc.status_code
+                if isinstance(exc, PostMyPostApiError)
+                else exc.response.status_code if exc.response is not None else None
+            )
+            if status_code == 404:
                 logger.info("PostMyPost publication %s is already absent, treating delete as successful", publication_id)
                 return
             raise

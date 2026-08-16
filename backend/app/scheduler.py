@@ -4,14 +4,18 @@ import os
 import subprocess
 from typing import List
 
-import httpx
 from dotenv import load_dotenv
 
 from .database import SessionLocal
 from . import models
 from .integrations.llm import _format_social_description_paragraphs
 from .integrations.postmypost import PostMyPostClient
-from .integrations.postmypost_errors import PostMyPostApiError
+from .publication_guard import verify_publication_payload
+from .publication_repair import (
+    is_missing_publication_status_error,
+    is_repairable_publication_error,
+    replan_after_invalid_publication,
+)
 from .publish_planner import get_min_publish_lead_delta, plan_next_publish_times_for_account_outputs
 from .telegram_progress import (
     send_publication_batch_report_message,
@@ -476,26 +480,6 @@ def _update_postmypost_sync_meta(task: models.VideoTask, status_summary: dict, s
     task.script_meta = meta
 
 
-def _is_postmypost_missing_publication_status_error(exc: Exception) -> bool:
-    if isinstance(exc, PostMyPostApiError):
-        if exc.status_code != 422:
-            return False
-        normalized = (exc.response_text or "").lower()
-        return "publication_status" in normalized and "required property" in normalized
-
-    if not isinstance(exc, httpx.HTTPStatusError):
-        return False
-    response = exc.response
-    if response is None or response.status_code != 422:
-        return False
-    try:
-        body = response.text or ""
-    except Exception:
-        body = ""
-    normalized = body.lower()
-    return "publication_status" in normalized and "required property" in normalized
-
-
 def _get_publication_batch_meta(task: models.VideoTask) -> dict:
     meta = dict(getattr(task, "script_meta", None) or {})
     batch_meta = meta.get("publication_batch_report")
@@ -782,39 +766,77 @@ def sync_publication_task(self, task_id: int, force_now: bool = False):
             stage="Публикация",
             detail="Создаю или обновляю публикацию в PostMyPost.",
         )
-        if task.postmypost_id:
-            response = pmp_client.update_publication(
-                publication_id=int(task.postmypost_id),
-                account_ids=account_ids,
-                post_at=post_at,
-                file_id=int(file_id),
-                content=content,
-                content_by_account=content_by_account,
-                title_by_account=title_by_account,
-                publication_type=pub_type,
-            )
-        else:
-            response = pmp_client.create_publication(
-                project_id=project_id,
-                account_ids=account_ids,
-                post_at=post_at,
-                file_id=int(file_id),
-                content=content,
-                content_by_account=content_by_account,
-                title_by_account=title_by_account,
-                publication_type=pub_type,
-            )
+        repair_attempted = False
+        response: dict = {}
+        publication_payload: dict = {}
+        publication_id = None
+        while True:
+            if task.postmypost_id:
+                response = pmp_client.update_publication(
+                    publication_id=int(task.postmypost_id),
+                    account_ids=account_ids,
+                    post_at=post_at,
+                    file_id=int(file_id),
+                    content=content,
+                    content_by_account=content_by_account,
+                    title_by_account=title_by_account,
+                    publication_type=pub_type,
+                )
+            else:
+                response = pmp_client.create_publication(
+                    project_id=project_id,
+                    account_ids=account_ids,
+                    post_at=post_at,
+                    file_id=int(file_id),
+                    content=content,
+                    content_by_account=content_by_account,
+                    title_by_account=title_by_account,
+                    publication_type=pub_type,
+                )
 
-        publication_id = response.get("id") if isinstance(response, dict) else None
-        if publication_id:
-            task.postmypost_id = str(publication_id)
-        preview_url = pmp_client.extract_preview_url(response)
-        if not preview_url and publication_id:
+            publication_id = response.get("id") if isinstance(response, dict) else None
+            if not publication_id:
+                raise RuntimeError("PostMyPost did not return a publication id")
+
             try:
-                publication_payload = pmp_client.get_publication(int(publication_id), account_ids=account_ids)
-                preview_url = pmp_client.extract_preview_url(publication_payload)
-            except Exception as preview_error:
-                logger.warning("Failed to fetch publication preview for task %s: %s", task_id, preview_error)
+                publication_payload = pmp_client.get_publication(
+                    int(publication_id),
+                    account_ids=account_ids,
+                )
+                verify_publication_payload(
+                    publication_payload,
+                    expected_post_at=post_at,
+                    now_utc=datetime.datetime.now(datetime.timezone.utc),
+                    minimum_lead=get_min_publish_lead_delta(),
+                    require_future=not force_now,
+                )
+                break
+            except Exception as verification_error:
+                if repair_attempted or not is_repairable_publication_error(verification_error):
+                    raise
+
+                logger.warning(
+                    "PostMyPost returned an invalid publication task=%s publication=%s; repairing: %s",
+                    task_id,
+                    publication_id,
+                    verification_error,
+                )
+                pmp_client.delete_publication(
+                    publication_id=int(publication_id),
+                    account_ids=account_ids,
+                )
+                repair_attempted = True
+                task.postmypost_id = None
+                post_at = replan_after_invalid_publication(db, user, task, post_at)
+                task.publish_at = post_at.replace(tzinfo=None)
+                logger.info(
+                    "Task %s: retrying PostMyPost publication at %s after invalid record",
+                    task_id,
+                    post_at,
+                )
+
+        task.postmypost_id = str(publication_id)
+        preview_url = pmp_client.extract_preview_url(publication_payload) or pmp_client.extract_preview_url(response)
         if preview_url:
             task.preview_url = preview_url
 
@@ -953,7 +975,7 @@ def sync_postmypost_publication_statuses(limit: int | None = None):
 
                 db.commit()
             except Exception as e:
-                if _is_postmypost_missing_publication_status_error(e):
+                if is_missing_publication_status_error(e):
                     logger.warning(
                         "PostMyPost status unavailable for task %s publication=%s; excluding from future status sync: %s",
                         task.id,

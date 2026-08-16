@@ -30,8 +30,8 @@ def build_broll_plan(
     seed: int,
     gap_min: float = 3.0,
     gap_max: float = 5.0,
-    insert_min: float = 2.0,
-    insert_max: float = 4.0,
+    insert_min: float = 4.0,
+    insert_max: float = 6.0,
 ) -> list[TimelineSegment]:
     safe_main_duration = max(0.0, float(main_duration))
     if safe_main_duration <= 0 or not candidates:
@@ -50,7 +50,7 @@ def build_broll_plan(
     while cursor < safe_main_duration:
         gap = rng.uniform(gap_min, gap_max)
         insertion_start = cursor + gap
-        if insertion_start >= safe_main_duration or safe_main_duration - insertion_start < insert_min:
+        if insertion_start >= safe_main_duration:
             break
 
         segments.append(TimelineSegment("main", cursor, gap))
@@ -60,7 +60,11 @@ def build_broll_plan(
             break
 
         candidate = rng.choice(available)
-        max_duration = min(insert_max, candidate.duration, safe_main_duration - insertion_start)
+        max_duration = min(
+            insert_max,
+            candidate.duration,
+            safe_main_duration - insertion_start - gap_min,
+        )
         if max_duration < insert_min:
             used_asset_ids.add(candidate.asset_id)
             cursor = insertion_start

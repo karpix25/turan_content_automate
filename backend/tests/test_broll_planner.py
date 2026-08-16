@@ -23,21 +23,26 @@ class BrollPlannerTests(unittest.TestCase):
         broll = [item for item in plan if item.kind == "broll"]
         self.assertEqual(len({item.asset_id for item in broll}), len(broll))
         for item in broll:
-            self.assertGreaterEqual(item.duration, 2.0)
-            self.assertLessEqual(item.duration, 4.0)
+            self.assertGreaterEqual(item.duration, 4.0)
+            self.assertLessEqual(item.duration, 6.0)
             self.assertGreaterEqual(item.source_start, 0.0)
             self.assertLessEqual(item.source_start + item.duration, 8.0 + 1e-6)
 
-        for previous, current in zip(plan, plan[1:]):
-            if current.kind == "broll":
-                self.assertEqual(previous.kind, "main")
-                self.assertGreaterEqual(previous.duration, 3.0)
-                self.assertLessEqual(previous.duration, 5.0)
+        for index, segment in enumerate(plan):
+            if segment.kind != "broll":
+                continue
+            previous = plan[index - 1]
+            following = plan[index + 1]
+            self.assertEqual(previous.kind, "main")
+            self.assertGreaterEqual(previous.duration, 3.0)
+            self.assertLessEqual(previous.duration, 5.0)
+            self.assertEqual(following.kind, "main")
+            self.assertGreaterEqual(following.duration, 3.0)
 
     def test_short_assets_are_not_selected(self):
         plan = build_broll_plan(
             main_duration=12.0,
-            candidates=[BrollCandidate(1, "too-short.mp4", 1.9)],
+            candidates=[BrollCandidate(1, "too-short.mp4", 3.9)],
             seed=1,
         )
         self.assertFalse(any(item.kind == "broll" for item in plan))

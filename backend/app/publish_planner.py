@@ -142,6 +142,7 @@ def plan_next_publish_times_for_account_outputs(
     lane: str,
     exclude_task_ids: set[int] | None = None,
     allow_immediate_if_today_slot_available: bool = False,
+    minimum_utc: datetime.datetime | None = None,
 ) -> list[datetime.datetime | None]:
     if not account_ids:
         return []
@@ -162,6 +163,13 @@ def plan_next_publish_times_for_account_outputs(
 
     now_utc = datetime.datetime.now(UTC).replace(microsecond=0)
     earliest_utc = now_utc + get_min_publish_lead_delta()
+    if minimum_utc is not None:
+        minimum_aware = (
+            minimum_utc.replace(tzinfo=UTC)
+            if minimum_utc.tzinfo is None
+            else minimum_utc.astimezone(UTC)
+        )
+        earliest_utc = max(earliest_utc, minimum_aware.replace(microsecond=0))
     earliest_msk = earliest_utc.astimezone(MSK_TZ)
 
     excluded_ids = {int(item) for item in (exclude_task_ids or set())}
