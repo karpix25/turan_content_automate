@@ -3,7 +3,7 @@ import unittest
 from types import SimpleNamespace
 
 from app import models
-from app.publish_planner import plan_next_publish_times_for_account_outputs
+from app.publish_planner import get_project_format_limits, plan_next_publish_times_for_account_outputs
 
 
 class FakeQuery:
@@ -28,6 +28,18 @@ class FakeDb:
 
 
 class PublishPlannerTests(unittest.TestCase):
+    def test_legacy_project_limits_are_balanced_to_total(self):
+        db = FakeDb(
+            [SimpleNamespace(publish_limit_per_day=6, vizard_limit_per_day=3, other_formats_limit_per_day=6)],
+            [],
+        )
+        user = SimpleNamespace(id=1, publish_limit_per_day=3)
+
+        self.assertEqual(
+            get_project_format_limits(db, user, 266646),
+            {"total": 6, "vizard": 3, "other": 3},
+        )
+
     def test_project_format_limits_apply_to_each_account(self):
         project_settings = [
             SimpleNamespace(

@@ -109,9 +109,13 @@ export const ChannelsTab: React.FC = () => {
 
   useEffect(() => {
     const total = selectedProject?.publish_limit_per_day ?? 3;
+    const vizard = Math.min(
+      selectedProject?.vizard_limit_per_day ?? Math.max(1, Math.floor(total / 2)),
+      Math.max(1, total - 1),
+    );
     setProjectPublishLimit(total);
-    setProjectVizardLimit(Math.min(selectedProject?.vizard_limit_per_day ?? Math.max(1, Math.floor(total / 2)), total));
-    setProjectOtherFormatsLimit(Math.min(selectedProject?.other_formats_limit_per_day ?? total, total));
+    setProjectVizardLimit(vizard);
+    setProjectOtherFormatsLimit(Math.min(selectedProject?.other_formats_limit_per_day ?? total - vizard, total - vizard));
   }, [selectedProjectId, selectedProject]);
 
   const buildChannelSettingsPayload = (
@@ -252,7 +256,7 @@ export const ChannelsTab: React.FC = () => {
 
   const clampPercent = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
   const clampProjectLimit = (value: number) => Math.max(2, Math.min(96, Math.round(value)));
-  const clampProjectFormatLimit = (value: number) => Math.max(1, Math.min(projectPublishLimit, Math.round(value)));
+  const clampProjectFormatLimit = (value: number) => Math.max(1, Math.min(projectPublishLimit - 1, Math.round(value)));
 
   return (
     <motion.div key="channels" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4 pb-20">
@@ -309,9 +313,10 @@ export const ChannelsTab: React.FC = () => {
                 value={projectPublishLimit}
                 onChange={(e) => {
                   const next = clampProjectLimit(Number(e.target.value));
+                  const nextVizard = Math.max(1, Math.floor(next / 2));
                   setProjectPublishLimit(next);
-                  setProjectVizardLimit(prev => Math.min(prev, next));
-                  setProjectOtherFormatsLimit(prev => Math.min(prev, next));
+                  setProjectVizardLimit(nextVizard);
+                  setProjectOtherFormatsLimit(next - nextVizard);
                 }}
                 className="input-field h-10 w-full mt-2 text-sm font-bold"
               />
@@ -321,9 +326,13 @@ export const ChannelsTab: React.FC = () => {
               <input
                 type="number"
                 min="1"
-                max={projectPublishLimit}
+                max={Math.max(1, projectPublishLimit - 1)}
                 value={projectVizardLimit}
-                onChange={(e) => setProjectVizardLimit(clampProjectFormatLimit(Number(e.target.value)))}
+                onChange={(e) => {
+                  const next = clampProjectFormatLimit(Number(e.target.value));
+                  setProjectVizardLimit(next);
+                  setProjectOtherFormatsLimit(projectPublishLimit - next);
+                }}
                 className="input-field h-10 w-full mt-2 text-sm font-bold"
               />
             </label>
@@ -332,15 +341,19 @@ export const ChannelsTab: React.FC = () => {
               <input
                 type="number"
                 min="1"
-                max={projectPublishLimit}
+                max={Math.max(1, projectPublishLimit - 1)}
                 value={projectOtherFormatsLimit}
-                onChange={(e) => setProjectOtherFormatsLimit(clampProjectFormatLimit(Number(e.target.value)))}
+                onChange={(e) => {
+                  const next = clampProjectFormatLimit(Number(e.target.value));
+                  setProjectOtherFormatsLimit(next);
+                  setProjectVizardLimit(projectPublishLimit - next);
+                }}
                 className="input-field h-10 w-full mt-2 text-sm font-bold"
               />
             </label>
           </div>
           <p className="text-[11px] text-slate-500 mt-3 leading-relaxed">
-            Общий лимит — жёсткий потолок для каждого аккаунта: максимум {projectPublishLimit} публикаций в день. Лимиты Wizard и других форматов не складываются — это верхние границы внутри общего лимита.
+            Общий лимит — {projectPublishLimit} публикаций в день на аккаунт. Wizard и другие форматы делят этот лимит: изменение одного значения автоматически пересчитывает второе.
           </p>
         </div>
       )}

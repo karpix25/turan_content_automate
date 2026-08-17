@@ -100,6 +100,18 @@ def validate_account_format_limit(value: int | None, total_limit: int, field_nam
     return limit
 
 
+def normalize_project_format_limits(total_limit: int, vizard_limit: int, other_limit: int) -> dict[str, int]:
+    total_limit = validate_account_publish_limit(total_limit)
+    vizard_limit = validate_account_format_limit(vizard_limit, total_limit, "vizard_limit_per_day")
+    vizard_limit = min(vizard_limit, total_limit - 1)
+    other_limit = validate_account_format_limit(other_limit, total_limit, "other_formats_limit_per_day")
+    return {
+        "total": total_limit,
+        "vizard": vizard_limit,
+        "other": min(other_limit, total_limit - vizard_limit),
+    }
+
+
 def get_project_format_limits(db, user: models.User | int, project_id: int | None) -> dict[str, int]:
     user_id = int(getattr(user, "id", user))
     total_limit = validate_account_publish_limit(
@@ -109,7 +121,7 @@ def get_project_format_limits(db, user: models.User | int, project_id: int | Non
     limits = {
         "total": total_limit,
         "vizard": default_vizard,
-        "other": total_limit,
+        "other": total_limit - default_vizard,
     }
     if project_id is None:
         return limits
@@ -125,19 +137,19 @@ def get_project_format_limits(db, user: models.User | int, project_id: int | Non
     total_limit = validate_account_publish_limit(
         getattr(row, "publish_limit_per_day", total_limit)
     )
-    return {
-        "total": total_limit,
-        "vizard": validate_account_format_limit(
+    return normalize_project_format_limits(
+        total_limit,
+        validate_account_format_limit(
             getattr(row, "vizard_limit_per_day", default_vizard),
             total_limit,
             "vizard_limit_per_day",
         ),
-        "other": validate_account_format_limit(
+        validate_account_format_limit(
             getattr(row, "other_formats_limit_per_day", total_limit),
             total_limit,
             "other_formats_limit_per_day",
         ),
-    }
+    )
 
 
 def set_project_format_limits(
@@ -148,9 +160,7 @@ def set_project_format_limits(
     vizard_limit: int,
     other_limit: int,
 ) -> dict[str, int]:
-    total_limit = validate_account_publish_limit(total_limit)
-    vizard_limit = validate_account_format_limit(vizard_limit, total_limit, "vizard_limit_per_day")
-    other_limit = validate_account_format_limit(other_limit, total_limit, "other_formats_limit_per_day")
+    limits = normalize_project_format_limits(total_limit, vizard_limit, other_limit)
     rows = db.query(models.PostMyPostProjectSetting).filter(
         models.PostMyPostProjectSetting.user_id == user_id,
         models.PostMyPostProjectSetting.project_id == int(project_id),
@@ -159,10 +169,10 @@ def set_project_format_limits(
     if row is None:
         row = models.PostMyPostProjectSetting(user_id=user_id, project_id=int(project_id))
         db.add(row)
-    row.publish_limit_per_day = total_limit
-    row.vizard_limit_per_day = vizard_limit
-    row.other_formats_limit_per_day = other_limit
-    return {"total": total_limit, "vizard": vizard_limit, "other": other_limit}
+    row.publish_limit_per_day = limits["total"]
+    row.vizard_limit_per_day = limits["vizard"]
+    row.other_formats_limit_per_day = limits["other"]
+    return limits
 
 
 def _get_account_limit_map(
