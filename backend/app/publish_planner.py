@@ -183,7 +183,12 @@ def plan_next_publish_times_for_account_outputs(
     reserved_slots: dict[tuple[int, str], set[datetime.datetime]] = {}
     daily_counts: dict[tuple[int, str, datetime.date], int] = {}
     for row in occupied_rows:
-        if row.id in excluded_ids or row.publish_at is None or row.target_account_id is None:
+        if (
+            row.id in excluded_ids
+            or row.publish_at is None
+            or row.target_account_id is None
+            or not getattr(row, "postmypost_id", None)
+        ):
             continue
         row_lane = _publication_lane_for_task(row)
         account_id = int(row.target_account_id)
@@ -275,7 +280,7 @@ def plan_next_publish_times(
     occupied: set[datetime.datetime] = set()
     excluded_ids = {int(item) for item in (exclude_task_ids or set())}
     for row in occupied_rows:
-        if row.id in excluded_ids:
+        if row.id in excluded_ids or not getattr(row, "postmypost_id", None):
             continue
         publish_at = row.publish_at
         if not publish_at:

@@ -5591,6 +5591,7 @@ def process_content_task(self, task_id: int):
             output_account_ids=output_account_ids,
             publication_lane=publication_lane,
             publish_immediately_when_slot_available=publish_immediately_when_available,
+            postmypost_client=pmp_client,
         )
         should_sync_outputs = bool(target_account_ids) or task.type in READY_TO_PUBLISH_VIDEO_TASK_TYPES
         base_source = _get_base_source_label(task.source_url)

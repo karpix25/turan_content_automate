@@ -1,6 +1,7 @@
 from typing import List
 
 from .. import models
+from ..publication_reconciler import reconcile_scheduled_publications
 from ..publish_planner import plan_next_publish_times, plan_next_publish_times_for_account_outputs
 
 IMMEDIATE_POSTMYPUBLISH_TASK_TYPES = {
@@ -26,6 +27,7 @@ def _plan_publish_times_for_outputs(
     output_account_ids: list[int | None] | None = None,
     publication_lane: str = "instant",
     publish_immediately_when_slot_available: bool = False,
+    postmypost_client=None,
 ):
     outputs_count = len(output_platforms)
     if outputs_count < 1:
@@ -34,6 +36,15 @@ def _plan_publish_times_for_outputs(
         return [manual_publish_at] * outputs_count
     if not bool(getattr(user, "auto_schedule_enabled", False)):
         return [None] * outputs_count
+
+    if postmypost_client is not None and output_account_ids:
+        reconcile_scheduled_publications(
+            db,
+            user,
+            output_account_ids,
+            lane=publication_lane,
+            client=postmypost_client,
+        )
 
     if output_account_ids and len(output_account_ids) == outputs_count:
         if output_group_keys and len(output_group_keys) == outputs_count:
@@ -102,10 +113,7 @@ def _get_base_source_label(source_url: str) -> str:
 
 
 def _resolve_publishing_status(publish_at, should_sync: bool) -> str:
-    if publish_at:
-        return "scheduled"
-    # A task is only "in_progress" after sync_publication_task starts PostMyPost sync.
-    # Before enqueueing it must remain requeueable.
+    # A task is scheduled only after sync_publication_task verifies the provider record.
     return "not_published"
 
 
