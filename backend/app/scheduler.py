@@ -239,6 +239,7 @@ def _resolve_publication_post_at(db, user: models.User, task: models.VideoTask, 
             user,
             [int(task.target_account_id)],
             lane=lane,
+            project_id=getattr(task, "postmypost_project_id", None),
             exclude_task_ids={task.id},
         )
     except Exception as error:

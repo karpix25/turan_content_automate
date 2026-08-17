@@ -302,12 +302,42 @@ def _init_database_unlocked() -> None:
         add_column_if_missing("user_publish_channels", "publication_description", "TEXT")
         add_column_if_missing("user_publish_channels", "postmypost_project_id", "INTEGER")
         add_column_if_missing("user_publish_channels", "publish_limit_per_day", "INTEGER DEFAULT 3")
+        vizard_limit_added = not column_exists("user_publish_channels", "vizard_limit_per_day")
+        other_formats_limit_added = not column_exists("user_publish_channels", "other_formats_limit_per_day")
+        add_column_if_missing("user_publish_channels", "vizard_limit_per_day", "INTEGER DEFAULT 1")
+        add_column_if_missing("user_publish_channels", "other_formats_limit_per_day", "INTEGER DEFAULT 3")
         conn.execute(
             text(
                 "UPDATE user_publish_channels SET publish_limit_per_day = 3 "
                 "WHERE publish_limit_per_day IS NULL OR publish_limit_per_day < 2"
             )
         )
+        if vizard_limit_added:
+            conn.execute(
+                text(
+                    "UPDATE user_publish_channels SET vizard_limit_per_day = GREATEST(1, publish_limit_per_day / 2)"
+                )
+            )
+        else:
+            conn.execute(
+                text(
+                    "UPDATE user_publish_channels SET vizard_limit_per_day = GREATEST(1, LEAST(publish_limit_per_day, vizard_limit_per_day)) "
+                    "WHERE vizard_limit_per_day IS NULL OR vizard_limit_per_day < 1 OR vizard_limit_per_day > publish_limit_per_day"
+                )
+            )
+        if other_formats_limit_added:
+            conn.execute(
+                text(
+                    "UPDATE user_publish_channels SET other_formats_limit_per_day = publish_limit_per_day"
+                )
+            )
+        else:
+            conn.execute(
+                text(
+                    "UPDATE user_publish_channels SET other_formats_limit_per_day = GREATEST(1, LEAST(publish_limit_per_day, other_formats_limit_per_day)) "
+                    "WHERE other_formats_limit_per_day IS NULL OR other_formats_limit_per_day < 1 OR other_formats_limit_per_day > publish_limit_per_day"
+                )
+            )
         if not table_exists("avatar_insert_clips"):
             conn.execute(
                 text(
@@ -425,6 +455,9 @@ def _init_database_unlocked() -> None:
                 )
             )
         add_column_if_missing("postmypost_project_settings", "uniqueization_mode", "VARCHAR(32) DEFAULT 'auto'")
+        add_column_if_missing("postmypost_project_settings", "publish_limit_per_day", "INTEGER DEFAULT 3")
+        add_column_if_missing("postmypost_project_settings", "vizard_limit_per_day", "INTEGER DEFAULT 1")
+        add_column_if_missing("postmypost_project_settings", "other_formats_limit_per_day", "INTEGER DEFAULT 3")
         add_column_if_missing("postmypost_project_settings", "instagram_post_5s_cta_text", "TEXT")
         add_column_if_missing("postmypost_project_settings", "instagram_post_5s_image_prompt", "TEXT")
         conn.execute(
@@ -474,6 +507,32 @@ def _init_database_unlocked() -> None:
                 "AND existing.account_id = upc.account_id "
                 "AND existing.postmypost_project_id = users.postmypost_project_id"
                 ")"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO postmypost_project_settings "
+                "(user_id, project_id, publish_limit_per_day, vizard_limit_per_day, other_formats_limit_per_day) "
+                "SELECT upc.user_id, upc.postmypost_project_id, "
+                "GREATEST(2, LEAST(96, MIN(COALESCE(upc.publish_limit_per_day, 3)))), "
+                "GREATEST(1, MIN(COALESCE(upc.vizard_limit_per_day, 1))), "
+                "GREATEST(1, MIN(COALESCE(upc.other_formats_limit_per_day, 3))) "
+                "FROM user_publish_channels upc "
+                "WHERE upc.postmypost_project_id IS NOT NULL "
+                "AND NOT EXISTS ("
+                "SELECT 1 FROM postmypost_project_settings existing "
+                "WHERE existing.user_id = upc.user_id "
+                "AND existing.project_id = upc.postmypost_project_id"
+                ") "
+                "GROUP BY upc.user_id, upc.postmypost_project_id"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE postmypost_project_settings pps SET "
+                "publish_limit_per_day = GREATEST(2, LEAST(96, COALESCE(pps.publish_limit_per_day, 3))), "
+                "vizard_limit_per_day = GREATEST(1, LEAST(COALESCE(pps.publish_limit_per_day, 3), COALESCE(pps.vizard_limit_per_day, 1))), "
+                "other_formats_limit_per_day = GREATEST(1, LEAST(COALESCE(pps.publish_limit_per_day, 3), COALESCE(pps.other_formats_limit_per_day, 3)))"
             )
         )
         conn.execute(

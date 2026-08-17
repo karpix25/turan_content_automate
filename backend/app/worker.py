@@ -5590,6 +5590,7 @@ def process_content_task(self, task_id: int):
             output_group_keys=output_group_keys,
             output_account_ids=output_account_ids,
             publication_lane=publication_lane,
+            postmypost_project_id=postmypost_project_id,
             publish_immediately_when_slot_available=publish_immediately_when_available,
             postmypost_client=pmp_client,
         )

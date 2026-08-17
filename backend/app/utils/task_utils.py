@@ -26,6 +26,7 @@ def _plan_publish_times_for_outputs(
     output_group_keys: list[str | int | None] | None = None,
     output_account_ids: list[int | None] | None = None,
     publication_lane: str = "instant",
+    postmypost_project_id: int | None = None,
     publish_immediately_when_slot_available: bool = False,
     postmypost_client=None,
 ):
@@ -59,6 +60,7 @@ def _plan_publish_times_for_outputs(
                 user=user,
                 account_ids=group_account_ids,
                 lane=publication_lane,
+                project_id=postmypost_project_id,
                 allow_immediate_if_today_slot_available=publish_immediately_when_slot_available,
             )
             for indices, planned_time in zip(grouped_output_indices.values(), group_times):
@@ -72,6 +74,7 @@ def _plan_publish_times_for_outputs(
             user=user,
             account_ids=output_account_ids,
             lane=publication_lane,
+            project_id=postmypost_project_id,
             allow_immediate_if_today_slot_available=publish_immediately_when_slot_available,
         )
 

@@ -4,7 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from ... import models, schemas
 from ...core.config import pmp_client
-from ...publish_planner import DEFAULT_ACCOUNT_LIMIT_PER_DAY, validate_account_publish_limit
+from ...publish_planner import (
+    get_project_format_limits,
+    set_project_format_limits,
+)
 from ...utils.plate_media import get_plate_media_type
 from ...utils.postmypost_projects import (
     normalize_postmypost_project,
@@ -51,10 +54,16 @@ def build_project_out(
     selected_project_id: int | None,
 ) -> schemas.PostMyPostProjectOut:
     normalized_project = normalize_postmypost_project(project, selected_project_id)
+    project_limits = get_project_format_limits(db, user_id, int(normalized_project["id"]))
     normalized_project["uniqueization_mode"] = get_project_uniqueization_mode(
         db,
         user_id,
         int(normalized_project["id"]),
+    )
+    normalized_project.update(
+        publish_limit_per_day=project_limits["total"],
+        vizard_limit_per_day=project_limits["vizard"],
+        other_formats_limit_per_day=project_limits["other"],
     )
     return schemas.PostMyPostProjectOut(**normalized_project)
 
@@ -81,7 +90,6 @@ def _project_row_has_custom_settings(row: models.UserPublishChannel) -> bool:
         [
             bool(row.enabled),
             bool((row.publication_description or "").strip()),
-            validate_account_publish_limit(row.publish_limit_per_day) != DEFAULT_ACCOUNT_LIMIT_PER_DAY,
             bool(_selected_plate_ids(row)),
             row.plate_start_percent not in (None, 25),
         ]
@@ -127,7 +135,6 @@ def migrate_legacy_project_assets(
 
         row.enabled = legacy.enabled
         row.publication_description = legacy.publication_description
-        row.publish_limit_per_day = validate_account_publish_limit(legacy.publish_limit_per_day)
         row.selected_plate_ids = legacy_plate_ids
         row.selected_plate_id = legacy_plate_ids[0] if legacy_plate_ids else None
         row.plate_start_percent = legacy.plate_start_percent
@@ -177,6 +184,7 @@ def build_postmypost_channels_response(
         if isinstance(item, dict) and item.get("id") is not None
     }
     row_map = get_user_channel_row_map(db, user.id, project_id)
+    project_limits = get_project_format_limits(db, user, project_id)
     plate_map = {
         plate.id: plate
         for plate in db.query(models.Plate).filter(
@@ -231,9 +239,9 @@ def build_postmypost_channels_response(
                 channel_name=channel_info.get("name") if channel_info else None,
                 enabled=bool(row.enabled) if row else False,
                 description=(row.publication_description if row else None),
-                publish_limit_per_day=validate_account_publish_limit(
-                    row.publish_limit_per_day if row else DEFAULT_ACCOUNT_LIMIT_PER_DAY
-                ),
+                publish_limit_per_day=project_limits["total"],
+                vizard_limit_per_day=project_limits["vizard"],
+                other_formats_limit_per_day=project_limits["other"],
                 selected_plate_id=selected_plate_id,
                 selected_plate_ids=selected_plate_ids,
                 plate_start_percent=plate_start_percent,
@@ -302,6 +310,35 @@ def update_postmypost_project(
                 user_id=user.id,
                 project_id=selected_project_id,
                 mode=payload.uniqueization_mode,
+            )
+        if any(
+            value is not None
+            for value in (
+                payload.publish_limit_per_day,
+                payload.vizard_limit_per_day,
+                payload.other_formats_limit_per_day,
+            )
+        ):
+            current_limits = get_project_format_limits(db, user, selected_project_id)
+            set_project_format_limits(
+                db,
+                user_id=user.id,
+                project_id=selected_project_id,
+                total_limit=(
+                    payload.publish_limit_per_day
+                    if payload.publish_limit_per_day is not None
+                    else current_limits["total"]
+                ),
+                vizard_limit=(
+                    payload.vizard_limit_per_day
+                    if payload.vizard_limit_per_day is not None
+                    else current_limits["vizard"]
+                ),
+                other_limit=(
+                    payload.other_formats_limit_per_day
+                    if payload.other_formats_limit_per_day is not None
+                    else current_limits["other"]
+                ),
             )
         selected_mode = get_project_uniqueization_mode(db, user.id, selected_project_id)
         disable_accounts_absent_from_project(db, user.id, valid_account_ids, selected_project_id)
@@ -375,7 +412,6 @@ def update_postmypost_channels(
 
     # Normalize data from payload
     descriptions = payload.descriptions or {}
-    publish_limits = payload.publish_limits_per_day or {}
     plate_ids_map = payload.selected_plate_ids or {}
     percents_map = payload.plate_start_percents or {}
 
@@ -384,9 +420,6 @@ def update_postmypost_channels(
         row = existing_by_account.get(account_id)
         
         account_desc = (descriptions.get(str(account_id)) or "").strip() or None
-        raw_limit = publish_limits.get(str(account_id))
-        account_limit = validate_account_publish_limit(raw_limit) if raw_limit not in (None, "") else DEFAULT_ACCOUNT_LIMIT_PER_DAY
-        
         raw_plate_ids = plate_ids_map.get(str(account_id), [])
         requested_plate_ids = [int(p) for p in raw_plate_ids if str(p).isdigit()]
         valid_plate_rows = db.query(models.Plate).filter(
@@ -403,7 +436,6 @@ def update_postmypost_channels(
         if row:
             row.enabled = should_enable
             if str(account_id) in descriptions: row.publication_description = account_desc
-            if str(account_id) in publish_limits: row.publish_limit_per_day = account_limit
             if str(account_id) in plate_ids_map:
                 row.selected_plate_ids = account_plate_ids
                 row.selected_plate_id = account_plate_ids[0] if account_plate_ids else None
@@ -416,7 +448,6 @@ def update_postmypost_channels(
                     account_id=account_id,
                     enabled=should_enable,
                     publication_description=account_desc,
-                    publish_limit_per_day=account_limit,
                     selected_plate_ids=account_plate_ids,
                     selected_plate_id=account_plate_ids[0] if account_plate_ids else None,
                     plate_start_percent=account_percent,

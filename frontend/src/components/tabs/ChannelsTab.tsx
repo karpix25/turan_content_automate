@@ -12,13 +12,16 @@ export const ChannelsTab: React.FC = () => {
   const { telegramId } = useTelegram();
   const {
     selectedProjectId,
+    selectedProject,
     loading: projectsLoading,
     savingProject,
     refreshProjects,
   } = usePostMyPostProject();
   const [publishAccounts, setPublishAccounts] = useState<PublishAccount[]>([]);
   const [channelDescriptions, setChannelDescriptions] = useState<Record<number, string>>({});
-  const [publishLimitByAccount, setPublishLimitByAccount] = useState<Record<number, number>>({});
+  const [projectPublishLimit, setProjectPublishLimit] = useState(3);
+  const [projectVizardLimit, setProjectVizardLimit] = useState(1);
+  const [projectOtherFormatsLimit, setProjectOtherFormatsLimit] = useState(3);
   const [selectedPlateIdsByAccount, setSelectedPlateIdsByAccount] = useState<Record<number, number[]>>({});
   const [plateStartPercentByAccount, setPlateStartPercentByAccount] = useState<Record<number, number>>({});
   const [collapsedAccounts, setCollapsedAccounts] = useState<Record<number, boolean>>({});
@@ -55,17 +58,14 @@ export const ChannelsTab: React.FC = () => {
   const applyChannelsData = (data: PublishAccount[]) => {
     setPublishAccounts(data);
     const descMap: Record<number, string> = {};
-    const limitMap: Record<number, number> = {};
     const platesMap: Record<number, number[]> = {};
     const percentsMap: Record<number, number> = {};
     data.forEach(acc => {
       descMap[acc.account_id] = acc.description || '';
-      limitMap[acc.account_id] = acc.publish_limit_per_day || 3;
       platesMap[acc.account_id] = acc.selected_plate_ids || [];
       percentsMap[acc.account_id] = acc.plate_start_percent ?? 50;
     });
     setChannelDescriptions(descMap);
-    setPublishLimitByAccount(limitMap);
     setSelectedPlateIdsByAccount(platesMap);
     setPlateStartPercentByAccount(percentsMap);
     setCollapsedAccounts(prev => {
@@ -107,13 +107,19 @@ export const ChannelsTab: React.FC = () => {
     loadEndings(selectedProjectId);
   }, [telegramId, selectedProjectId]);
 
+  useEffect(() => {
+    const total = selectedProject?.publish_limit_per_day ?? 3;
+    setProjectPublishLimit(total);
+    setProjectVizardLimit(Math.min(selectedProject?.vizard_limit_per_day ?? Math.max(1, Math.floor(total / 2)), total));
+    setProjectOtherFormatsLimit(Math.min(selectedProject?.other_formats_limit_per_day ?? total, total));
+  }, [selectedProjectId, selectedProject]);
+
   const buildChannelSettingsPayload = (
     plateIdsByAccount = selectedPlateIdsByAccount,
     accounts = publishAccounts,
   ) => ({
     account_ids: accounts.filter(a => a.enabled).map(a => a.account_id),
     descriptions: channelDescriptions,
-    publish_limits_per_day: publishLimitByAccount,
     selected_plate_ids: plateIdsByAccount,
     plate_start_percents: plateStartPercentByAccount,
   });
@@ -122,8 +128,14 @@ export const ChannelsTab: React.FC = () => {
     if (!telegramId || !selectedProjectId) return;
     setSavingChannelSettings(true);
     try {
+      await apiClient.updatePostMyPostProject(telegramId, selectedProjectId, undefined, {
+        publish_limit_per_day: projectPublishLimit,
+        vizard_limit_per_day: projectVizardLimit,
+        other_formats_limit_per_day: projectOtherFormatsLimit,
+      });
       const data = await apiClient.updateChannels(telegramId, selectedProjectId, buildChannelSettingsPayload());
       applyChannelsData(data);
+      await refreshProjects();
       flashSaved();
     } catch (error: any) {
       alert(error.response?.data?.detail || error.message || 'Ошибка сохранения каналов');
@@ -239,7 +251,8 @@ export const ChannelsTab: React.FC = () => {
   };
 
   const clampPercent = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
-  const clampPublishLimit = (value: number) => Math.max(2, Math.min(96, Math.round(value)));
+  const clampProjectLimit = (value: number) => Math.max(2, Math.min(96, Math.round(value)));
+  const clampProjectFormatLimit = (value: number) => Math.max(1, Math.min(projectPublishLimit, Math.round(value)));
 
   return (
     <motion.div key="channels" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4 pb-20">
@@ -274,6 +287,61 @@ export const ChannelsTab: React.FC = () => {
       {channelsError && (
         <div className="p-4 rounded-2xl bg-rose-50 border border-rose-100 text-rose-600 text-sm font-medium">
           {channelsError}
+        </div>
+      )}
+
+      {selectedProjectId && (
+        <div className="tg-card p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Globe2 size={18} className="text-[#24a1de]" />
+            <div>
+              <h3 className="text-[15px] font-bold text-slate-900">Лимиты проекта</h3>
+              <p className="text-[11px] text-slate-500">Одинаково применяются к каждому включённому аккаунту проекта</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <label className="text-xs font-bold text-[#707579] uppercase tracking-wider">
+              Всего публикаций в день
+              <input
+                type="number"
+                min="2"
+                max="96"
+                value={projectPublishLimit}
+                onChange={(e) => {
+                  const next = clampProjectLimit(Number(e.target.value));
+                  setProjectPublishLimit(next);
+                  setProjectVizardLimit(prev => Math.min(prev, next));
+                  setProjectOtherFormatsLimit(prev => Math.min(prev, next));
+                }}
+                className="input-field h-10 w-full mt-2 text-sm font-bold"
+              />
+            </label>
+            <label className="text-xs font-bold text-[#707579] uppercase tracking-wider">
+              Максимум Wizard в день
+              <input
+                type="number"
+                min="1"
+                max={projectPublishLimit}
+                value={projectVizardLimit}
+                onChange={(e) => setProjectVizardLimit(clampProjectFormatLimit(Number(e.target.value)))}
+                className="input-field h-10 w-full mt-2 text-sm font-bold"
+              />
+            </label>
+            <label className="text-xs font-bold text-[#707579] uppercase tracking-wider">
+              Максимум других форматов
+              <input
+                type="number"
+                min="1"
+                max={projectPublishLimit}
+                value={projectOtherFormatsLimit}
+                onChange={(e) => setProjectOtherFormatsLimit(clampProjectFormatLimit(Number(e.target.value)))}
+                className="input-field h-10 w-full mt-2 text-sm font-bold"
+              />
+            </label>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-3 leading-relaxed">
+            Например, 6 всего и 4 Wizard: каждый аккаунт проекта получит не больше 6 публикаций в день, из них не больше 4 Wizard.
+          </p>
         </div>
       )}
 
@@ -317,13 +385,11 @@ export const ChannelsTab: React.FC = () => {
               deletingPlateId={deletingPlateId}
               deletingEndingId={deletingEndingId}
               description={channelDescriptions[account.account_id] || ''}
-              publishLimit={publishLimitByAccount[account.account_id] ?? 3}
               plateStartPercent={plateStartPercentByAccount[account.account_id] ?? 50}
               getMediaUrl={getMediaUrl}
               onToggleEnabled={handleAccountToggle}
               onToggleCollapse={toggleAccountCollapse}
               onDescriptionChange={(accountId, value) => setChannelDescriptions(prev => ({ ...prev, [accountId]: value }))}
-              onPublishLimitChange={(accountId, value) => setPublishLimitByAccount(prev => ({ ...prev, [accountId]: clampPublishLimit(value) }))}
               onPlateStartPercentChange={(accountId, value) => setPlateStartPercentByAccount(prev => ({ ...prev, [accountId]: clampPercent(value) }))}
               onUploadPlate={(targetAccount) => { setPlateUploadTarget(targetAccount); plateInputRef.current?.click(); }}
               onUploadEnding={(targetAccount) => { setEndingUploadTarget(targetAccount); endingInputRef.current?.click(); }}

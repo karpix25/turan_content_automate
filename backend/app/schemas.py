@@ -109,13 +109,15 @@ class VideoTaskOut(BaseModel):
 class ChannelPreferenceUpdate(BaseModel):
     account_ids: list[int] = []
     descriptions: Optional[dict[str, str]] = None
-    publish_limits_per_day: Optional[dict[str, int]] = None
     selected_plate_ids: Optional[dict[str, list[int]]] = None
     plate_start_percents: Optional[dict[str, int | None]] = None
 
 class PostMyPostProjectUpdate(BaseModel):
     project_id: int
     uniqueization_mode: Optional[str] = None
+    publish_limit_per_day: Optional[int] = None
+    vizard_limit_per_day: Optional[int] = None
+    other_formats_limit_per_day: Optional[int] = None
 
 class PostMyPostProjectOut(BaseModel):
     id: int
@@ -123,6 +125,9 @@ class PostMyPostProjectOut(BaseModel):
     timezone_id: Optional[int] = None
     selected: bool = False
     uniqueization_mode: str = "auto"
+    publish_limit_per_day: int = 3
+    vizard_limit_per_day: int = 1
+    other_formats_limit_per_day: int = 3
 
 class PostMyPostProjectsOut(BaseModel):
     selected_project_id: Optional[int]
@@ -161,6 +166,8 @@ class PostMyPostAccountOut(BaseModel):
     enabled: bool
     description: Optional[str]
     publish_limit_per_day: int
+    vizard_limit_per_day: int
+    other_formats_limit_per_day: int
     selected_plate_id: Optional[int]
     selected_plate_ids: list[int] = []
     plate_start_percent: Optional[int]

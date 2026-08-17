@@ -12,13 +12,11 @@ type ChannelAccountCardProps = {
   deletingPlateId: number | null;
   deletingEndingId: number | null;
   description: string;
-  publishLimit: number;
   plateStartPercent: number;
   getMediaUrl: (path: string) => string;
   onToggleEnabled: (accountId: number) => void;
   onToggleCollapse: (accountId: number) => void;
   onDescriptionChange: (accountId: number, value: string) => void;
-  onPublishLimitChange: (accountId: number, value: number) => void;
   onPlateStartPercentChange: (accountId: number, value: number) => void;
   onUploadPlate: (account: PublishAccount) => void;
   onUploadEnding: (account: PublishAccount) => void;
@@ -36,13 +34,11 @@ export const ChannelAccountCard: React.FC<ChannelAccountCardProps> = ({
   deletingPlateId,
   deletingEndingId,
   description,
-  publishLimit,
   plateStartPercent,
   getMediaUrl,
   onToggleEnabled,
   onToggleCollapse,
   onDescriptionChange,
-  onPublishLimitChange,
   onPlateStartPercentChange,
   onUploadPlate,
   onUploadEnding,
@@ -94,31 +90,6 @@ export const ChannelAccountCard: React.FC<ChannelAccountCardProps> = ({
 
       {account.enabled && !isCollapsed && (
         <div className="mt-4 space-y-4 pt-4 border-t border-slate-100">
-          <div>
-            <label className="text-xs font-bold text-[#707579] uppercase tracking-wider mb-2 block">Лимит публикаций в день</label>
-            <div className="flex items-center gap-3">
-              <input
-                type="range"
-                min="2"
-                max="20"
-                value={publishLimit}
-                onChange={(e) => onPublishLimitChange(account.account_id, Number(e.target.value))}
-                className="flex-1 accent-[#24a1de]"
-              />
-              <input
-                type="number"
-                min="2"
-                max="96"
-                value={publishLimit}
-                onChange={(e) => onPublishLimitChange(account.account_id, Number(e.target.value))}
-                className="input-field h-10 w-16 text-center text-sm font-bold"
-              />
-            </div>
-            <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
-              Vizard занимает до половины лимита, остальные слоты остаются для быстрых форматов.
-            </p>
-          </div>
-
           <div>
             <label className="text-xs font-bold text-[#707579] uppercase tracking-wider mb-2 block">Описание (шаблон поста)</label>
             <textarea

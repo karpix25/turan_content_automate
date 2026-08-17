@@ -92,6 +92,8 @@ export type PublishAccount = {
   enabled: boolean;
   description?: string | null;
   publish_limit_per_day?: number;
+  vizard_limit_per_day?: number;
+  other_formats_limit_per_day?: number;
   selected_plate_id?: number | null;
   selected_plate_ids?: number[];
   plate_start_percent?: number | null;
@@ -105,6 +107,9 @@ export type PostMyPostProject = {
   timezone_id?: number | null;
   selected: boolean;
   uniqueization_mode?: UniqueizationMode | null;
+  publish_limit_per_day?: number;
+  vizard_limit_per_day?: number;
+  other_formats_limit_per_day?: number;
 };
 
 export type PostMyPostProjectsResponse = {

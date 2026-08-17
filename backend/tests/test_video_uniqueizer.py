@@ -1,6 +1,7 @@
 import unittest
 
 from app.services.video_uniqueizer import build_unique_seed, get_duplicate_platform_account_ids
+from app.services.video_uniqueization import resolve_output_uniqueization_mode
 
 
 class VideoUniqueizerTests(unittest.TestCase):
@@ -15,6 +16,15 @@ class VideoUniqueizerTests(unittest.TestCase):
             {101: "instagram", 202: "instagram", 303: "youtube"},
         )
         self.assertEqual(duplicates, {101, 202})
+
+    def test_duplicate_platform_accounts_cannot_disable_uniqueization(self):
+        self.assertEqual(
+            resolve_output_uniqueization_mode(
+                project_mode="off",
+                has_duplicate_platform=True,
+            ),
+            "standard",
+        )
 
 
 if __name__ == "__main__":

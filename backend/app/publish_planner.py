@@ -93,39 +93,88 @@ def _publication_lane_for_task(row: models.VideoTask) -> str:
     return "vizard" if getattr(row, "vizard_project_id", None) else "instant"
 
 
-def _lane_limit(limit_per_day: int, lane: str) -> int:
-    vizard_limit = max(1, int(limit_per_day) // 2)
-    if lane == "vizard":
-        return vizard_limit
-    return max(1, int(limit_per_day) - vizard_limit)
+def validate_account_format_limit(value: int | None, total_limit: int, field_name: str) -> int:
+    limit = int(value) if value is not None else total_limit
+    if limit < 1 or limit > total_limit:
+        raise ValueError(f"{field_name} must be in range 1..{total_limit}")
+    return limit
 
 
-def _lane_slots(
-    day_msk: datetime.date,
-    *,
-    limit_per_day: int,
-    lane: str,
-    start_msk: datetime.time,
-    end_msk: datetime.time,
-) -> list[datetime.datetime]:
-    slots = _build_daily_slots(day_msk, limit_per_day, start_msk, end_msk)
-    vizard_limit = _lane_limit(limit_per_day, "vizard")
-    if lane == "vizard":
-        return slots[:vizard_limit]
-    return slots[vizard_limit:]
+def get_project_format_limits(db, user: models.User | int, project_id: int | None) -> dict[str, int]:
+    user_id = int(getattr(user, "id", user))
+    total_limit = validate_account_publish_limit(
+        getattr(user, "publish_limit_per_day", DEFAULT_ACCOUNT_LIMIT_PER_DAY)
+    )
+    default_vizard = max(1, min(total_limit, total_limit // 2))
+    limits = {
+        "total": total_limit,
+        "vizard": default_vizard,
+        "other": total_limit,
+    }
+    if project_id is None:
+        return limits
+
+    rows = db.query(models.PostMyPostProjectSetting).filter(
+        models.PostMyPostProjectSetting.user_id == user_id,
+        models.PostMyPostProjectSetting.project_id == int(project_id),
+    ).all()
+    row = rows[0] if rows else None
+    if row is None:
+        return limits
+
+    total_limit = validate_account_publish_limit(
+        getattr(row, "publish_limit_per_day", total_limit)
+    )
+    return {
+        "total": total_limit,
+        "vizard": validate_account_format_limit(
+            getattr(row, "vizard_limit_per_day", default_vizard),
+            total_limit,
+            "vizard_limit_per_day",
+        ),
+        "other": validate_account_format_limit(
+            getattr(row, "other_formats_limit_per_day", total_limit),
+            total_limit,
+            "other_formats_limit_per_day",
+        ),
+    }
 
 
-def _get_account_limit_map(db, user: models.User, account_ids: list[int]) -> dict[int, int]:
-    rows = db.query(models.UserPublishChannel).filter(
-        models.UserPublishChannel.user_id == user.id,
-        models.UserPublishChannel.account_id.in_(account_ids),
-    ).all() if account_ids else []
-    row_map = {int(row.account_id): row for row in rows}
-    limits: dict[int, int] = {}
+def set_project_format_limits(
+    db,
+    user_id: int,
+    project_id: int,
+    total_limit: int,
+    vizard_limit: int,
+    other_limit: int,
+) -> dict[str, int]:
+    total_limit = validate_account_publish_limit(total_limit)
+    vizard_limit = validate_account_format_limit(vizard_limit, total_limit, "vizard_limit_per_day")
+    other_limit = validate_account_format_limit(other_limit, total_limit, "other_formats_limit_per_day")
+    rows = db.query(models.PostMyPostProjectSetting).filter(
+        models.PostMyPostProjectSetting.user_id == user_id,
+        models.PostMyPostProjectSetting.project_id == int(project_id),
+    ).all()
+    row = rows[0] if rows else None
+    if row is None:
+        row = models.PostMyPostProjectSetting(user_id=user_id, project_id=int(project_id))
+        db.add(row)
+    row.publish_limit_per_day = total_limit
+    row.vizard_limit_per_day = vizard_limit
+    row.other_formats_limit_per_day = other_limit
+    return {"total": total_limit, "vizard": vizard_limit, "other": other_limit}
+
+
+def _get_account_limit_map(
+    db,
+    user: models.User,
+    account_ids: list[int],
+    project_id: int | None = None,
+) -> dict[int, dict[str, int]]:
+    project_limits = get_project_format_limits(db, user, project_id)
+    limits: dict[int, dict[str, int]] = {}
     for account_id in account_ids:
-        row = row_map.get(int(account_id))
-        row_limit = getattr(row, "publish_limit_per_day", None) if row else None
-        limits[int(account_id)] = validate_account_publish_limit(row_limit)
+        limits[int(account_id)] = dict(project_limits)
     return limits
 
 
@@ -140,6 +189,7 @@ def plan_next_publish_times_for_account_outputs(
     account_ids: list[int | None],
     *,
     lane: str,
+    project_id: int | None = None,
     exclude_task_ids: set[int] | None = None,
     allow_immediate_if_today_slot_available: bool = False,
     minimum_utc: datetime.datetime | None = None,
@@ -159,7 +209,12 @@ def plan_next_publish_times_for_account_outputs(
     )
     start_time = parse_hhmmss(start_raw, DEFAULT_START_MSK)
     end_time = parse_hhmmss(end_raw, DEFAULT_END_MSK)
-    account_limits = _get_account_limit_map(db, user, list(dict.fromkeys(concrete_account_ids)))
+    account_limits = _get_account_limit_map(
+        db,
+        user,
+        list(dict.fromkeys(concrete_account_ids)),
+        project_id=project_id,
+    )
 
     now_utc = datetime.datetime.now(UTC).replace(microsecond=0)
     earliest_utc = now_utc + get_min_publish_lead_delta()
@@ -178,10 +233,16 @@ def plan_next_publish_times_for_account_outputs(
         models.VideoTask.target_account_id.in_(list(account_limits.keys())),
         models.VideoTask.publish_at.isnot(None),
         models.VideoTask.publishing_status.in_(["scheduled", "in_progress", "published"]),
+        *(
+            [models.VideoTask.postmypost_project_id == int(project_id)]
+            if project_id is not None
+            else []
+        ),
     ).all()
 
-    reserved_slots: dict[tuple[int, str], set[datetime.datetime]] = {}
-    daily_counts: dict[tuple[int, str, datetime.date], int] = {}
+    reserved_slots: dict[int, set[datetime.datetime]] = {}
+    daily_counts: dict[tuple[int, datetime.date], int] = {}
+    format_counts: dict[tuple[int, datetime.date, str], int] = {}
     for row in occupied_rows:
         if (
             row.id in excluded_ids
@@ -190,40 +251,53 @@ def plan_next_publish_times_for_account_outputs(
             or not getattr(row, "postmypost_id", None)
         ):
             continue
-        row_lane = _publication_lane_for_task(row)
+        row_lane = "vizard" if _publication_lane_for_task(row) == "vizard" else "other"
         account_id = int(row.target_account_id)
         publish_utc = row.publish_at.replace(tzinfo=UTC) if row.publish_at.tzinfo is None else row.publish_at.astimezone(UTC)
         publish_utc_naive = publish_utc.replace(tzinfo=None, microsecond=0)
         day_msk = _task_publish_day_msk(row.publish_at)
-        reserved_slots.setdefault((account_id, row_lane), set()).add(publish_utc_naive)
-        daily_key = (account_id, row_lane, day_msk)
+        reserved_slots.setdefault(account_id, set()).add(publish_utc_naive)
+        daily_key = (account_id, day_msk)
         daily_counts[daily_key] = daily_counts.get(daily_key, 0) + 1
+        format_key = (account_id, day_msk, row_lane)
+        format_counts[format_key] = format_counts.get(format_key, 0) + 1
 
     planned: list[datetime.datetime | None] = []
     for account_id in concrete_account_ids:
-        limit_per_day = account_limits[int(account_id)]
-        lane_limit = _lane_limit(limit_per_day, normalized_lane)
-        account_reserved = reserved_slots.setdefault((account_id, normalized_lane), set())
+        account_settings = account_limits[int(account_id)]
+        limit_per_day = account_settings["total"]
+        format_group = "vizard" if normalized_lane == "vizard" else "other"
+        format_limit = account_settings[format_group]
+        account_reserved = reserved_slots.setdefault(account_id, set())
         day_cursor = earliest_msk.date()
         planned_for_output = False
 
         if allow_immediate_if_today_slot_available and normalized_lane == "instant":
-            today_key = (account_id, normalized_lane, now_utc.astimezone(MSK_TZ).date())
-            if daily_counts.get(today_key, 0) < lane_limit:
+            today = now_utc.astimezone(MSK_TZ).date()
+            today_key = (account_id, today)
+            format_key = (account_id, today, format_group)
+            if (
+                daily_counts.get(today_key, 0) < limit_per_day
+                and format_counts.get(format_key, 0) < format_limit
+            ):
                 daily_counts[today_key] = daily_counts.get(today_key, 0) + 1
+                format_counts[format_key] = format_counts.get(format_key, 0) + 1
                 planned.append(None)
                 continue
 
         for _ in range(0, 370):
-            daily_key = (account_id, normalized_lane, day_cursor)
-            if daily_counts.get(daily_key, 0) >= lane_limit:
+            daily_key = (account_id, day_cursor)
+            format_key = (account_id, day_cursor, format_group)
+            if (
+                daily_counts.get(daily_key, 0) >= limit_per_day
+                or format_counts.get(format_key, 0) >= format_limit
+            ):
                 day_cursor = day_cursor + datetime.timedelta(days=1)
                 continue
 
-            slots_msk = _lane_slots(
+            slots_msk = _build_daily_slots(
                 day_msk=day_cursor,
                 limit_per_day=limit_per_day,
-                lane=normalized_lane,
                 start_msk=start_time,
                 end_msk=end_time,
             )
@@ -235,6 +309,7 @@ def plan_next_publish_times_for_account_outputs(
                     continue
                 account_reserved.add(slot_utc_naive)
                 daily_counts[daily_key] = daily_counts.get(daily_key, 0) + 1
+                format_counts[format_key] = format_counts.get(format_key, 0) + 1
                 planned.append(slot_utc_naive)
                 planned_for_output = True
                 break

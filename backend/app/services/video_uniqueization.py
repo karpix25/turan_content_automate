@@ -53,6 +53,8 @@ def resolve_output_uniqueization_mode(
     has_duplicate_platform: bool,
 ) -> str:
     mode = normalize_uniqueization_mode(project_mode)
+    if mode == "off" and has_duplicate_platform:
+        return "standard"
     if mode != "auto":
         return mode
     return "standard" if has_duplicate_platform else "light"

@@ -114,10 +114,20 @@ export const apiClient = {
     const res = await axios.get<PostMyPostProjectsResponse>(API_BASE + '/postmypost/projects/' + telegramId);
     return res.data;
   },
-  updatePostMyPostProject: async (telegramId: string, projectId: number, uniqueizationMode?: UniqueizationMode) => {
+  updatePostMyPostProject: async (
+    telegramId: string,
+    projectId: number,
+    uniqueizationMode?: UniqueizationMode,
+    limits?: {
+      publish_limit_per_day?: number;
+      vizard_limit_per_day?: number;
+      other_formats_limit_per_day?: number;
+    },
+  ) => {
     const res = await axios.post<PostMyPostProjectsResponse>(API_BASE + '/postmypost/projects/' + telegramId, {
       project_id: projectId,
       ...(uniqueizationMode ? { uniqueization_mode: uniqueizationMode } : {}),
+      ...(limits || {}),
     });
     return res.data;
   },
