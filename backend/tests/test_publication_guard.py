@@ -2,6 +2,8 @@ import datetime
 import unittest
 
 from app.publication_guard import PublicationVerificationError, verify_publication_payload
+from app.integrations.postmypost_errors import PostMyPostApiError
+from app.publication_repair import is_missing_publication_status_error
 
 
 UTC = datetime.timezone.utc
@@ -50,6 +52,16 @@ class PublicationGuardTests(unittest.TestCase):
                 now_utc=self.now,
                 minimum_lead=self.lead,
             )
+
+    def test_accepts_incomplete_provider_response_as_repairable(self):
+        error = PostMyPostApiError(
+            "invalid response",
+            status_code=422,
+            method="GET",
+            path="/publications/1",
+            response_text="Response validation error: Required property 'account_ids'",
+        )
+        self.assertTrue(is_missing_publication_status_error(error))
 
 
 if __name__ == "__main__":
