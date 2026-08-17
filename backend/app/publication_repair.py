@@ -25,7 +25,10 @@ def is_missing_publication_status_error(exc: Exception) -> bool:
         return False
 
     normalized = response_text.lower()
-    return "publication_status" in normalized and "required property" in normalized
+    return status_code == 422 and (
+        "required property" in normalized
+        or "response validation error" in normalized
+    )
 
 
 def is_repairable_publication_error(exc: Exception) -> bool:

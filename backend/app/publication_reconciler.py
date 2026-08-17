@@ -29,7 +29,11 @@ def _is_missing_provider_publication(error: Exception) -> bool:
 
     if status_code == 404:
         return True
-    return status_code == 422 and "publication_status" in response_text.lower()
+    normalized = response_text.lower()
+    return status_code == 422 and (
+        "required property" in normalized
+        or "response validation error" in normalized
+    )
 
 
 def _lane(task: models.VideoTask) -> str:
