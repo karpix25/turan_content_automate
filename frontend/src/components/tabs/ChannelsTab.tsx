@@ -301,7 +301,7 @@ export const ChannelsTab: React.FC = () => {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <label className="text-xs font-bold text-[#707579] uppercase tracking-wider">
-              Всего публикаций в день
+              Общий лимит публикаций в день
               <input
                 type="number"
                 min="2"
@@ -328,7 +328,7 @@ export const ChannelsTab: React.FC = () => {
               />
             </label>
             <label className="text-xs font-bold text-[#707579] uppercase tracking-wider">
-              Максимум других форматов
+              Максимум других форматов в день
               <input
                 type="number"
                 min="1"
@@ -340,7 +340,7 @@ export const ChannelsTab: React.FC = () => {
             </label>
           </div>
           <p className="text-[11px] text-slate-500 mt-3 leading-relaxed">
-            Например, 6 всего и 4 Wizard: каждый аккаунт проекта получит не больше 6 публикаций в день, из них не больше 4 Wizard.
+            Общий лимит — жёсткий потолок для каждого аккаунта: максимум {projectPublishLimit} публикаций в день. Лимиты Wizard и других форматов не складываются — это верхние границы внутри общего лимита.
           </p>
         </div>
       )}
