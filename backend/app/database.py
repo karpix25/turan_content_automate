@@ -455,6 +455,9 @@ def _init_database_unlocked() -> None:
                 )
             )
         add_column_if_missing("postmypost_project_settings", "uniqueization_mode", "VARCHAR(32) DEFAULT 'auto'")
+        project_limit_added = not column_exists("postmypost_project_settings", "publish_limit_per_day")
+        project_vizard_limit_added = not column_exists("postmypost_project_settings", "vizard_limit_per_day")
+        project_other_limit_added = not column_exists("postmypost_project_settings", "other_formats_limit_per_day")
         add_column_if_missing("postmypost_project_settings", "publish_limit_per_day", "INTEGER DEFAULT 3")
         add_column_if_missing("postmypost_project_settings", "vizard_limit_per_day", "INTEGER DEFAULT 1")
         add_column_if_missing("postmypost_project_settings", "other_formats_limit_per_day", "INTEGER DEFAULT 3")
@@ -527,6 +530,33 @@ def _init_database_unlocked() -> None:
                 "GROUP BY upc.user_id, upc.postmypost_project_id"
             )
         )
+        if project_limit_added:
+            conn.execute(
+                text(
+                    "UPDATE postmypost_project_settings pps SET publish_limit_per_day = COALESCE(("
+                    "SELECT MIN(COALESCE(upc.publish_limit_per_day, 3)) FROM user_publish_channels upc "
+                    "WHERE upc.user_id = pps.user_id AND upc.postmypost_project_id = pps.project_id AND upc.enabled = TRUE"
+                    "), pps.publish_limit_per_day)"
+                )
+            )
+        if project_vizard_limit_added:
+            conn.execute(
+                text(
+                    "UPDATE postmypost_project_settings pps SET vizard_limit_per_day = COALESCE(("
+                    "SELECT MIN(COALESCE(upc.vizard_limit_per_day, 1)) FROM user_publish_channels upc "
+                    "WHERE upc.user_id = pps.user_id AND upc.postmypost_project_id = pps.project_id AND upc.enabled = TRUE"
+                    "), pps.vizard_limit_per_day)"
+                )
+            )
+        if project_other_limit_added:
+            conn.execute(
+                text(
+                    "UPDATE postmypost_project_settings pps SET other_formats_limit_per_day = COALESCE(("
+                    "SELECT MIN(COALESCE(upc.other_formats_limit_per_day, 3)) FROM user_publish_channels upc "
+                    "WHERE upc.user_id = pps.user_id AND upc.postmypost_project_id = pps.project_id AND upc.enabled = TRUE"
+                    "), pps.other_formats_limit_per_day)"
+                )
+            )
         conn.execute(
             text(
                 "UPDATE postmypost_project_settings pps SET "
