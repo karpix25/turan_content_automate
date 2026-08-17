@@ -97,7 +97,7 @@ class BrollRenderer:
         }
         if source_has_audio:
             source_audio = ffmpeg.input(input_path).audio
-            output_args.update({"acodec": "aac", "b:a": os.getenv("FFMPEG_AUDIO_BITRATE", "256k"), "shortest": None})
+            output_args.update({"acodec": "copy", "shortest": None})
             output = ffmpeg.output(joined, source_audio, output_path, **output_args)
         else:
             output = ffmpeg.output(joined, output_path, **output_args)

@@ -553,13 +553,17 @@ class VideoProcessor:
                 joined = ffmpeg.concat(intro_v, intro_a, main_v, main_a, v=1, a=1).node
                 out_v = joined[0]
                 out_a = joined[1]
+                # Keep this intermediate lossless; the final render is the only AAC encode.
+                intro_encode_kwargs = self._encode_kwargs(include_audio=True)
+                intro_encode_kwargs["acodec"] = "alac"
+                intro_encode_kwargs.pop("b:a", None)
                 (
                     ffmpeg
                     .output(
                         out_v,
                         out_a,
                         output_path,
-                        **self._encode_kwargs(include_audio=True),
+                        **intro_encode_kwargs,
                     )
                     .overwrite_output()
                     .run(capture_stdout=True, capture_stderr=True)

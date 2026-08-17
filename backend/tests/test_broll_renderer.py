@@ -30,9 +30,16 @@ class BrollRendererTests(unittest.TestCase):
             probe = renderer.probe(output_path)
             duration = float(probe["format"]["duration"])
             stream_types = {stream.get("codec_type") for stream in probe.get("streams", [])}
+            input_audio = next(stream for stream in renderer.probe(main_path)["streams"] if stream.get("codec_type") == "audio")
+            output_audio = next(stream for stream in probe["streams"] if stream.get("codec_type") == "audio")
             self.assertAlmostEqual(duration, 12.0, delta=0.35)
             self.assertIn("video", stream_types)
             self.assertIn("audio", stream_types)
+            self.assertEqual(output_audio.get("codec_name"), input_audio.get("codec_name"))
+            input_bitrate = int(input_audio.get("bit_rate") or 0)
+            output_bitrate = int(output_audio.get("bit_rate") or 0)
+            if input_bitrate and output_bitrate:
+                self.assertLessEqual(output_bitrate, round(input_bitrate * 1.5))
 
     def test_subtitles_burn_after_composition(self):
         with tempfile.TemporaryDirectory() as directory:
