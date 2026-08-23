@@ -18,6 +18,7 @@ from ...services.video_uniqueization import (
     normalize_uniqueization_mode,
     set_project_uniqueization_mode,
 )
+from ...services.project_cta_settings import get_project_ctas, set_project_ctas
 from ..deps import get_db, ensure_admin_access, get_or_create_user
 from ..utils import normalize_percent
 
@@ -65,6 +66,8 @@ def build_project_out(
         vizard_limit_per_day=project_limits["vizard"],
         other_formats_limit_per_day=project_limits["other"],
     )
+    carousel_ctas, story_ctas = get_project_ctas(db, user_id, int(normalized_project["id"]))
+    normalized_project.update(carousel_ctas=carousel_ctas, story_ctas=story_ctas)
     return schemas.PostMyPostProjectOut(**normalized_project)
 
 def get_user_channel_row_map(db: Session, user_id: int, project_id: int) -> dict[int, models.UserPublishChannel]:
@@ -339,6 +342,14 @@ def update_postmypost_project(
                     if payload.other_formats_limit_per_day is not None
                     else current_limits["other"]
                 ),
+            )
+        if payload.carousel_ctas is not None or payload.story_ctas is not None:
+            set_project_ctas(
+                db,
+                user_id=user.id,
+                project_id=selected_project_id,
+                carousel_ctas=payload.carousel_ctas,
+                story_ctas=payload.story_ctas,
             )
         selected_mode = get_project_uniqueization_mode(db, user.id, selected_project_id)
         disable_accounts_absent_from_project(db, user.id, valid_account_ids, selected_project_id)

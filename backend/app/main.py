@@ -6,7 +6,7 @@ from .database import init_database, SessionLocal
 from . import models
 from dotenv import load_dotenv
 from .api.utils import get_allowed_cors_origins, get_telegram_admin_ids
-from .api.routers import settings, tasks, channels, uploads, external, broll
+from .api.routers import settings, tasks, channels, uploads, external, broll, carousels, reference_channels, design_references
 
 load_dotenv()
 
@@ -33,6 +33,9 @@ app.include_router(channels.router)
 app.include_router(uploads.router)
 app.include_router(external.router)
 app.include_router(broll.router)
+app.include_router(carousels.router)
+app.include_router(reference_channels.router)
+app.include_router(design_references.router)
 
 # Static Files for Previews
 media_dir = "/app/database/media"

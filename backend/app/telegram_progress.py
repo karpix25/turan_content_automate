@@ -403,6 +403,55 @@ def send_thumbnail_prompt_review_to_telegram(task, prompt: str) -> bool:
         return False
 
 
+def send_carousel_text_review_to_telegram(draft) -> bool:
+    token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+    chat_id = (getattr(draft, "telegram_chat_id", None) or "").strip()
+    text = (getattr(draft, "master_text", None) or "").strip()
+    if not token or not chat_id or not text:
+        return False
+    keyboard = {
+        "inline_keyboard": [[
+            {"text": "✅ Одобрить", "callback_data": f"carouseltext:approve:{draft.id}"},
+            {"text": "✏️ Изменить", "callback_data": f"carouseltext:edit:{draft.id}"},
+            {"text": "🚫 Отклонить", "callback_data": f"carouseltext:reject:{draft.id}"},
+        ]]
+    }
+    message = (
+        f"🖼 Текст карусели #{draft.id}\n\n{text}\n\n"
+        "Это единый текст для всех платформ. После одобрения CTA добавится автоматически "
+        "на финальный слайд каждой сети."
+    )
+    try:
+        with httpx.Client(timeout=httpx.Timeout(20.0, connect=5.0)) as client:
+            response = client.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat_id, "text": message, "reply_markup": keyboard},
+            )
+        return response.status_code < 400 and bool(response.json().get("ok"))
+    except Exception as exc:
+        logger.warning("Failed to send carousel review: %s", exc)
+        return False
+
+
+def send_carousel_ready_to_telegram(draft) -> bool:
+    token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+    chat_id = (getattr(draft, "telegram_chat_id", None) or "").strip()
+    slides = getattr(draft, "slides", None) or {}
+    if not token or not chat_id or not slides:
+        return False
+    ok = True
+    for platform, paths in slides.items():
+        for index, path in enumerate(paths or [], start=1):
+            sent, _ = _send_telegram_document(
+                token,
+                chat_id,
+                path,
+                f"Карусель #{draft.id}: {platform}, слайд {index}",
+            )
+            ok = sent and ok
+    return ok
+
+
 def _send_telegram_document(
     token: str,
     chat_id: str,
@@ -420,7 +469,13 @@ def _send_telegram_document(
                 response = client.post(
                     f"https://api.telegram.org/bot{token}/sendDocument",
                     data=data,
-                    files={"document": (os.path.basename(file_path), f, "video/mp4")},
+                    files={
+                        "document": (
+                            os.path.basename(file_path),
+                            f,
+                            "image/png" if file_path.lower().endswith(".png") else "video/mp4",
+                        )
+                    },
                 )
         payload = response.json()
         if response.status_code >= 400 or not payload.get("ok", False):

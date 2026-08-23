@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, JSON, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, JSON, ForeignKey, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 import datetime
@@ -102,6 +102,51 @@ class ThumbnailReference(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
+class DesignReference(Base):
+    __tablename__ = "design_references"
+    __table_args__ = (UniqueConstraint("user_id", "project_id", "design_format", "file_path", name="uq_design_reference_file"),)
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    project_id = Column(Integer, index=True, nullable=False)
+    design_format = Column(String(16), nullable=False)
+    file_path = Column(Text, nullable=False)
+    width = Column(Integer, nullable=False)
+    height = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class ReferenceChannel(Base):
+    __tablename__ = "reference_channels"
+    __table_args__ = (UniqueConstraint("user_id", "project_id", "platform", "source_url", name="uq_reference_channel_source"),)
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    project_id = Column(Integer, index=True, nullable=False)
+    platform = Column(String(32), nullable=False)
+    source_url = Column(Text, nullable=False)
+    title = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    last_synced_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class ReferencePost(Base):
+    __tablename__ = "reference_posts"
+    __table_args__ = (UniqueConstraint("channel_id", "external_id", name="uq_reference_post_external"),)
+
+    id = Column(Integer, primary_key=True)
+    channel_id = Column(Integer, ForeignKey("reference_channels.id"), index=True, nullable=False)
+    external_id = Column(String(255), nullable=False)
+    source_url = Column(Text, nullable=True)
+    title = Column(Text, nullable=True)
+    body = Column(Text, nullable=True)
+    published_at = Column(DateTime, nullable=True)
+    view_count = Column(Integer, default=0, nullable=False)
+    raw = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
 class ThumbnailFaceReference(Base):
     __tablename__ = "thumbnail_face_references"
     id = Column(Integer, primary_key=True)
@@ -197,5 +242,29 @@ class PostMyPostProjectSetting(Base):
     other_formats_limit_per_day = Column(Integer, default=3, nullable=False)
     instagram_post_5s_cta_text = Column(String, nullable=True)
     instagram_post_5s_image_prompt = Column(String, nullable=True)
+    carousel_ctas = Column(JSON, nullable=True)
+    story_ctas = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+
+class CarouselDraft(Base):
+    __tablename__ = "carousel_drafts"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    project_id = Column(Integer, index=True, nullable=False)
+    master_text = Column(Text, nullable=False)
+    approved_text = Column(Text, nullable=True)
+    status = Column(String, default="awaiting_approval", nullable=False)
+    slide_count = Column(Integer, default=5, nullable=False)
+    reference_paths = Column(JSON, nullable=True)
+    platform_accounts = Column(JSON, nullable=False)
+    ctas = Column(JSON, nullable=True)
+    slides = Column(JSON, nullable=True)
+    source_post_ids = Column(JSON, nullable=True)
+    error = Column(Text, nullable=True)
+    telegram_chat_id = Column(String, nullable=True)
+    telegram_reply_message_id = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

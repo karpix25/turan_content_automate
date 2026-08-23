@@ -12,6 +12,8 @@ import {
   ThumbnailFaceReference,
   AvatarInsertClip,
   InstagramPost5sSettings,
+  ReferenceChannel,
+  DesignReference,
 } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
@@ -123,11 +125,16 @@ export const apiClient = {
       vizard_limit_per_day?: number;
       other_formats_limit_per_day?: number;
     },
+    ctas?: {
+      carousel_ctas?: Record<string, string>;
+      story_ctas?: Record<string, string>;
+    },
   ) => {
     const res = await axios.post<PostMyPostProjectsResponse>(API_BASE + '/postmypost/projects/' + telegramId, {
       project_id: projectId,
       ...(uniqueizationMode ? { uniqueization_mode: uniqueizationMode } : {}),
       ...(limits || {}),
+      ...(ctas || {}),
     });
     return res.data;
   },
@@ -142,6 +149,45 @@ export const apiClient = {
       params: projectId ? { project_id: projectId } : undefined,
     });
     return res.data;
+  },
+  getReferenceChannels: async (telegramId: string, projectId: number) => {
+    const res = await axios.get<ReferenceChannel[]>(`${API_BASE}/reference-channels/${telegramId}`, {
+      params: { project_id: projectId },
+    });
+    return res.data;
+  },
+  addReferenceChannel: async (
+    telegramId: string,
+    payload: { project_id: number; platform: string; source_url: string; title?: string },
+  ) => {
+    const res = await axios.post<ReferenceChannel>(`${API_BASE}/reference-channels/${telegramId}`, payload);
+    return res.data;
+  },
+  deleteReferenceChannel: async (telegramId: string, channelId: number) => {
+    await axios.delete(`${API_BASE}/reference-channels/${telegramId}/${channelId}`);
+  },
+  syncReferenceChannels: async (telegramId: string, projectId: number) => {
+    const res = await axios.post(`${API_BASE}/reference-channels/${telegramId}/sync`, null, {
+      params: { project_id: projectId },
+    });
+    return res.data;
+  },
+  getDesignReferences: async (telegramId: string, projectId: number, designFormat: 'carousel' | 'story') => {
+    const res = await axios.get<DesignReference[]>(`${API_BASE}/design-references/${telegramId}`, {
+      params: { project_id: projectId, design_format: designFormat },
+    });
+    return res.data;
+  },
+  uploadDesignReference: async (telegramId: string, projectId: number, designFormat: 'carousel' | 'story', file: File) => {
+    const formData = new FormData();
+    formData.append('project_id', String(projectId));
+    formData.append('design_format', designFormat);
+    formData.append('file', file);
+    const res = await axios.post<DesignReference>(`${API_BASE}/upload/design-reference/${telegramId}`, formData);
+    return res.data;
+  },
+  deleteDesignReference: async (telegramId: string, referenceId: number) => {
+    await axios.delete(`${API_BASE}/design-references/${telegramId}/${referenceId}`);
   },
 
   // Endings & Plates

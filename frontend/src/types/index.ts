@@ -110,6 +110,29 @@ export type PostMyPostProject = {
   publish_limit_per_day?: number;
   vizard_limit_per_day?: number;
   other_formats_limit_per_day?: number;
+  carousel_ctas?: Record<string, string>;
+  story_ctas?: Record<string, string>;
+};
+
+export type ReferenceChannel = {
+  id: number;
+  project_id: number;
+  platform: 'youtube' | 'instagram' | 'tiktok' | string;
+  source_url: string;
+  title?: string | null;
+  is_active: boolean;
+  last_synced_at?: string | null;
+  created_at: string;
+};
+
+export type DesignReference = {
+  id: number;
+  project_id: number;
+  design_format: 'carousel' | 'story' | string;
+  file_path: string;
+  width: number;
+  height: number;
+  created_at: string;
 };
 
 export type PostMyPostProjectsResponse = {

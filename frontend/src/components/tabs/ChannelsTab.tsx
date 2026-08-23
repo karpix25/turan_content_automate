@@ -7,6 +7,9 @@ import { usePostMyPostProject } from '../../context/PostMyPostProjectContext';
 import { useTelegram } from '../../context/TelegramContext';
 import { EndingClip, PublishAccount } from '../../types';
 import { ChannelAccountCard } from './channels/ChannelAccountCard';
+import { ProjectCarouselCtaSettings } from './channels/ProjectCarouselCtaSettings';
+import { ReferenceChannelLibrary } from './channels/ReferenceChannelLibrary';
+import { DesignReferenceLibrary } from './channels/DesignReferenceLibrary';
 
 export const ChannelsTab: React.FC = () => {
   const { telegramId } = useTelegram();
@@ -22,6 +25,8 @@ export const ChannelsTab: React.FC = () => {
   const [projectPublishLimit, setProjectPublishLimit] = useState(3);
   const [projectVizardLimit, setProjectVizardLimit] = useState(1);
   const [projectOtherFormatsLimit, setProjectOtherFormatsLimit] = useState(3);
+  const [carouselCtas, setCarouselCtas] = useState<Record<string, string>>({});
+  const [storyCtas, setStoryCtas] = useState<Record<string, string>>({});
   const [selectedPlateIdsByAccount, setSelectedPlateIdsByAccount] = useState<Record<number, number[]>>({});
   const [plateStartPercentByAccount, setPlateStartPercentByAccount] = useState<Record<number, number>>({});
   const [collapsedAccounts, setCollapsedAccounts] = useState<Record<number, boolean>>({});
@@ -116,6 +121,8 @@ export const ChannelsTab: React.FC = () => {
     setProjectPublishLimit(total);
     setProjectVizardLimit(vizard);
     setProjectOtherFormatsLimit(Math.min(selectedProject?.other_formats_limit_per_day ?? total - vizard, total - vizard));
+    setCarouselCtas(selectedProject?.carousel_ctas || {});
+    setStoryCtas(selectedProject?.story_ctas || {});
   }, [selectedProjectId, selectedProject]);
 
   const buildChannelSettingsPayload = (
@@ -136,7 +143,7 @@ export const ChannelsTab: React.FC = () => {
         publish_limit_per_day: projectPublishLimit,
         vizard_limit_per_day: projectVizardLimit,
         other_formats_limit_per_day: projectOtherFormatsLimit,
-      });
+      }, { carousel_ctas: carouselCtas, story_ctas: storyCtas });
       const data = await apiClient.updateChannels(telegramId, selectedProjectId, buildChannelSettingsPayload());
       applyChannelsData(data);
       await refreshProjects();
@@ -357,6 +364,25 @@ export const ChannelsTab: React.FC = () => {
           </p>
         </div>
       )}
+
+      {selectedProjectId && (
+        <ProjectCarouselCtaSettings
+          platforms={[...new Set(publishAccounts.map(account => {
+            const code = (account.channel_code || '').toLowerCase();
+            if (code.includes('instagram')) return 'instagram';
+            if (code.includes('tiktok')) return 'tiktok';
+            if (code.includes('vk') || code.includes('vkontakte')) return 'vk';
+            return '';
+          }).filter(Boolean))]}
+          carouselCtas={carouselCtas}
+          storyCtas={storyCtas}
+          onCarouselChange={(platform, value) => setCarouselCtas(prev => ({ ...prev, [platform]: value }))}
+          onStoryChange={(platform, value) => setStoryCtas(prev => ({ ...prev, [platform]: value }))}
+        />
+      )}
+
+      {selectedProjectId && <ReferenceChannelLibrary telegramId={telegramId} projectId={selectedProjectId} />}
+      {selectedProjectId && telegramId && <DesignReferenceLibrary telegramId={telegramId} projectId={selectedProjectId} />}
 
       {channelsLoading && publishAccounts.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-10 gap-3 text-slate-400">

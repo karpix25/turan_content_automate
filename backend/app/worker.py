@@ -168,8 +168,16 @@ celery_app.conf.update(
             "task": "sync_postmypost_publication_statuses",
             "schedule": float(os.getenv("POSTMYPOST_STATUS_SYNC_INTERVAL_SECONDS", "300")),
         },
+        "sync-reference-channels": {
+            "task": "sync_reference_channels_task",
+            "schedule": float(os.getenv("REFERENCE_CHANNEL_SYNC_INTERVAL_SECONDS", "86400")),
+        },
     },
 )
+
+# Import task module after celery_app is configured so the task is registered in the worker.
+from . import carousel_tasks  # noqa: E402,F401
+from . import reference_tasks  # noqa: E402,F401
 
 
 @worker_process_init.connect

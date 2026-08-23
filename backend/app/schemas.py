@@ -118,6 +118,8 @@ class PostMyPostProjectUpdate(BaseModel):
     publish_limit_per_day: Optional[int] = None
     vizard_limit_per_day: Optional[int] = None
     other_formats_limit_per_day: Optional[int] = None
+    carousel_ctas: Optional[dict[str, str]] = None
+    story_ctas: Optional[dict[str, str]] = None
 
 class PostMyPostProjectOut(BaseModel):
     id: int
@@ -128,11 +130,82 @@ class PostMyPostProjectOut(BaseModel):
     publish_limit_per_day: int = 3
     vizard_limit_per_day: int = 1
     other_formats_limit_per_day: int = 3
+    carousel_ctas: dict[str, str] = {}
+    story_ctas: dict[str, str] = {}
 
 class PostMyPostProjectsOut(BaseModel):
     selected_project_id: Optional[int]
     selected_project_uniqueization_mode: str = "auto"
     projects: list[PostMyPostProjectOut] = []
+
+
+class CarouselDraftCreate(BaseModel):
+    master_text: str
+    project_id: Optional[int] = None
+    slide_count: int = 5
+    reference_ids: list[int] = []
+    design_reference_ids: list[int] = []
+    telegram_chat_id: Optional[str] = None
+    telegram_reply_message_id: Optional[str] = None
+
+
+class ReferenceChannelCreate(BaseModel):
+    project_id: int
+    platform: str
+    source_url: str
+    title: Optional[str] = None
+
+
+class ReferenceChannelOut(BaseModel):
+    id: int
+    project_id: int
+    platform: str
+    source_url: str
+    title: Optional[str]
+    is_active: bool
+    last_synced_at: Optional[datetime.datetime]
+    created_at: datetime.datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DesignReferenceOut(BaseModel):
+    id: int
+    project_id: int
+    design_format: str
+    file_path: str
+    width: int
+    height: int
+    created_at: datetime.datetime
+
+    class Config:
+        from_attributes = True
+
+
+class CarouselDraftReviewUpdate(BaseModel):
+    action: str
+    text: Optional[str] = None
+
+
+class CarouselDraftOut(BaseModel):
+    id: int
+    user_id: int
+    project_id: int
+    master_text: str
+    approved_text: Optional[str]
+    status: str
+    slide_count: int
+    platform_accounts: dict
+    ctas: dict
+    slides: Optional[dict] = None
+    source_post_ids: Optional[list[int]] = None
+    error: Optional[str] = None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+    class Config:
+        from_attributes = True
 
 class PlateAssetOut(BaseModel):
     id: int

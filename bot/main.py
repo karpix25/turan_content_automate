@@ -15,6 +15,7 @@ from postmypost_project_flow import (
     pop_pending_project_task,
     prompt_postmypost_project_choice as prompt_postmypost_project_choice_flow,
 )
+from carousel_flow import register_carousel_handlers
 
 load_dotenv()
 
@@ -68,6 +69,9 @@ async def remove_inline_keyboard(message: types.Message | None) -> None:
         )
     except Exception:
         pass
+
+
+register_carousel_handlers(dp, bot, BACKEND_API_URL, remove_inline_keyboard)
 
 
 def remember_source_choice(url: str) -> str:
@@ -1025,8 +1029,9 @@ async def process_thumbnail_prompt_review(callback_query: types.CallbackQuery):
         await callback_query.answer("Prompt approved")
         await bot.send_message(callback_query.message.chat.id, f"✅ Prompt обложки видео #{task_id} подтвержден.")
     else:
-        await callback_query.answer("Prompt rejected")
-        await bot.send_message(callback_query.message.chat.id, f"🚫 Обложка для видео #{task_id} отклонена и будет пропущена.")
+            await callback_query.answer("Prompt rejected")
+            await bot.send_message(callback_query.message.chat.id, f"🚫 Обложка для видео #{task_id} отклонена и будет пропущена.")
+
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
