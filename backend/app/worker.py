@@ -3991,214 +3991,10 @@ def process_content_task(self, task_id: int):
                 task.script_meta = existing_meta
                 db.commit()
 
-            transcribed_text = ""
-            inferred_outline = ""
-            heygen_transcript_path = ""
-            if not ENABLE_HEYGEN_READY_TRANSCRIBE:
-                raise Exception("AVATAR_HEYGEN_READY_TRANSCRIBE must be enabled for HeyGen ID avatar tasks")
-            if not deepgram_client.is_configured:
-                raise Exception("DEEPGRAM_API_KEY is required for HeyGen ID avatar tasks")
-
-            update_task_status_message(
-                db,
-                task,
-                stage="Сценарий",
-                detail="Транскрибирую готовое HeyGen-видео и беру тему перебивок из речи аватара.",
-            )
-            try:
-                transcript_payload = deepgram_client.transcribe_media(local_avatar_video) or {}
-                transcribed_text = (deepgram_client.extract_transcript_text(transcript_payload) or "").strip()
-            except Exception as transcribe_error:
-                logging.warning(
-                    "Task %s: Deepgram transcription failed for existing HeyGen video: %s",
-                    task_id,
-                    transcribe_error,
-                )
-                transcript_payload = {}
-                transcribed_text = ""
-            if not transcribed_text:
-                raise Exception("Failed to transcribe existing HeyGen video; refusing to use fallback avatar context")
-
-            heygen_transcript_path = os.path.join(
-                os.getenv("OUTPUT_DIR", "./output").strip(),
-                f"heygen_transcript_{task_id}.json",
-            )
-            os.makedirs(os.path.dirname(heygen_transcript_path), exist_ok=True)
-            try:
-                import json
-
-                with open(heygen_transcript_path, "w", encoding="utf-8") as fp:
-                    json.dump(transcript_payload, fp, ensure_ascii=False, indent=2)
-            except Exception as transcript_save_error:
-                logging.warning(
-                    "Task %s: failed to save HeyGen transcript JSON for reuse: %s",
-                    task_id,
-                    transcript_save_error,
-                )
-                heygen_transcript_path = ""
-
-            try:
-                inferred_outline = (llm.generate_factual_outline(transcribed_text) or "").strip()
-            except Exception as outline_error:
-                logging.warning(
-                    "Task %s: factual outline generation from Deepgram transcript failed: %s",
-                    task_id,
-                    outline_error,
-                )
-                inferred_outline = ""
-            task.script_text = transcribed_text
-            if inferred_outline:
-                task.factual_outline = inferred_outline
-            existing_meta = dict(task.script_meta or {})
-            existing_meta["heygen_ready_video"] = {
-                **dict(existing_meta.get("heygen_ready_video") or {}),
-                "transcript_source": "deepgram_avatar_video",
-                "transcript_path": heygen_transcript_path or None,
-                "transcript_char_count": len(transcribed_text),
-            }
-            task.script_meta = existing_meta
-            db.commit()
-
-            thumbnail_outline = (
-                inferred_outline
-                or transcribed_text
-                or
-                task.factual_outline
-                or task.script_text
-                or task.source_title
-                or "Главная тема и конфликт видео."
-            ).strip()
-            thumbnail_script = (
-                transcribed_text
-                or
-                task.script_text
-                or task.factual_outline
-                or task.source_title
-                or thumbnail_outline
-            ).strip()
-            thumbnail_prompt, thumbnail_meta = _generate_avatar_thumbnail(
-                factual_outline=thumbnail_outline,
-                script_text=thumbnail_script,
-                detail_text=(
-                    "Генерирую вертикальную обложку 9:16 по теме готового HeyGen-видео."
-                    if task.type in SHORT_AVATAR_TASK_TYPES
-                    else "Генерирую обложку YouTube по теме готового HeyGen-видео."
-                ),
-            )
-
-            youtube_description_meta = None
-            if task.type not in SHORT_AVATAR_TASK_TYPES:
-                hook_text, trigger_title, cta_text, final_description_text = _build_avatar_description_text(
-                    script_text=thumbnail_script,
-                    factual_outline=thumbnail_outline,
-                    source_title=task.source_title,
-                    description_template=user.youtube_description_template,
-                )
-                description_txt_path = _write_avatar_description_file(task_id, final_description_text)
-                youtube_description_meta = {
-                    "hook_text": hook_text,
-                    "trigger_title": trigger_title,
-                    "cta_text": cta_text,
-                    "template": (user.youtube_description_template or "").strip(),
-                    "final_text": final_description_text,
-                    "txt_path": description_txt_path,
-                }
-
-            is_short_avatar = task.type in SHORT_AVATAR_TASK_TYPES
-            update_task_status_message(
-                db,
-                task,
-                stage="Монтаж",
-                detail=(
-                    "Рендерю стильную графику через Hyperframes (AI)."
-                    if is_short_avatar
-                    else "Рендерю YouTube-видео через Hyperframes: смысловые блоки, captions и KIE-визуалы."
-                ),
-            )
-            render_output, renderer_name = _render_avatar_with_graphics(
-                local_avatar_video,
-                thumbnail_script,
-                transcript_json_path=heygen_transcript_path or None,
-            )
-            if render_output:
-                local_avatar_video = render_output
-                if is_short_avatar:
-                    local_avatar_video, remux_meta = _replace_video_audio_stream_copy(
-                        local_avatar_video,
-                        avatar_clean_audio_path,
-                        stage="after_hyperframes",
-                    )
-                    current_meta = dict(task.script_meta or {})
-                    current_meta["original_audio_remux"] = {
-                        **dict(current_meta.get("original_audio_remux") or {}),
-                        "after_hyperframes": remux_meta,
-                    }
-                    task.script_meta = current_meta
-                    db.commit()
-                _save_avatar_render_checkpoint(renderer_name, local_avatar_video)
-                logging.info(
-                    "Task %s: Successfully replaced raw video with %s output.",
-                    task_id,
-                    renderer_name,
-                )
-            else:
-                raise Exception(
-                    f"{renderer_name} rendering failed for ready HeyGen avatar task. "
-                    "Raw HeyGen fallback is disabled by policy."
-                )
-
-            post_hyperframes_meta: dict = {}
-            if is_short_avatar:
-                thumbnail_image_path = str((thumbnail_meta or {}).get("output_path") or "").strip()
-                local_avatar_video, vertical_cover_meta = _apply_short_avatar_vertical_cover(
-                    local_avatar_video,
-                    thumbnail_script,
-                    cover_image_path=thumbnail_image_path,
-                    cover_prompt=thumbnail_prompt,
-                )
-                post_hyperframes_meta["short_vertical_cover"] = vertical_cover_meta
-                local_avatar_video, cover_audio_remux_meta = _replace_video_audio_stream_copy(
-                    local_avatar_video,
-                    avatar_clean_audio_path,
-                    stage="after_vertical_cover",
-                    audio_offset_seconds=REELS_VERTICAL_COVER_SECONDS,
-                )
-                post_hyperframes_meta["original_audio_remux"] = {
-                    **dict(post_hyperframes_meta.get("original_audio_remux") or {}),
-                    "after_vertical_cover": cover_audio_remux_meta,
-                }
-                if cover_audio_remux_meta.get("status") != "ready":
-                    logging.warning(
-                        "Task %s: failed to remux original ready-HeyGen audio after vertical cover; "
-                        "keeping cover output audio. meta=%s",
-                        task_id,
-                        cover_audio_remux_meta,
-                    )
-            else:
-                local_avatar_video, insert_meta = _apply_avatar_insert_montage(local_avatar_video)
-                post_hyperframes_meta["avatar_insert_montage"] = insert_meta
-
-            existing_meta = dict(task.script_meta or {})
-            existing_meta["thumbnail_prompt"] = thumbnail_prompt
-            existing_meta["thumbnail"] = thumbnail_meta
-            for meta_key, meta_value in post_hyperframes_meta.items():
-                if isinstance(meta_value, dict) and isinstance(existing_meta.get(meta_key), dict):
-                    existing_meta[meta_key] = {
-                        **dict(existing_meta.get(meta_key) or {}),
-                        **meta_value,
-                    }
-                else:
-                    existing_meta[meta_key] = meta_value
-            if youtube_description_meta:
-                existing_meta["youtube_description"] = youtube_description_meta
-            else:
-                existing_meta.pop("youtube_description", None)
-            task.script_meta = existing_meta
-            db.commit()
-
+            # Raw HeyGen passthrough: keep the provider's video and audio unchanged.
             input_videos.append(local_avatar_video)
             input_video_titles.append(task.source_title or f"Avatar Video {task_id}")
-            input_video_contexts.append(thumbnail_script or task.source_title or f"Avatar Video {task_id}")
+            input_video_contexts.append(task.source_title or f"Avatar Video {task_id}")
 
         elif task.type in INFOGRAPHIC_REELS_TASK_TYPES:
             update_task_status_message(db, task, stage="Инфографика", detail="Получаю исходный кадр и описание.")
@@ -5221,88 +5017,14 @@ def process_content_task(self, task_id: int):
                 
             # 4. Download result
             update_task_status_message(db, task, stage="Монтаж", detail="Скачиваю готовое видео из HeyGen.")
-            final_video_path = os.path.join(
-                os.getenv("OUTPUT_DIR", "./output").strip(),
-                f"avatar_video_{task_id}.mp4"
-            )
             local_avatar_video = downloader.download_media(final_video_url, f"heygen_{task_id}")
             if not local_avatar_video:
                 raise Exception("Failed to download final video from HeyGen")
 
-            if task.type in SHORT_AVATAR_TASK_TYPES:
-                current_meta = dict(task.script_meta or {})
-                current_meta["broll"] = {
-                    "status": "skipped",
-                    "reason": "hyperframes_replaces_broll_for_short_avatar",
-                }
-                task.script_meta = current_meta
-                db.commit()
-                
-            # --- Hyperframes Rendering ---
-            is_short_avatar = task.type in SHORT_AVATAR_TASK_TYPES
-            update_task_status_message(
-                db,
-                task,
-                stage="Монтаж",
-                detail=(
-                    "Рендерю стильную графику через Hyperframes (AI)."
-                    if is_short_avatar
-                    else "Рендерю YouTube-видео через Hyperframes: смысловые блоки, captions и KIE-визуалы."
-                ),
-            )
-            render_output, renderer_name = _render_avatar_with_graphics(
-                local_avatar_video,
-                script,
-            )
-            if render_output:
-                local_avatar_video = render_output
-                _save_avatar_render_checkpoint(renderer_name, local_avatar_video)
-                logging.info(
-                    "Task %s: Successfully replaced raw video with %s output.",
-                    task_id,
-                    renderer_name,
-                )
-            else:
-                raise Exception(
-                    f"{renderer_name} rendering failed for avatar task. "
-                    "Raw HeyGen fallback is disabled by policy."
-                )
-
-            if not is_short_avatar:
-                local_avatar_video, insert_meta = _apply_avatar_insert_montage(local_avatar_video)
-                current_meta = dict(task.script_meta or {})
-                current_meta["avatar_insert_montage"] = insert_meta
-                task.script_meta = current_meta
-                db.commit()
-
-            if task.type in SHORT_AVATAR_TASK_TYPES:
-                thumbnail_image_path = str((thumbnail_meta or {}).get("output_path") or "").strip()
-                local_avatar_video, vertical_cover_meta = _apply_short_avatar_vertical_cover(
-                    local_avatar_video,
-                    script,
-                    cover_image_path=thumbnail_image_path,
-                    cover_prompt=thumbnail_prompt,
-                )
-                local_avatar_video, cover_remux_meta = _replace_video_audio_with_elevenlabs(
-                    local_avatar_video,
-                    avatar_clean_audio_path,
-                    stage="after_vertical_cover",
-                )
-                current_meta = dict(task.script_meta or {})
-                current_meta["short_vertical_cover"] = vertical_cover_meta
-                current_meta["elevenlabs_audio_remux"] = {
-                    **dict(current_meta.get("elevenlabs_audio_remux") or {}),
-                    "after_vertical_cover": cover_remux_meta,
-                }
-                task.script_meta = current_meta
-                db.commit()
-                
-            # --- Final Post-Processing (Plates/Endings) ---
-            # We treat this video as the 'source' for the final step
+            # Raw HeyGen passthrough: keep the provider's video and audio unchanged.
             input_videos.append(local_avatar_video)
             input_video_titles.append(task.source_title or f"Avatar Video {task_id}")
             input_video_contexts.append(task.script_text or task.factual_outline or task.source_title or f"Avatar Video {task_id}")
-            # Continue to standard processing loop below
 
 
         elif task.type in {"instagram", "tiktok"}:
@@ -5832,7 +5554,7 @@ def process_content_task(self, task_id: int):
                     account_video_root, _ = os.path.splitext(account_video_path)
                     account_output = f"{account_video_root}_final_s{slot_idx}_a{account_id}.mp4"
 
-                    if task.type in READY_TO_PUBLISH_VIDEO_TASK_TYPES:
+                    if task.type in READY_TO_PUBLISH_VIDEO_TASK_TYPES and task.type not in AVATAR_TASK_TYPES:
                         logging.info(
                             "Task %s: clip=%s account=%s platform=%s slot=%s using ready-to-publish output (no extra plate/CTA overlay)",
                             task_id,
@@ -5882,17 +5604,7 @@ def process_content_task(self, task_id: int):
                             platform_code,
                             slot_idx,
                         )
-                        if should_uniqueize_output:
-                            processor.process_video(
-                                input_path=account_video_path,
-                                output_path=account_output,
-                                subtitles_enabled=False,
-                                unique_seed=unique_seed,
-                                uniqueization_mode=uniqueization_mode,
-                                force_unique_variations=True,
-                            )
-                        else:
-                            shutil.copy2(account_video_path, account_output)
+                        shutil.copy2(account_video_path, account_output)
                         publish_at = publish_times[publish_index] if len(publish_times) > publish_index else None
                         publish_index += 1
                         rendered_output = {
@@ -6001,7 +5713,7 @@ def process_content_task(self, task_id: int):
                     slot_index=1,
                 )
                 should_uniqueize_output = uniqueization_variations_enabled(uniqueization_mode)
-                if task.type in READY_TO_PUBLISH_VIDEO_TASK_TYPES:
+                if task.type in READY_TO_PUBLISH_VIDEO_TASK_TYPES and task.type not in AVATAR_TASK_TYPES:
                     if should_uniqueize_output:
                         processor.process_video(
                             input_path=base_video_path,
@@ -6031,17 +5743,7 @@ def process_content_task(self, task_id: int):
                     )
                     continue
                 if task.type in AVATAR_TASK_TYPES:
-                    if should_uniqueize_output:
-                        processor.process_video(
-                            input_path=base_video_path,
-                            output_path=base_output,
-                            subtitles_enabled=False,
-                            unique_seed=unique_seed,
-                            uniqueization_mode=uniqueization_mode,
-                            force_unique_variations=True,
-                        )
-                    else:
-                        shutil.copy2(base_video_path, base_output)
+                    shutil.copy2(base_video_path, base_output)
                     rendered_outputs.append(
                         {
                             "output_path": base_output,
@@ -6167,11 +5869,13 @@ def process_content_task(self, task_id: int):
                 current_meta["yandex_disk_upload_queued_at"] = datetime.datetime.utcnow().isoformat()
                 task.script_meta = current_meta
                 db.commit()
-        if task.type in SHORT_AVATAR_TASK_TYPES and task.output_path:
+        if task.type in AVATAR_TASK_TYPES and task.output_path:
             if task.type == "avatar_instagram":
                 label = "Reels Avatar"
             elif task.type in INSTAGRAM_POST_FIVE_SECOND_TASK_TYPES:
                 label = "Instagram Post 5 секунд"
+            elif task.type in AVATAR_HORIZONTAL_TASK_TYPES or task.type == "avatar_heygen":
+                label = "Avatar"
             elif task.type == "avatar_shorts":
                 label = "Shorts Avatar"
             else:
