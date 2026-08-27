@@ -512,7 +512,7 @@ async def handle_link(message: types.Message):
                 ],
                 [
                     {
-                        "text": "📌 5 сек. видео",
+                        "text": "📌 5 сек. инфографика",
                         "callback_data": f"info:yt:{video_id}",
                         "style": "primary"
                     }
@@ -540,7 +540,7 @@ async def handle_link(message: types.Message):
                     ],
                     [
                         {
-                            "text": "📌 5 сек. видео",
+                            "text": "📌 5 сек. инфографика",
                             "callback_data": f"info:shorts:{video_id}",
                             "style": "primary",
                         }
@@ -569,14 +569,7 @@ async def handle_link(message: types.Message):
                 "inline_keyboard": [
                     [
                         {
-                            "text": "Пост в → REELS",
-                            "callback_data": f"five:igp:{instagram_shortcode_value}",
-                            "style": "danger",
-                        }
-                    ],
-                    [
-                        {
-                            "text": "📌 5 сек. видео",
+                            "text": "📌 5 сек. инфографика",
                             "callback_data": f"info:igp:{instagram_shortcode_value}",
                             "style": "primary",
                         }
@@ -616,7 +609,7 @@ async def handle_link(message: types.Message):
                 ],
                 [
                     {
-                        "text": "📌 5 сек. видео",
+                        "text": "📌 5 сек. инфографика",
                         "callback_data": f"info:ig:{instagram_shortcode_value}",
                         "style": "primary",
                     }
@@ -643,7 +636,7 @@ async def handle_link(message: types.Message):
         kb = {
             "inline_keyboard": [
                 [{"text": "👤 ИИ аватар", "callback_data": f"avatar:tt:{choice_token}", "style": "success"}],
-                [{"text": "📌 5 сек. видео", "callback_data": f"info:tt:{choice_token}", "style": "primary"}],
+                [{"text": "📌 5 сек. инфографика", "callback_data": f"info:tt:{choice_token}", "style": "primary"}],
                 [{"text": "📌 Чужое видео + плашка", "callback_data": f"publish:tt:{choice_token}", "style": "primary"}],
             ]
         }
