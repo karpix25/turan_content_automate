@@ -1,4 +1,5 @@
 import datetime
+from typing import Any
 from collections import defaultdict
 
 from .. import models
@@ -34,15 +35,19 @@ def resolve_project_platform_accounts(project_id: int, pmp_client) -> dict[str, 
 def extract_reference_post(channel: models.ReferenceChannel, item: dict) -> dict | None:
     if not isinstance(item, dict):
         return None
-    raw_id = item.get("id") or item.get("videoId") or item.get("video_id") or item.get("shortcode") or item.get("code")
-    source_url = item.get("url") or item.get("video_url") or item.get("link") or item.get("permalink")
+    source = item.get("media") if isinstance(item.get("media"), dict) else item
+    caption = source.get("caption") or source.get("desc") or source.get("description") or ""
+    if isinstance(caption, dict):
+        caption = caption.get("text") or ""
+    raw_id = source.get("id") or source.get("videoId") or source.get("video_id") or source.get("shortcode") or source.get("code")
+    source_url = source.get("url") or source.get("video_url") or source.get("link") or source.get("permalink")
     if not raw_id and source_url:
         raw_id = source_url
     if not raw_id:
         return None
-    title = item.get("title") or item.get("caption") or item.get("desc") or item.get("description") or ""
-    published_at = _parse_datetime(item.get("published_at") or item.get("publishedAt") or item.get("created_at") or item.get("timestamp"))
-    view_count = _as_int(item.get("view_count") or item.get("viewCount") or item.get("viewCountInt") or item.get("play_count"))
+    title = source.get("title") or caption
+    published_at = _parse_datetime(source.get("published_at") or source.get("publishedAt") or source.get("created_at") or source.get("timestamp") or source.get("taken_at"))
+    view_count = _as_int(source.get("view_count") or source.get("viewCount") or source.get("viewCountInt") or source.get("play_count"))
     return {
         "external_id": str(raw_id)[:255],
         "source_url": str(source_url).strip() if source_url else channel.source_url,
@@ -51,6 +56,67 @@ def extract_reference_post(channel: models.ReferenceChannel, item: dict) -> dict
         "published_at": published_at,
         "view_count": view_count,
         "raw": item,
+    }
+
+
+def _source_payload(raw: Any) -> dict:
+    if not isinstance(raw, dict):
+        return {}
+    return raw.get("media") if isinstance(raw.get("media"), dict) else raw
+
+
+def _caption_text(value: Any) -> str:
+    if isinstance(value, dict):
+        return str(value.get("text") or "").strip()
+    return str(value or "").strip()
+
+
+def _collect_image_urls(value: Any, result: list[str] | None = None) -> list[str]:
+    result = result or []
+    if isinstance(value, dict):
+        for key in ("display_uri", "display_url", "thumbnail_src", "image_url", "url"):
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate.startswith(("http://", "https://")):
+                if key == "url" and not any(token in candidate for token in (".jpg", ".jpeg", ".png", "image")):
+                    continue
+                if candidate not in result:
+                    result.append(candidate)
+        for nested in value.values():
+            if len(result) >= 8:
+                break
+            _collect_image_urls(nested, result)
+    elif isinstance(value, list):
+        for nested in value:
+            if len(result) >= 8:
+                break
+            _collect_image_urls(nested, result)
+    return result[:8]
+
+
+def reference_post_content(post: models.ReferencePost) -> dict[str, Any]:
+    source = _source_payload(post.raw)
+    caption = _caption_text(source.get("caption"))
+    transcript = str(
+        source.get("transcript_only_text")
+        or source.get("transcript")
+        or ""
+    ).strip()
+    media_type = source.get("media_type")
+    image_urls = _collect_image_urls(post.raw)
+    if media_type == 8 or source.get("carousel_media"):
+        content_kind = "carousel"
+    elif source.get("video_versions") or transcript or source.get("download_url"):
+        content_kind = "video"
+    else:
+        content_kind = "post"
+    return {
+        "content_kind": content_kind,
+        "title": (post.title or "").strip(),
+        "caption": caption,
+        "transcript": transcript,
+        "body": (post.body or "").strip(),
+        "source_url": post.source_url,
+        "image_urls": image_urls,
     }
 
 

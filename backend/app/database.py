@@ -466,6 +466,16 @@ def _init_database_unlocked() -> None:
         add_column_if_missing("postmypost_project_settings", "carousel_ctas", "JSONB")
         add_column_if_missing("postmypost_project_settings", "story_ctas", "JSONB")
         add_column_if_missing("carousel_drafts", "source_post_ids", "JSONB")
+        add_column_if_missing("carousel_drafts", "story_slide_count", "INTEGER DEFAULT 1")
+        add_column_if_missing("carousel_drafts", "story_reference_paths", "JSONB")
+        add_column_if_missing("carousel_drafts", "story_ctas", "JSONB")
+        add_column_if_missing("carousel_drafts", "story_slides", "JSONB")
+        conn.execute(
+            text(
+                "UPDATE carousel_drafts SET story_slide_count = COALESCE(story_slide_count, slide_count, 1) "
+                "WHERE story_slide_count IS NULL"
+            )
+        )
         conn.execute(
             text(
                 "UPDATE postmypost_project_settings pps "

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from ... import models, schemas
 from ...core.config import celery_client, pmp_client
 from ...integrations.postmypost_carousel import create_carousel_publication
-from ...services.carousel_pipeline import SUPPORTED_PLATFORMS, resolve_reference_paths
+from ...services.carousel_pipeline import SUPPORTED_PLATFORMS, resolve_reference_paths, suggest_package_slide_count
 from ...services.project_cta_settings import get_project_ctas
 from ...telegram_progress import send_carousel_text_review_to_telegram
 from ...utils.platform_utils import _normalize_platform_code
@@ -69,28 +69,42 @@ def create_carousel(
             project_id=project_id,
             design_format="carousel",
         )
+        story_reference_paths = resolve_reference_paths(
+            db,
+            user.id,
+            [],
+            project_id=project_id,
+            design_format="story",
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         logging.exception("Failed to prepare carousel draft")
         raise HTTPException(status_code=502, detail=f"Не удалось подготовить карусель: {exc}")
 
-    carousel_ctas, _ = get_project_ctas(db, user.id, project_id)
-    missing_ctas = [platform for platform in platform_accounts if not carousel_ctas.get(platform)]
+    carousel_ctas, story_ctas = get_project_ctas(db, user.id, project_id)
+    missing_ctas = [
+        platform for platform in platform_accounts
+        if not carousel_ctas.get(platform) or not story_ctas.get(platform)
+    ]
     if missing_ctas:
         raise HTTPException(
             status_code=400,
-            detail="Заполните CTA карусели для: " + ", ".join(missing_ctas),
+            detail="Заполните CTA карусели и Stories для: " + ", ".join(missing_ctas),
         )
+    package_slide_count = suggest_package_slide_count(master_text)
     draft = models.CarouselDraft(
         user_id=user.id,
         project_id=project_id,
         master_text=master_text,
         status="awaiting_approval",
-        slide_count=max(2, min(10, int(payload.slide_count or 5))),
+        slide_count=package_slide_count,
+        story_slide_count=package_slide_count,
         reference_paths=reference_paths,
+        story_reference_paths=story_reference_paths,
         platform_accounts=platform_accounts,
         ctas=carousel_ctas,
+        story_ctas=story_ctas,
         telegram_chat_id=(payload.telegram_chat_id or telegram_id).strip(),
         telegram_reply_message_id=(payload.telegram_reply_message_id or "").strip() or None,
     )

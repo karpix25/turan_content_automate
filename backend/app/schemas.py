@@ -142,7 +142,7 @@ class PostMyPostProjectsOut(BaseModel):
 class CarouselDraftCreate(BaseModel):
     master_text: str
     project_id: Optional[int] = None
-    slide_count: int = 5
+    slide_count: Optional[int] = None
     reference_ids: list[int] = []
     design_reference_ids: list[int] = []
     telegram_chat_id: Optional[str] = None
@@ -196,9 +196,12 @@ class CarouselDraftOut(BaseModel):
     approved_text: Optional[str]
     status: str
     slide_count: int
+    story_slide_count: Optional[int] = 1
     platform_accounts: dict
     ctas: dict
+    story_ctas: Optional[dict] = None
     slides: Optional[dict] = None
+    story_slides: Optional[dict] = None
     source_post_ids: Optional[list[int]] = None
     error: Optional[str] = None
     created_at: datetime.datetime

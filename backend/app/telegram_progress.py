@@ -437,18 +437,25 @@ def send_carousel_ready_to_telegram(draft) -> bool:
     token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
     chat_id = (getattr(draft, "telegram_chat_id", None) or "").strip()
     slides = getattr(draft, "slides", None) or {}
-    if not token or not chat_id or not slides:
+    story_slides = getattr(draft, "story_slides", None) or {}
+    if not token or not chat_id or (not slides and not story_slides):
         return False
     ok = True
-    for platform, paths in slides.items():
-        for index, path in enumerate(paths or [], start=1):
-            sent, _ = _send_telegram_document(
-                token,
-                chat_id,
-                path,
-                f"Карусель #{draft.id}: {platform}, слайд {index}",
-            )
-            ok = sent and ok
+    for label, package in (("Карусель", slides), ("Stories", story_slides)):
+        sent_paths: set[str] = set()
+        for platform, paths in package.items():
+            for index, path in enumerate(paths or [], start=1):
+                if path in sent_paths:
+                    continue
+                sent_paths.add(path)
+                suffix = "общий слайд" if "-shared-" in os.path.basename(path) else f"{platform}, CTA"
+                sent, _ = _send_telegram_document(
+                    token,
+                    chat_id,
+                    path,
+                    f"{label} #{draft.id}: {suffix}, слайд {index}",
+                )
+                ok = sent and ok
     return ok
 
 

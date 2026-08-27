@@ -11,7 +11,7 @@ from ..utils.media_utils import _resolve_media_file_path
 
 SUPPORTED_PLATFORMS = ("instagram", "tiktok", "vk")
 DESIGN_PROFILES = {
-    "carousel": {"width": 1080, "height": 1350, "ratio": "4:5", "min_words": 5, "max_words": 20, "max_slides": 10},
+    "carousel": {"width": 1080, "height": 1350, "ratio": "4:5", "min_words": 5, "max_words": 20, "max_slides": 5},
     "story": {"width": 1080, "height": 1920, "ratio": "9:16", "min_words": 3, "max_words": 12, "max_slides": 5},
 }
 
@@ -31,10 +31,32 @@ def split_master_text(text: str, slide_count: int, max_words: int = 20) -> list[
     clean = re.sub(r"\s+", " ", (text or "")).strip()
     if not clean:
         raise ValueError("Текст карусели не может быть пустым")
-    count = max(2, min(10, int(slide_count or 5)))
+    count = max(1, min(5, int(slide_count or 1)))
     words = clean.split()
-    chunk_size = min(max(1, int(max_words)), max(1, math.ceil(len(words) / count)))
-    return [" ".join(words[index:index + chunk_size]) for index in range(0, len(words), chunk_size)][:10]
+    required_count = math.ceil(len(words) / max(1, int(max_words)))
+    count = min(5, max(count, required_count))
+    base_size, remainder = divmod(len(words), count)
+    parts = []
+    offset = 0
+    for index in range(count):
+        size = base_size + (1 if index < remainder else 0)
+        if size:
+            parts.append(" ".join(words[offset:offset + size]))
+            offset += size
+    return parts
+
+
+def suggest_slide_count(text: str, design_format: str = "carousel") -> int:
+    profile = get_design_profile(design_format)
+    word_count = len(re.findall(r"\S+", (text or "").strip()))
+    if word_count <= profile["max_words"]:
+        return 1
+    return max(1, min(profile["max_slides"], math.ceil(word_count / profile["max_words"])))
+
+
+def suggest_package_slide_count(text: str) -> int:
+    """Pick one shared count that fits both carousel and story limits."""
+    return max(suggest_slide_count(text, "carousel"), suggest_slide_count(text, "story"))
 
 
 def build_slide_prompts(
@@ -69,6 +91,21 @@ def build_slide_prompts(
             )
         )
     return prompts
+
+
+def build_package_prompts(
+    master_text: str,
+    slide_count: int,
+    design_format: str,
+    platforms: list[str],
+    ctas: dict[str, str],
+) -> tuple[list[str], dict[str, str]]:
+    shared = build_slide_prompts(master_text, slide_count, "всех социальных сетей", "", design_format)
+    finals = {
+        platform: build_slide_prompts(master_text, slide_count, platform, ctas.get(platform, ""), design_format)[-1]
+        for platform in platforms
+    }
+    return shared[:-1], finals
 
 
 def normalize_design_image(source_path: str, output_path: str, design_format: str = "carousel") -> str:
