@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Loader2, RefreshCw, Trash2 } from 'lucide-react';
 import { apiClient } from '../../../api/client';
 import { ReferenceChannel } from '../../../types';
 
@@ -7,9 +7,7 @@ type Props = { telegramId: string | null; projectId: number | null };
 
 export const ReferenceChannelLibrary: React.FC<Props> = ({ telegramId, projectId }) => {
   const [items, setItems] = useState<ReferenceChannel[]>([]);
-  const [platform, setPlatform] = useState('youtube');
-  const [sourceUrl, setSourceUrl] = useState('');
-  const [title, setTitle] = useState('');
+  const [sourceUrls, setSourceUrls] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -25,18 +23,36 @@ export const ReferenceChannelLibrary: React.FC<Props> = ({ telegramId, projectId
 
   useEffect(() => { load(); }, [telegramId, projectId]);
 
+  const detectPlatform = (sourceUrl: string) => {
+    try {
+      const hostname = new URL(sourceUrl.match(/^https?:\/\//i) ? sourceUrl : `https://${sourceUrl}`).hostname.toLowerCase();
+      if (hostname === 'youtube.com' || hostname.endsWith('.youtube.com') || hostname === 'youtu.be') return 'youtube';
+      if (hostname === 'instagram.com' || hostname.endsWith('.instagram.com')) return 'instagram';
+      if (hostname === 'tiktok.com' || hostname.endsWith('.tiktok.com')) return 'tiktok';
+    } catch {
+      return null;
+    }
+    return null;
+  };
+
   const add = async () => {
-    if (!telegramId || !projectId || !sourceUrl.trim()) return;
+    if (!telegramId || !projectId) return;
+    const urls = [...new Set(sourceUrls.split(/\r?\n/).map(url => url.trim()).filter(Boolean))];
+    const invalidUrls = urls.filter(url => !detectPlatform(url));
+    if (invalidUrls.length) {
+      alert(`Не удалось определить платформу для ссылок:\n${invalidUrls.join('\n')}`);
+      return;
+    }
     setSaving(true);
     try {
-      await apiClient.addReferenceChannel(telegramId, {
-        project_id: projectId,
-        platform,
-        source_url: sourceUrl.trim(),
-        title: title.trim() || undefined,
-      });
-      setSourceUrl('');
-      setTitle('');
+      for (const url of urls) {
+        await apiClient.addReferenceChannel(telegramId, {
+          project_id: projectId,
+          platform: detectPlatform(url)!,
+          source_url: url,
+        });
+      }
+      setSourceUrls('');
       await load();
     } catch (error: any) {
       alert(error.response?.data?.detail || 'Не удалось добавить источник');
@@ -67,16 +83,16 @@ export const ReferenceChannelLibrary: React.FC<Props> = ({ telegramId, projectId
           <RefreshCw size={14} /> Сейчас
         </button>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-[110px_1fr_160px_auto] gap-2">
-        <select value={platform} onChange={event => setPlatform(event.target.value)} className="input-field h-10 text-sm">
-          <option value="youtube">YouTube</option>
-          <option value="instagram">Instagram</option>
-          <option value="tiktok">TikTok-ссылка</option>
-        </select>
-        <input value={sourceUrl} onChange={event => setSourceUrl(event.target.value)} placeholder="Ссылка на канал или пост" className="input-field h-10 text-sm" />
-        <input value={title} onChange={event => setTitle(event.target.value)} placeholder="Название" className="input-field h-10 text-sm" />
-        <button onClick={add} disabled={saving || !sourceUrl.trim()} className="h-10 px-3 rounded-xl bg-[#24a1de] text-white text-xs font-bold flex items-center justify-center gap-1 disabled:opacity-50">
-          {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} Добавить
+      <div className="space-y-2">
+        <textarea
+          value={sourceUrls}
+          onChange={event => setSourceUrls(event.target.value)}
+          placeholder="Вставьте ссылки — по одной в каждой строке"
+          rows={4}
+          className="input-field min-h-28 resize-y text-sm"
+        />
+        <button onClick={add} disabled={saving || !sourceUrls.trim()} className="h-10 w-full rounded-xl bg-[#24a1de] text-white text-xs font-bold flex items-center justify-center gap-1 disabled:opacity-50">
+          {saving ? <Loader2 size={14} className="animate-spin" /> : 'Сохранить ссылки'}
         </button>
       </div>
       {loading ? <Loader2 size={18} className="animate-spin text-slate-400" /> : items.map(item => (
