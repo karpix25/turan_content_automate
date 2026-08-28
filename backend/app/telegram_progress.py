@@ -9,6 +9,7 @@ import httpx
 
 from .utils.task_format_labels import get_task_format_label
 from .utils.publication_errors import get_publication_error
+from .utils.telegram_formatting import escape_markdown_v2, markdown_v2_code_block
 
 
 logger = logging.getLogger(__name__)
@@ -417,15 +418,20 @@ def send_carousel_text_review_to_telegram(draft) -> bool:
         ]]
     }
     message = (
-        f"🖼 Текст карусели #{draft.id}\n\n{text}\n\n"
-        "Это единый текст для всех платформ. После одобрения CTA добавится автоматически "
-        "на финальный слайд каждой сети."
+        f"{escape_markdown_v2(f'🖼 Текст карусели #{draft.id}')}\n\n"
+        f"{markdown_v2_code_block(text)}\n\n"
+        f"{escape_markdown_v2('Это единый текст для всех платформ. После одобрения CTA добавится автоматически на финальный слайд каждой сети.')}"
     )
     try:
         with httpx.Client(timeout=httpx.Timeout(20.0, connect=5.0)) as client:
             response = client.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": chat_id, "text": message, "reply_markup": keyboard},
+                json={
+                    "chat_id": chat_id,
+                    "text": message,
+                    "parse_mode": "MarkdownV2",
+                    "reply_markup": keyboard,
+                },
             )
         return response.status_code < 400 and bool(response.json().get("ok"))
     except Exception as exc:
