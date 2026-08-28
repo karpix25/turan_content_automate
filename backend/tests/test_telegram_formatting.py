@@ -1,11 +1,17 @@
 import datetime
+import json
 import os
+import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from app.utils.telegram_formatting import escape_markdown_v2, markdown_v2_code_block
-from app.integrations.telegram_carousel import resolve_telegram_chat_id, send_carousel_scheduled_to_telegram
+from app.integrations.telegram_carousel import (
+    resolve_telegram_chat_id,
+    send_carousel_ready_to_telegram,
+    send_carousel_scheduled_to_telegram,
+)
 
 
 class TelegramFormattingTests(unittest.TestCase):
@@ -48,6 +54,28 @@ class TelegramFormattingTests(unittest.TestCase):
             self.assertIn("Карусель", message)
             self.assertIn("Stories", message)
             self.assertIn("28.08.2026 12:30 UTC", message)
+
+    def test_ready_images_are_sent_as_two_media_groups(self):
+        response = SimpleNamespace(status_code=200, json=lambda: {"ok": True})
+        client = MagicMock()
+        client.post.return_value = response
+        with tempfile.NamedTemporaryFile(suffix=".png") as carousel_file, \
+                tempfile.NamedTemporaryFile(suffix=".png") as story_file, \
+                patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "token", "TELEGRAM_ADMIN_IDS": "1354492516"}), \
+                patch("app.integrations.telegram_carousel.httpx.Client") as client_factory:
+            client_factory.return_value.__enter__.return_value = client
+            draft = SimpleNamespace(
+                id=7,
+                slides={"vk:1": [carousel_file.name]},
+                story_slides={"vk:1": [story_file.name]},
+            )
+            self.assertTrue(send_carousel_ready_to_telegram(draft))
+            self.assertEqual(client.post.call_count, 2)
+            for call in client.post.call_args_list:
+                self.assertTrue(call.args[0].endswith("/sendMediaGroup"))
+                media = json.loads(call.kwargs["data"]["media"])
+                self.assertEqual(len(media), 1)
+                self.assertEqual(media[0]["type"], "photo")
 
 
 if __name__ == "__main__":

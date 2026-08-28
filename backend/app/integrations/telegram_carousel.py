@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from collections.abc import Iterable
@@ -61,16 +62,20 @@ def send_carousel_ready_to_telegram(draft) -> bool:
     ok = True
     for label, package in (("Карусель", slides), ("Stories", story_slides)):
         sent_paths: set[str] = set()
-        for platform, paths in package.items():
-            for index, path in enumerate(paths or [], start=1):
-                if path in sent_paths:
-                    continue
-                sent_paths.add(path)
-                suffix = "общий слайд" if "-shared-" in os.path.basename(path) else f"{platform}, CTA"
-                sent, _ = _send_telegram_photo(
-                    token, chat_id, path, f"{label} #{draft.id}: {suffix}, слайд {index}"
-                )
-                ok = sent and ok
+        paths = []
+        for platform_paths in package.values():
+            for path in platform_paths or []:
+                if path not in sent_paths:
+                    sent_paths.add(path)
+                    paths.append(path)
+        for chunk_start in range(0, len(paths), 10):
+            sent, _ = _send_telegram_media_group(
+                token,
+                chat_id,
+                paths[chunk_start:chunk_start + 10],
+                f"{label} #{draft.id}",
+            )
+            ok = sent and ok
     return ok
 
 
@@ -110,21 +115,40 @@ def send_carousel_scheduled_to_telegram(draft, publications: Iterable) -> bool:
         return False
 
 
-def _send_telegram_photo(token: str, chat_id: str, file_path: str, caption: str) -> tuple[bool, str]:
+def _send_telegram_media_group(
+    token: str, chat_id: str, file_paths: list[str], caption: str
+) -> tuple[bool, str]:
+    if not file_paths:
+        return True, ""
     try:
-        with httpx.Client(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
-            with open(file_path, "rb") as photo:
+        media = []
+        files = {}
+        handles = []
+        for index, file_path in enumerate(file_paths):
+            field_name = f"file{index}"
+            handle = open(file_path, "rb")
+            handles.append(handle)
+            files[field_name] = (os.path.basename(file_path), handle, "image/png")
+            item = {"type": "photo", "media": f"attach://{field_name}"}
+            if index == 0:
+                item["caption"] = caption
+            media.append(item)
+        try:
+            with httpx.Client(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
                 response = client.post(
-                    f"https://api.telegram.org/bot{token}/sendPhoto",
-                    data={"chat_id": chat_id, "caption": caption},
-                    files={"photo": (os.path.basename(file_path), photo, "image/png")},
+                    f"https://api.telegram.org/bot{token}/sendMediaGroup",
+                    data={"chat_id": chat_id, "media": json.dumps(media, ensure_ascii=False)},
+                    files=files,
                 )
+        finally:
+            for handle in handles:
+                handle.close()
         payload = response.json()
         if response.status_code >= 400 or not payload.get("ok", False):
             description = payload.get("description") if isinstance(payload, dict) else response.text[:300]
-            logger.warning("Failed to send Telegram photo: status=%s description=%s", response.status_code, description)
+            logger.warning("Failed to send Telegram media group: status=%s description=%s", response.status_code, description)
             return False, f"{response.status_code} {description}"
         return True, ""
     except Exception as exc:
-        logger.warning("Failed to send Telegram photo: %s", exc)
+        logger.warning("Failed to send Telegram media group: %s", exc)
         return False, str(exc)
