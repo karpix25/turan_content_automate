@@ -17,6 +17,7 @@ from typing import List
 from urllib.parse import urlparse, parse_qs
 from billiard.exceptions import SoftTimeLimitExceeded
 from celery import Celery
+from celery.schedules import crontab
 from celery.signals import worker_process_init
 import redis
 from .integrations.vizard import VizardClient
@@ -170,9 +171,10 @@ celery_app.conf.update(
         },
         "sync-reference-channels": {
             "task": "sync_reference_channels_task",
-            "schedule": float(os.getenv("REFERENCE_CHANNEL_SYNC_INTERVAL_SECONDS", "86400")),
+            "schedule": crontab(minute=0, hour=10),
         },
     },
+    timezone="UTC",
 )
 
 # Import task module after celery_app is configured so the task is registered in the worker.
