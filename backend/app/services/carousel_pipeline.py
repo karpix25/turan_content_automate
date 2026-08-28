@@ -133,10 +133,14 @@ def resolve_reference_paths(
         design_query = design_query.filter(models.DesignReference.project_id == int(project_id))
     if reference_ids:
         design_query = design_query.filter(models.DesignReference.id.in_([int(item) for item in reference_ids]))
-    design_paths = [
-        path for item in design_query.order_by(models.DesignReference.created_at.desc()).limit(8).all()
-        if (path := _resolve_media_file_path(item.file_path, media_kind="design-references"))
-    ]
+    design_paths = []
+    for item in design_query.order_by(models.DesignReference.created_at.desc()).limit(8).all():
+        value = (item.file_path or "").strip()
+        path = value if value.startswith(("http://", "https://")) else _resolve_media_file_path(
+            value, media_kind="design-references"
+        )
+        if path and path not in design_paths:
+            design_paths.append(path)
     if design_paths:
         return design_paths
 

@@ -3,9 +3,10 @@ import os
 from typing import Any
 import json
 import time
-import hashlib
 
 import httpx
+
+from .cloudinary_storage import CloudinaryStorage
 
 
 logger = logging.getLogger(__name__)
@@ -28,11 +29,8 @@ class ThumbnailGeneratorClient:
         self.aspect_ratio = (os.getenv("THUMBNAIL_KIE_ASPECT_RATIO") or "16:9").strip()
         self.resolution = (os.getenv("THUMBNAIL_KIE_RESOLUTION") or "1K").strip()
         self.callback_url = (os.getenv("THUMBNAIL_KIE_CALLBACK_URL") or "").strip()
-        self.cloudinary_cloud_name = (os.getenv("CLOUDINARY_CLOUD_NAME") or "").strip()
-        self.cloudinary_api_key = (os.getenv("CLOUDINARY_API_KEY") or "").strip()
-        self.cloudinary_api_secret = (os.getenv("CLOUDINARY_API_SECRET") or "").strip()
-        self.cloudinary_upload_preset = (os.getenv("CLOUDINARY_UPLOAD_PRESET") or "").strip()
         self.cloudinary_folder = (os.getenv("CLOUDINARY_FOLDER") or "turan/thumbnails").strip().strip("/")
+        self.cloudinary_storage = CloudinaryStorage(timeout_seconds=self.timeout_seconds, folder=self.cloudinary_folder)
         self.strict_topic_mode = (os.getenv("THUMBNAIL_STRICT_TOPIC_MODE") or "1").strip() not in {"0", "false", "False"}
         self.max_style_references = max(0, int((os.getenv("THUMBNAIL_MAX_STYLE_REFERENCES") or "4").strip() or "4"))
         self.last_error: dict[str, Any] | None = None
@@ -73,64 +71,8 @@ class ThumbnailGeneratorClient:
             logger.warning("Failed to download generated thumbnail from %s: %s", image_url, exc)
             return None
 
-    def _cloudinary_upload_endpoint(self) -> str | None:
-        if not self.cloudinary_cloud_name:
-            return None
-        return f"https://api.cloudinary.com/v1_1/{self.cloudinary_cloud_name}/image/upload"
-
-    def _build_cloudinary_signature(self, params: dict[str, Any]) -> str:
-        sorted_items = sorted((k, v) for k, v in params.items() if v is not None and v != "")
-        payload = "&".join(f"{k}={v}" for k, v in sorted_items)
-        digest = hashlib.sha1(f"{payload}{self.cloudinary_api_secret}".encode("utf-8")).hexdigest()
-        return digest
-
     def _upload_local_file_to_cloudinary(self, file_path: str, *, prefix: str) -> str | None:
-        endpoint = self._cloudinary_upload_endpoint()
-        if not endpoint:
-            logger.error("CLOUDINARY_CLOUD_NAME is not configured.")
-            return None
-        if not os.path.isfile(file_path):
-            return None
-
-        timestamp = int(time.time())
-        public_id = f"{prefix}_{timestamp}_{os.urandom(4).hex()}"
-        folder = self.cloudinary_folder
-        upload_params: dict[str, Any] = {"folder": folder, "public_id": public_id}
-
-        signed_mode = bool(self.cloudinary_api_key and self.cloudinary_api_secret)
-        unsigned_mode = bool(self.cloudinary_upload_preset)
-        if not signed_mode and not unsigned_mode:
-            logger.error(
-                "Cloudinary is not fully configured. "
-                "Set CLOUDINARY_UPLOAD_PRESET for unsigned uploads or CLOUDINARY_API_KEY/CLOUDINARY_API_SECRET."
-            )
-            return None
-
-        data: dict[str, Any] = dict(upload_params)
-        if unsigned_mode:
-            data["upload_preset"] = self.cloudinary_upload_preset
-        else:
-            data["timestamp"] = timestamp
-            data["api_key"] = self.cloudinary_api_key
-            sign_params = {**upload_params, "timestamp": timestamp}
-            data["signature"] = self._build_cloudinary_signature(sign_params)
-
-        try:
-            with open(file_path, "rb") as fh:
-                files = {"file": (os.path.basename(file_path), fh, "application/octet-stream")}
-                with httpx.Client(timeout=self.timeout_seconds) as client:
-                    response = client.post(endpoint, data=data, files=files)
-                    response.raise_for_status()
-                    payload = response.json()
-        except Exception as exc:
-            logger.error("Cloudinary upload failed for %s: %s", file_path, exc)
-            return None
-
-        secure_url = (payload or {}).get("secure_url")
-        if isinstance(secure_url, str) and secure_url.strip():
-            return secure_url.strip()
-        logger.error("Cloudinary upload response has no secure_url: %s", payload)
-        return None
+        return self.cloudinary_storage.upload_file(file_path, prefix=prefix)
 
     def _ensure_public_url(self, value: str | None, *, prefix: str) -> str | None:
         if not value:

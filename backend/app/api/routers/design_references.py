@@ -7,6 +7,7 @@ from PIL import Image, ImageOps
 from sqlalchemy.orm import Session
 
 from ... import models, schemas
+from ...integrations.cloudinary_storage import CloudinaryStorage
 from ...services.carousel_pipeline import get_design_profile
 from ..deps import ensure_admin_access, get_db, get_or_create_user
 
@@ -57,11 +58,16 @@ async def upload_design_reference(
     path = os.path.join(output_dir, f"{user.id}_{project_id}_{design_format}_{uuid.uuid4().hex}.png")
     normalized = ImageOps.fit(image, (profile["width"], profile["height"]), method=Image.Resampling.LANCZOS)
     normalized.save(path, format="PNG", optimize=True)
+    public_url = CloudinaryStorage(
+        folder=(os.getenv("DESIGN_REFERENCES_CLOUDINARY_FOLDER") or "turan/design-references"),
+    ).upload_file(path, prefix=f"design_{user.id}_{project_id}_{design_format}")
+    if not public_url:
+        raise HTTPException(status_code=502, detail="Не удалось загрузить дизайн-референс в Cloudinary")
     item = models.DesignReference(
         user_id=user.id,
         project_id=int(project_id),
         design_format=design_format,
-        file_path=path,
+        file_path=public_url,
         width=profile["width"],
         height=profile["height"],
     )

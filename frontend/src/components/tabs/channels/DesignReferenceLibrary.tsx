@@ -13,7 +13,10 @@ export const DesignReferenceLibrary: React.FC<Props> = ({ telegramId, projectId 
   const inputRef = useRef<HTMLInputElement>(null);
   const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
-  const mediaUrl = (path: string) => `${API_BASE}/media/${path.split('/media/')[1] || ''}`;
+  const mediaUrl = (path: string) => {
+    if (path.startsWith('http://') || path.startsWith('https://')) return path;
+    return `${API_BASE}/media/${path.split('/media/')[1] || ''}`;
+  };
   const load = async () => {
     setLoading(true);
     try { setItems(await apiClient.getDesignReferences(telegramId, projectId, format)); }
