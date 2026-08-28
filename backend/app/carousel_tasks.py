@@ -67,6 +67,9 @@ def generate_carousel_task(draft_id: int) -> None:
         draft.error = None
         db.commit()
         send_carousel_ready_to_telegram(draft)
+        user = db.query(models.User).filter(models.User.id == draft.user_id).first()
+        if user and user.auto_schedule_enabled:
+            celery_app.send_task("schedule_carousel_publications_task", args=[draft.id])
     except Exception as exc:
         logger.exception("Carousel generation failed for draft %s", draft_id)
         draft = db.query(models.CarouselDraft).filter(models.CarouselDraft.id == draft_id).first()

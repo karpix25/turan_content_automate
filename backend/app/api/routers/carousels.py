@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ... import models, schemas
 from ...core.config import celery_client, pmp_client
-from ...integrations.postmypost_carousel import create_carousel_publication
+from ...carousel_publication_service import schedule_carousel_publications
 from ...services.carousel_pipeline import SUPPORTED_PLATFORMS, resolve_reference_paths, suggest_package_slide_count
 from ...services.project_cta_settings import get_project_ctas
 from ...telegram_progress import send_carousel_text_review_to_telegram
@@ -170,18 +170,40 @@ def publish_carousel(
     draft = _get_draft(db, user.id, draft_id)
     if draft.status != "ready" or not isinstance(draft.slides, dict):
         raise HTTPException(status_code=400, detail="Карусель еще не готова")
-    for platform, account_ids in (draft.platform_accounts or {}).items():
-        paths = (draft.slides or {}).get(platform) or []
-        file_ids = [pmp_client.upload_local_file(draft.project_id, path) for path in paths]
-        create_carousel_publication(
+    try:
+        schedule_carousel_publications(
+            db,
+            user,
+            draft,
             pmp_client,
-            project_id=draft.project_id,
-            account_ids=account_ids,
-            post_at=normalize_utc_naive(post_at),
-            file_ids=file_ids,
-            content=draft.approved_text or draft.master_text,
+            manual_post_at=normalize_utc_naive(post_at),
         )
-    draft.status = "published"
-    db.commit()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logging.exception("Failed to schedule carousel draft %s", draft_id)
+        raise HTTPException(status_code=502, detail=f"Не удалось запланировать публикации: {exc}")
+    db.refresh(draft)
+    return draft
+
+
+@router.post("/{telegram_id}/{draft_id}/schedule", response_model=schemas.CarouselDraftOut)
+def auto_schedule_carousel(
+    telegram_id: str,
+    draft_id: int,
+    db: Session = Depends(get_db),
+):
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    draft = _get_draft(db, user.id, draft_id)
+    if draft.status != "ready" or not isinstance(draft.slides, dict):
+        raise HTTPException(status_code=400, detail="Карусель еще не готова")
+    try:
+        schedule_carousel_publications(db, user, draft, pmp_client)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logging.exception("Failed to auto-schedule carousel draft %s", draft_id)
+        raise HTTPException(status_code=502, detail=f"Не удалось запланировать публикации: {exc}")
     db.refresh(draft)
     return draft

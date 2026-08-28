@@ -272,3 +272,31 @@ class CarouselDraft(Base):
     telegram_reply_message_id = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+
+class CarouselPublication(Base):
+    __tablename__ = "carousel_publications"
+    __table_args__ = (
+        UniqueConstraint(
+            "draft_id",
+            "platform",
+            "account_id",
+            "format",
+            name="uq_carousel_publication_target",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    draft_id = Column(Integer, ForeignKey("carousel_drafts.id"), index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    project_id = Column(Integer, index=True, nullable=False)
+    platform = Column(String, nullable=False)
+    account_id = Column(Integer, index=True, nullable=False)
+    media_format = Column("format", String, nullable=False)
+    post_at = Column(DateTime, nullable=True, index=True)
+    publishing_status = Column(String, default="pending", nullable=False)
+    postmypost_id = Column(String, nullable=True, index=True)
+    file_ids = Column(JSON, nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

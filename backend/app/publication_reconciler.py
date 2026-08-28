@@ -54,6 +54,73 @@ def _release_local_reservation(task: models.VideoTask, reason: str) -> None:
     task.script_meta = meta
 
 
+def _release_carousel_reservation(row: models.CarouselPublication) -> None:
+    row.postmypost_id = None
+    row.post_at = None
+    row.publishing_status = "failed"
+
+
+def _reconcile_carousel_publications(db, user, account_ids, client, result) -> None:
+    rows = db.query(models.CarouselPublication).filter(
+        models.CarouselPublication.user_id == user.id,
+        models.CarouselPublication.account_id.in_(sorted(account_ids)),
+        models.CarouselPublication.publishing_status == "scheduled",
+    ).all()
+    now_utc = datetime.datetime.now(UTC).replace(microsecond=0)
+    for row in rows:
+        account_id = getattr(row, "account_id", None)
+        if account_id is None:
+            continue
+        result["checked"] += 1
+        if not row.postmypost_id or not row.post_at:
+            _release_carousel_reservation(row)
+            result["released"] += 1
+            continue
+        scheduled_at = (
+            row.post_at.replace(tzinfo=UTC)
+            if row.post_at.tzinfo is None
+            else row.post_at.astimezone(UTC)
+        )
+        if scheduled_at <= now_utc:
+            row.publishing_status = "published"
+            result["updated"] = result.get("updated", 0) + 1
+            result["retained"] += 1
+            continue
+        try:
+            payload = client.get_publication(int(row.postmypost_id), account_ids=[int(account_id)])
+            verify_publication_payload(
+                payload,
+                expected_post_at=row.post_at,
+                now_utc=now_utc,
+                minimum_lead=get_min_publish_lead_delta(),
+            )
+            result["retained"] += 1
+        except Exception as error:
+            if not _is_missing_provider_publication(error) and not isinstance(error, PublicationVerificationError):
+                result["errors"] += 1
+                logger.warning(
+                    "Could not reconcile carousel publication=%s; keeping local slot: %s",
+                    row.postmypost_id,
+                    error,
+                )
+                continue
+            try:
+                client.delete_publication(
+                    publication_id=int(row.postmypost_id),
+                    account_ids=[int(account_id)],
+                )
+            except Exception as delete_error:
+                result["errors"] += 1
+                logger.warning(
+                    "Could not delete invalid carousel publication=%s; keeping local slot: %s",
+                    row.postmypost_id,
+                    delete_error,
+                )
+                continue
+            _release_carousel_reservation(row)
+            result["released"] += 1
+
+
 def reconcile_scheduled_publications(
     db,
     user: models.User,
@@ -65,7 +132,7 @@ def reconcile_scheduled_publications(
     """Release local slots that are not backed by a valid PostMyPost record."""
     normalized_accounts = {int(account_id) for account_id in account_ids if account_id is not None}
     if not normalized_accounts or client is None:
-        return {"checked": 0, "released": 0, "retained": 0, "errors": 0}
+        return {"checked": 0, "released": 0, "retained": 0, "errors": 0, "updated": 0}
 
     tasks = db.query(models.VideoTask).filter(
         models.VideoTask.user_id == user.id,
@@ -74,7 +141,7 @@ def reconcile_scheduled_publications(
         models.VideoTask.publishing_status == "scheduled",
     ).all()
 
-    result = {"checked": 0, "released": 0, "retained": 0, "errors": 0}
+    result = {"checked": 0, "released": 0, "retained": 0, "errors": 0, "updated": 0}
     now_utc = datetime.datetime.now(UTC).replace(microsecond=0)
     for task in tasks:
         if _lane(task) != ("vizard" if lane == "vizard" else "instant"):
@@ -125,7 +192,10 @@ def reconcile_scheduled_publications(
             _release_local_reservation(task, type(error).__name__)
             result["released"] += 1
 
-    if result["released"]:
+    if lane != "vizard":
+        _reconcile_carousel_publications(db, user, normalized_accounts, client, result)
+
+    if result["released"] or result["updated"]:
         db.commit()
         logger.info("PostMyPost reconciliation: %s", result)
     return result

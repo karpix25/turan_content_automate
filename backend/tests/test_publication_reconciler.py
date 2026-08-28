@@ -61,16 +61,17 @@ class PublicationReconcilerTests(unittest.TestCase):
         )
 
     def test_releases_unconfirmed_and_invalid_slots_keeps_valid(self):
-        publish_at = datetime.datetime(2026, 8, 20, 9, 47)
+        publish_at = datetime.datetime.now() + datetime.timedelta(days=2)
+        publish_at = publish_at.replace(hour=12, minute=47, second=0, microsecond=0)
         missing_id = self.task(1, None, publish_at)
         invalid = self.task(2, 200, publish_at)
         valid = self.task(3, 300, publish_at)
         client = FakeClient(
             {
-                200: {"post_at": "2026-08-20T09:47:00Z"},
+                200: {"post_at": publish_at.strftime("%Y-%m-%dT%H:%M:%SZ")},
                 300: {
                     "publication_status": 5,
-                    "post_at": "2026-08-20T09:47:00Z",
+                    "post_at": publish_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
                 },
             }
         )

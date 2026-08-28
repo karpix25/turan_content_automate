@@ -177,6 +177,7 @@ celery_app.conf.update(
 
 # Import task module after celery_app is configured so the task is registered in the worker.
 from . import carousel_tasks  # noqa: E402,F401
+from . import carousel_publication_tasks  # noqa: E402,F401
 from . import reference_tasks  # noqa: E402,F401
 
 

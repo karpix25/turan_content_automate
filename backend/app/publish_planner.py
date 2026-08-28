@@ -249,23 +249,45 @@ def plan_next_publish_times_for_account_outputs(
             else []
         ),
     ).all()
+    carousel_rows = db.query(models.CarouselPublication).filter(
+        models.CarouselPublication.user_id == user.id,
+        models.CarouselPublication.account_id.in_(list(account_limits.keys())),
+        models.CarouselPublication.post_at.isnot(None),
+        models.CarouselPublication.publishing_status.in_(
+            ["scheduled", "in_progress", "published"]
+        ),
+        *(
+            [models.CarouselPublication.project_id == int(project_id)]
+            if project_id is not None
+            else []
+        ),
+    ).all()
 
     reserved_slots: dict[int, set[datetime.datetime]] = {}
     daily_counts: dict[tuple[int, datetime.date], int] = {}
     format_counts: dict[tuple[int, datetime.date, str], int] = {}
-    for row in occupied_rows:
+    for row in [*occupied_rows, *carousel_rows]:
+        account_id = getattr(row, "target_account_id", None)
+        if account_id is None:
+            account_id = getattr(row, "account_id", None)
+        publish_at = getattr(row, "publish_at", None) or getattr(row, "post_at", None)
         if (
-            row.id in excluded_ids
-            or row.publish_at is None
-            or row.target_account_id is None
+            (getattr(row, "target_account_id", None) is not None and row.id in excluded_ids)
+            or publish_at is None
             or not getattr(row, "postmypost_id", None)
+            or account_id is None
         ):
             continue
-        row_lane = "vizard" if _publication_lane_for_task(row) == "vizard" else "other"
-        account_id = int(row.target_account_id)
-        publish_utc = row.publish_at.replace(tzinfo=UTC) if row.publish_at.tzinfo is None else row.publish_at.astimezone(UTC)
+        row_lane = (
+            "vizard"
+            if getattr(row, "target_account_id", None) is not None
+            and _publication_lane_for_task(row) == "vizard"
+            else "other"
+        )
+        account_id = int(account_id)
+        publish_utc = publish_at.replace(tzinfo=UTC) if publish_at.tzinfo is None else publish_at.astimezone(UTC)
         publish_utc_naive = publish_utc.replace(tzinfo=None, microsecond=0)
-        day_msk = _task_publish_day_msk(row.publish_at)
+        day_msk = _task_publish_day_msk(publish_at)
         reserved_slots.setdefault(account_id, set()).add(publish_utc_naive)
         daily_key = (account_id, day_msk)
         daily_counts[daily_key] = daily_counts.get(daily_key, 0) + 1

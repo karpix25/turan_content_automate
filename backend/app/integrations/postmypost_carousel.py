@@ -2,12 +2,13 @@ import datetime
 from typing import Any
 
 
-def build_carousel_payload(
+def build_media_publication_payload(
     project_id: int,
     account_ids: list[int],
     post_at: datetime.datetime,
     file_ids: list[int],
     content: str,
+    publication_type: int = 1,
 ) -> dict[str, Any]:
     normalized_accounts = sorted({int(account_id) for account_id in account_ids})
     normalized_files = [int(file_id) for file_id in file_ids]
@@ -23,8 +24,7 @@ def build_carousel_payload(
         "details": [
             {
                 "account_id": account_id,
-                # PostMyPost API принимает несколько file_ids в обычном POST.
-                "publication_type": 1,
+                "publication_type": int(publication_type),
                 "file_ids": normalized_files,
                 "content": (content or "").strip(),
             }
@@ -33,7 +33,23 @@ def build_carousel_payload(
     }
 
 
-def create_carousel_publication(client, **kwargs: Any) -> dict[str, Any]:
-    payload = build_carousel_payload(**kwargs)
+def build_carousel_payload(
+    project_id: int,
+    account_ids: list[int],
+    post_at: datetime.datetime,
+    file_ids: list[int],
+    content: str,
+) -> dict[str, Any]:
+    return build_media_publication_payload(
+        project_id, account_ids, post_at, file_ids, content, publication_type=1
+    )
+
+
+def create_media_publication(client, **kwargs: Any) -> dict[str, Any]:
+    payload = build_media_publication_payload(**kwargs)
     response = client._request("POST", "/publications", json=payload)
     return client._unwrap_data(response)
+
+
+def create_carousel_publication(client, **kwargs: Any) -> dict[str, Any]:
+    return create_media_publication(client, publication_type=1, **kwargs)
