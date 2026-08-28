@@ -4,7 +4,7 @@ from collections.abc import Iterable
 
 import httpx
 
-from ..api.utils import get_telegram_admin_ids
+from ..api.utils import _parse_csv_env, get_telegram_admin_ids
 from ..utils.telegram_formatting import escape_markdown_v2, markdown_v2_code_block
 
 
@@ -15,8 +15,12 @@ def resolve_telegram_chat_id(value: str | None) -> str:
     chat_id = (value or "").strip()
     if chat_id.isdigit():
         return chat_id
-    configured = sorted(get_telegram_admin_ids(), key=int)
-    return configured[0] if configured else ""
+    configured = get_telegram_admin_ids()
+    primary = (os.getenv("TELEGRAM_PRIMARY_ADMIN_ID") or "").strip()
+    if primary.isdigit() and primary in configured:
+        return primary
+    ordered = [item for item in _parse_csv_env(os.getenv("TELEGRAM_ADMIN_IDS")) if item.isdigit()]
+    return ordered[0] if ordered else ""
 
 
 def send_carousel_text_review_to_telegram(draft) -> bool:

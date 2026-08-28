@@ -23,6 +23,13 @@ class TelegramFormattingTests(unittest.TestCase):
         with patch.dict(os.environ, {"TELEGRAM_ADMIN_IDS": "1354492516"}):
             self.assertEqual(resolve_telegram_chat_id("shared_admin"), "1354492516")
 
+    def test_primary_admin_overrides_other_configured_admins(self):
+        with patch.dict(os.environ, {
+            "TELEGRAM_ADMIN_IDS": "1354492516,38061745",
+            "TELEGRAM_PRIMARY_ADMIN_ID": "1354492516",
+        }):
+            self.assertEqual(resolve_telegram_chat_id("shared_admin"), "1354492516")
+
     def test_scheduling_confirmation_contains_carousel_and_story_dates(self):
         response = SimpleNamespace(status_code=200, json=lambda: {"ok": True})
         client = MagicMock()
