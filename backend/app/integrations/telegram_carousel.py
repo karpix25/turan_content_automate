@@ -1,5 +1,6 @@
 import logging
 import os
+from collections.abc import Iterable
 
 import httpx
 
@@ -67,6 +68,42 @@ def send_carousel_ready_to_telegram(draft) -> bool:
                 )
                 ok = sent and ok
     return ok
+
+
+def send_carousel_scheduled_to_telegram(draft, publications: Iterable) -> bool:
+    token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+    chat_id = resolve_telegram_chat_id(getattr(draft, "telegram_chat_id", None))
+    rows = list(publications or [])
+    if not token or not chat_id or not rows:
+        return False
+
+    labels = {"instagram": "Instagram", "tiktok": "TikTok", "vk": "ВКонтакте", "telegram": "Telegram"}
+    lines = [f"🗓 Запланированы публикации карусели #{getattr(draft, 'id', '')}", ""]
+    for media_format in ("carousel", "story"):
+        matching = [row for row in rows if getattr(row, "media_format", "") == media_format]
+        if not matching:
+            continue
+        title = "Карусель" if media_format == "carousel" else "Stories"
+        lines.append(f"{title}:")
+        for row in matching:
+            platform = labels.get(str(getattr(row, "platform", "")).lower(), getattr(row, "platform", ""))
+            post_at = getattr(row, "post_at", None)
+            date_text = post_at.strftime("%d.%m.%Y %H:%M UTC") if post_at else "время не указано"
+            lines.append(f"• {platform}, аккаунт {row.account_id} — {date_text}")
+        lines.append("")
+
+    message = "\n".join(lines).strip()
+    try:
+        with httpx.Client(timeout=httpx.Timeout(20.0, connect=5.0)) as client:
+            response = client.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat_id, "text": message},
+            )
+        payload = response.json()
+        return response.status_code < 400 and bool(payload.get("ok"))
+    except Exception as exc:
+        logger.warning("Failed to send carousel scheduling confirmation: %s", exc)
+        return False
 
 
 def _send_telegram_photo(token: str, chat_id: str, file_path: str, caption: str) -> tuple[bool, str]:

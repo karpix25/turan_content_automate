@@ -367,11 +367,12 @@ export const ChannelsTab: React.FC = () => {
 
       {selectedProjectId && (
         <ProjectCarouselCtaSettings
-          platforms={[...new Set(publishAccounts.map(account => {
+          platforms={[...new Set(publishAccounts.filter(account => account.enabled).map(account => {
             const code = (account.channel_code || '').toLowerCase();
             if (code.includes('instagram')) return 'instagram';
             if (code.includes('tiktok')) return 'tiktok';
             if (code.includes('vk') || code.includes('vkontakte')) return 'vk';
+            if (code.includes('telegram') || code.includes('tg')) return 'telegram';
             return '';
           }).filter(Boolean))]}
           carouselCtas={carouselCtas}

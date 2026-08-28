@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from .. import models
 from ..utils.media_utils import _resolve_media_file_path
 
-SUPPORTED_PLATFORMS = ("instagram", "tiktok", "vk")
+SUPPORTED_PLATFORMS = ("instagram", "tiktok", "vk", "telegram")
 DESIGN_PROFILES = {
     "carousel": {"width": 1080, "height": 1350, "ratio": "4:5", "min_words": 5, "max_words": 20, "max_slides": 5},
     "story": {"width": 1080, "height": 1920, "ratio": "9:16", "min_words": 3, "max_words": 12, "max_slides": 5},

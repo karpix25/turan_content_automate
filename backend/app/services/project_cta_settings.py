@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 
 from .. import models
 
-SUPPORTED_CAROUSEL_PLATFORMS = ("instagram", "tiktok", "vk")
+SUPPORTED_CAROUSEL_PLATFORMS = ("instagram", "tiktok", "vk", "telegram")
 
 
 def normalize_ctas(value: dict | None) -> dict[str, str]:

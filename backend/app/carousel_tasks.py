@@ -54,10 +54,19 @@ def generate_carousel_task(draft_id: int) -> None:
                 _generate_slide(generator, prompt, list(references), path, design_format)
 
             for platform in platforms:
-                final_prompt = final_prompts[platform]
-                final_path = str(destination / f"{design_format}-{platform}-final.png")
-                _generate_slide(generator, final_prompt, list(references), final_path, design_format)
-                target[platform] = shared_paths + [final_path]
+                account_ids = [int(account_id) for account_id in (draft.platform_accounts or {}).get(platform, [])]
+                for account_id in account_ids:
+                    variant_key = platform if len(account_ids) == 1 else f"{platform}:{account_id}"
+                    final_prompt = final_prompts[platform]
+                    if len(account_ids) > 1:
+                        final_prompt += (
+                            f" Это уникальный вариант для аккаунта {account_id}. "
+                            "Измени визуальную композицию и акцент финального слайда, "
+                            "но сохрани текст, стиль и CTA."
+                        )
+                    final_path = str(destination / f"{design_format}-{platform}-{account_id}-final.png")
+                    _generate_slide(generator, final_prompt, list(references), final_path, design_format)
+                    target[variant_key] = shared_paths + [final_path]
 
         if not generated or not story_generated:
             raise RuntimeError("Нет поддерживаемых социальных сетей для карусели")

@@ -48,6 +48,7 @@ def _normalize_platform_code(value: str | None) -> str:
         "medium",
         "pinterest",
         "odnoklassniki",
+        "telegram",
         "universal",
     }:
         return normalized
@@ -74,6 +75,8 @@ def _normalize_platform_code(value: str | None) -> str:
         return "pinterest"
     if "odnoklassniki" in normalized or {"ok", "odnoklassniki"} & tokens:
         return "odnoklassniki"
+    if "telegram" in normalized or {"tg", "telegram"} & tokens:
+        return "telegram"
 
     return "universal"
 

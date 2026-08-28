@@ -142,7 +142,7 @@ def _create_daily_draft(db, user: models.User, project_id: int, posts: list[mode
     ).first()
     if existing:
         return False
-    platform_accounts = resolve_project_platform_accounts(project_id, pmp_client)
+    platform_accounts = resolve_project_platform_accounts(project_id, pmp_client, db, user.id)
     if not platform_accounts:
         return False
     carousel_ctas, story_ctas = get_project_ctas(db, user.id, project_id)

@@ -16,6 +16,7 @@ SUPPORTED_PUBLICATION_FORMATS = {
     "instagram": ("carousel", "story"),
     "tiktok": ("carousel",),
     "vk": ("carousel", "story"),
+    "telegram": ("carousel", "story"),
 }
 
 
@@ -31,10 +32,11 @@ def _targets(draft: models.CarouselDraft) -> list[dict]:
         platform = str(platform).strip().lower()
         for media_format in SUPPORTED_PUBLICATION_FORMATS.get(platform, ()):
             slides = draft.slides if media_format == "carousel" else draft.story_slides
-            paths = (slides or {}).get(platform) or []
-            if not paths:
-                continue
             for account_id in account_ids or []:
+                variant_key = f"{platform}:{int(account_id)}"
+                paths = (slides or {}).get(variant_key) or (slides or {}).get(platform) or []
+                if not paths:
+                    continue
                 result.append({
                     "platform": platform,
                     "account_id": int(account_id),
@@ -174,4 +176,6 @@ def schedule_carousel_publications(
     draft.status = "scheduled"
     draft.error = None
     db.commit()
+    from .integrations.telegram_carousel import send_carousel_scheduled_to_telegram
+    send_carousel_scheduled_to_telegram(draft, result)
     return result

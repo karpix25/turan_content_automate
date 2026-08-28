@@ -12,6 +12,7 @@ const LABELS: Record<string, string> = {
   instagram: 'Instagram',
   tiktok: 'TikTok',
   vk: 'ВКонтакте',
+  telegram: 'Telegram',
 };
 
 export const ProjectCarouselCtaSettings: React.FC<Props> = ({
@@ -28,7 +29,7 @@ export const ProjectCarouselCtaSettings: React.FC<Props> = ({
         Один CTA на социальную сеть проекта. У одинаковых профилей сети CTA общий.
       </p>
     </div>
-    {(platforms.length ? platforms : ['instagram', 'tiktok', 'vk']).map(platform => (
+    {(platforms.length ? platforms : ['instagram', 'tiktok', 'vk', 'telegram']).map(platform => (
       <div key={platform} className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <label className="text-xs font-bold text-[#707579] uppercase tracking-wider">
           {LABELS[platform] || platform} — карусель

@@ -3,7 +3,7 @@ import unittest
 from types import SimpleNamespace
 
 from app import models
-from app.carousel_publication_service import schedule_carousel_publications
+from app.carousel_publication_service import _targets, schedule_carousel_publications
 
 
 class FakeQuery:
@@ -70,6 +70,25 @@ class FakeClient:
 
 
 class CarouselPublicationServiceTests(unittest.TestCase):
+    def test_duplicate_platform_accounts_use_account_specific_variants(self):
+        draft = models.CarouselDraft(
+            id=2,
+            platform_accounts={"instagram": [11, 12]},
+            slides={"instagram:11": ["ig-11"], "instagram:12": ["ig-12"]},
+            story_slides={"instagram:11": ["story-11"], "instagram:12": ["story-12"]},
+        )
+        targets = _targets(draft)
+        self.assertEqual(len(targets), 4)
+        self.assertEqual(
+            {(item["account_id"], item["format"], item["paths"][0]) for item in targets},
+            {
+                (11, "carousel", "ig-11"),
+                (12, "carousel", "ig-12"),
+                (11, "story", "story-11"),
+                (12, "story", "story-12"),
+            },
+        )
+
     def test_schedules_supported_formats_per_account_and_reuses_package_files(self):
         draft = models.CarouselDraft(
             id=1,

@@ -6,7 +6,7 @@ from .. import models
 from ..utils.platform_utils import _normalize_platform_code
 
 SUPPORTED_REFERENCE_PLATFORMS = {"youtube", "instagram", "tiktok"}
-TARGET_PLATFORMS = {"instagram", "tiktok", "vk"}
+TARGET_PLATFORMS = {"instagram", "tiktok", "vk", "telegram"}
 
 
 def normalize_reference_platform(value: str) -> str:
@@ -16,19 +16,34 @@ def normalize_reference_platform(value: str) -> str:
     return platform
 
 
-def resolve_project_platform_accounts(project_id: int, pmp_client) -> dict[str, list[int]]:
+def resolve_project_platform_accounts(
+    project_id: int,
+    pmp_client,
+    db=None,
+    user_id: int | None = None,
+) -> dict[str, list[int]]:
     accounts = pmp_client.get_accounts(project_id=project_id)
     channels = pmp_client.get_channels()
     channels_by_id = {int(item["id"]): item for item in channels if item.get("id") is not None}
+    active_account_ids: set[int] | None = None
+    if db is not None and user_id is not None:
+        active_rows = db.query(models.UserPublishChannel).filter(
+            models.UserPublishChannel.user_id == int(user_id),
+            models.UserPublishChannel.postmypost_project_id == int(project_id),
+        ).all()
+        active_account_ids = {int(row.account_id) for row in active_rows if row.enabled}
     result: dict[str, list[int]] = defaultdict(list)
     for account in accounts:
         if account.get("id") is None:
+            continue
+        account_id = int(account["id"])
+        if active_account_ids is not None and account_id not in active_account_ids:
             continue
         channel_id = account.get("chanel_id", account.get("channel_id"))
         channel = channels_by_id.get(int(channel_id)) if channel_id is not None else None
         platform = _normalize_platform_code((channel or {}).get("code") or (channel or {}).get("name"))
         if platform in TARGET_PLATFORMS:
-            result[platform].append(int(account["id"]))
+            result[platform].append(account_id)
     return {platform: sorted(set(ids)) for platform, ids in result.items()}
 
 

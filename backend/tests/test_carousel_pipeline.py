@@ -5,11 +5,50 @@ from app.integrations.postmypost_carousel import build_carousel_payload
 from app.services.carousel_pipeline import build_package_prompts, build_slide_prompts, split_master_text, suggest_package_slide_count
 from app.services.carousel_copy import build_reference_rewrite_prompt
 from app.services.project_cta_settings import normalize_ctas
-from app.services.reference_sources import extract_reference_post
+from app.services.reference_sources import extract_reference_post, resolve_project_platform_accounts
+from app.utils.platform_utils import _normalize_platform_code
 from app import models
 
 
 class CarouselPipelineTests(unittest.TestCase):
+    class _Query:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def filter(self, *_args):
+            return self
+
+        def all(self):
+            return list(self.rows)
+
+    class _Db:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def query(self, _model):
+            return CarouselPipelineTests._Query(self.rows)
+
+    class _Pmp:
+        def get_accounts(self, project_id):
+            self.project_id = project_id
+            return [
+                {"id": 11, "chanel_id": 1},
+                {"id": 12, "chanel_id": 1},
+                {"id": 13, "chanel_id": 2},
+            ]
+
+        def get_channels(self):
+            return [{"id": 1, "code": "instagram"}, {"id": 2, "code": "telegram"}]
+
+    def test_project_accounts_include_only_enabled_accounts_and_telegram(self):
+        rows = [models.UserPublishChannel(user_id=1, postmypost_project_id=7, account_id=11, enabled=True),
+                models.UserPublishChannel(user_id=1, postmypost_project_id=7, account_id=12, enabled=False),
+                models.UserPublishChannel(user_id=1, postmypost_project_id=7, account_id=13, enabled=True)]
+        self.assertEqual(
+            resolve_project_platform_accounts(7, self._Pmp(), self._Db(rows), 1),
+            {"instagram": [11], "telegram": [13]},
+        )
+
     def test_one_master_text_becomes_platform_specific_final_cta(self):
         text = "Первый тезис. Второй тезис. Третий тезис."
         prompts = build_slide_prompts(text, 3, "instagram", "Подпишись")
@@ -69,6 +108,12 @@ class CarouselPipelineTests(unittest.TestCase):
 
     def test_cta_settings_ignore_unsupported_platforms(self):
         self.assertEqual(normalize_ctas({"instagram": "Ок", "youtube": "Нет"}), {"instagram": "Ок"})
+
+    def test_telegram_is_supported_for_project_cta(self):
+        self.assertEqual(normalize_ctas({"telegram": "Читать канал"}), {"telegram": "Читать канал"})
+
+    def test_telegram_channel_code_is_normalized(self):
+        self.assertEqual(_normalize_platform_code("telegram_channel"), "telegram")
 
     def test_reference_post_normalization_keeps_fresh_metadata(self):
         channel = models.ReferenceChannel(

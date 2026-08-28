@@ -1,39 +1,20 @@
 import datetime
 import logging
-from collections import defaultdict
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from ... import models, schemas
 from ...core.config import celery_client, pmp_client
 from ...carousel_publication_service import schedule_carousel_publications
-from ...services.carousel_pipeline import SUPPORTED_PLATFORMS, resolve_reference_paths, suggest_package_slide_count
+from ...services.carousel_pipeline import resolve_reference_paths, suggest_package_slide_count
 from ...services.project_cta_settings import get_project_ctas
+from ...services.reference_sources import resolve_project_platform_accounts
 from ...integrations.telegram_carousel import send_carousel_text_review_to_telegram
-from ...utils.platform_utils import _normalize_platform_code
 from ...utils.postmypost_projects import resolve_user_postmypost_project_id
 from ..deps import ensure_admin_access, get_db, get_or_create_user
 from ..utils import normalize_utc_naive
 
 router = APIRouter(prefix="/carousels", tags=["carousels"])
-
-
-def _project_accounts(user: models.User, project_id: int) -> dict[str, list[int]]:
-    accounts = pmp_client.get_accounts(project_id=project_id)
-    channels = pmp_client.get_channels()
-    channels_by_id = {int(item["id"]): item for item in channels if item.get("id") is not None}
-    result: dict[str, list[int]] = defaultdict(list)
-    for account in accounts:
-        if account.get("id") is None:
-            continue
-        account_id = int(account["id"])
-        channel_id = account.get("chanel_id", account.get("channel_id"))
-        channel = channels_by_id.get(int(channel_id)) if channel_id is not None else None
-        platform = _normalize_platform_code((channel or {}).get("code") or (channel or {}).get("name"))
-        if platform in SUPPORTED_PLATFORMS:
-            result[platform].append(account_id)
-    return {platform: sorted(set(ids)) for platform, ids in result.items()}
 
 
 def _get_draft(db: Session, user_id: int, draft_id: int) -> models.CarouselDraft:
@@ -59,9 +40,9 @@ def create_carousel(
         raise HTTPException(status_code=400, detail="Текст карусели не может быть пустым")
     project_id = int(payload.project_id or resolve_user_postmypost_project_id(user, pmp_client))
     try:
-        platform_accounts = _project_accounts(user, project_id)
+        platform_accounts = resolve_project_platform_accounts(project_id, pmp_client, db, user.id)
         if not platform_accounts:
-            raise ValueError("В проекте нет подключенных Instagram, TikTok или VK аккаунтов")
+            raise ValueError("В проекте нет активных подключенных аккаунтов")
         reference_paths = resolve_reference_paths(
             db,
             user.id,
