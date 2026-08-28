@@ -13,7 +13,7 @@ from .services.carousel_pipeline import resolve_reference_paths, suggest_package
 from .services.project_cta_settings import get_project_ctas
 from .services.reference_sources import extract_reference_post, reference_post_content, resolve_project_platform_accounts
 from .integrations.deepgram_client import DeepgramClient
-from .telegram_progress import send_carousel_text_review_to_telegram
+from .integrations.telegram_carousel import resolve_telegram_chat_id, send_carousel_text_review_to_telegram
 from .integrations.scrape_creators import ScrapeCreatorsClient
 from .worker import celery_app
 
@@ -170,7 +170,7 @@ def _create_daily_draft(db, user: models.User, project_id: int, posts: list[mode
         ctas=carousel_ctas,
         story_ctas=story_ctas,
         source_post_ids=[post.id for post in posts],
-        telegram_chat_id=user.telegram_id,
+        telegram_chat_id=resolve_telegram_chat_id(user.telegram_id),
     )
     db.add(draft)
     db.commit()

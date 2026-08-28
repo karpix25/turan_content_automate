@@ -4,7 +4,7 @@ from . import models
 from .database import SessionLocal
 from .integrations.thumbnail_generator import ThumbnailGeneratorClient
 from .services.carousel_pipeline import build_package_prompts, normalize_design_image, output_dir
-from .telegram_progress import send_carousel_ready_to_telegram
+from .integrations.telegram_carousel import send_carousel_ready_to_telegram
 from .worker import celery_app
 
 logger = logging.getLogger(__name__)

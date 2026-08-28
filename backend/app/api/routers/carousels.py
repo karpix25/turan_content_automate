@@ -10,7 +10,7 @@ from ...core.config import celery_client, pmp_client
 from ...carousel_publication_service import schedule_carousel_publications
 from ...services.carousel_pipeline import SUPPORTED_PLATFORMS, resolve_reference_paths, suggest_package_slide_count
 from ...services.project_cta_settings import get_project_ctas
-from ...telegram_progress import send_carousel_text_review_to_telegram
+from ...integrations.telegram_carousel import send_carousel_text_review_to_telegram
 from ...utils.platform_utils import _normalize_platform_code
 from ...utils.postmypost_projects import resolve_user_postmypost_project_id
 from ..deps import ensure_admin_access, get_db, get_or_create_user
