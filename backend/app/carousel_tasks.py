@@ -11,6 +11,7 @@ from .services.carousel_pipeline import (
     output_dir,
     split_master_text,
 )
+from .services.carousel_copy import is_russian_text
 from .services.carousel_text_renderer import render_text_overlay
 from .integrations.telegram_carousel import send_carousel_ready_to_telegram
 from .worker import celery_app
@@ -57,6 +58,8 @@ def generate_carousel_task(draft_id: int) -> None:
         destination = output_dir(draft.id)
         destination.mkdir(parents=True, exist_ok=True)
         text = draft.approved_text or draft.master_text
+        if not is_russian_text(text):
+            raise RuntimeError("Текст карусели содержит латинские слова: генерация остановлена")
         generated: dict[str, list[str]] = {}
         story_generated: dict[str, list[str]] = {}
         for design_format, slide_count, references, ctas, target in (
@@ -93,6 +96,10 @@ def generate_carousel_task(draft_id: int) -> None:
                             "но сохрани текст, стиль и CTA."
                         )
                     final_path = str(destination / f"{design_format}-{platform}-{account_id}-final.png")
+                    safe_cta = limit_words(ctas.get(platform), 8)
+                    if safe_cta and not is_russian_text(safe_cta):
+                        logger.warning("Skipping non-Russian CTA for platform %s", platform)
+                        safe_cta = None
                     _generate_slide(
                         generator,
                         final_prompt,
@@ -100,7 +107,7 @@ def generate_carousel_task(draft_id: int) -> None:
                         final_path,
                         design_format,
                         slide_texts[-1],
-                        limit_words(ctas.get(platform), 8),
+                        safe_cta,
                     )
                     target[variant_key] = shared_paths + [final_path]
 
