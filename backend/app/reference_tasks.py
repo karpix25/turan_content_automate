@@ -12,6 +12,7 @@ from .services.carousel_copy import build_reference_rewrite_prompt, fallback_ref
 from .services.carousel_pipeline import resolve_reference_paths, suggest_package_slide_count
 from .services.project_cta_settings import get_project_ctas
 from .services.reference_sources import extract_reference_post, reference_post_content, resolve_project_platform_accounts
+from .services.reference_selection import pick_latest_unused_posts
 from .integrations.deepgram_client import DeepgramClient
 from .integrations.telegram_carousel import resolve_telegram_chat_id, send_carousel_text_review_to_telegram
 from .integrations.scrape_creators import ScrapeCreatorsClient
@@ -68,14 +69,21 @@ def _upsert_posts(db, channel: models.ReferenceChannel, items: list[dict]) -> li
     return result
 
 
-def _pick_top_posts(posts: list[models.ReferencePost]) -> list[models.ReferencePost]:
-    cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=14)
-    fresh = [post for post in posts if not post.published_at or post.published_at >= cutoff]
-    return sorted(
-        fresh,
-        key=lambda post: (post.view_count or 0, post.published_at or datetime.datetime.min),
-        reverse=True,
-    )[:3]
+def _used_reference_post_ids(db, user_id: int, project_id: int) -> set[int]:
+    used_ids: set[int] = set()
+    rows = db.query(models.CarouselDraft.source_post_ids).filter(
+        models.CarouselDraft.user_id == user_id,
+        models.CarouselDraft.project_id == project_id,
+    ).all()
+    for (source_post_ids,) in rows:
+        if not isinstance(source_post_ids, list):
+            continue
+        for source_post_id in source_post_ids:
+            try:
+                used_ids.add(int(source_post_id))
+            except (TypeError, ValueError):
+                continue
+    return used_ids
 
 
 def _download_transcript(url: str, deepgram: DeepgramClient) -> str:
@@ -202,7 +210,15 @@ def sync_reference_channels_task(user_id: int | None = None, project_id: int | N
             except Exception:
                 logger.exception("Failed to sync reference channel %s", channel.id)
         for (owner_id, owner_project_id), posts in grouped.items():
-            top_posts = _pick_top_posts(posts)
+            used_post_ids = _used_reference_post_ids(db, owner_id, owner_project_id)
+            top_posts = pick_latest_unused_posts(posts, used_post_ids)
+            logger.info(
+                "Reference selection project=%s profiles=%s used_posts=%s selected_posts=%s",
+                owner_project_id,
+                len({post.channel_id for post in posts}),
+                len(used_post_ids),
+                [post.id for post in top_posts],
+            )
             if len(top_posts) < 1:
                 continue
             user = db.query(models.User).filter(models.User.id == owner_id).first()
