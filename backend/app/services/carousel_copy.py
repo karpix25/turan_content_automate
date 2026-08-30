@@ -3,6 +3,12 @@ import re
 from .reference_sources import reference_post_content
 
 
+def is_russian_text(text: str | None) -> bool:
+    """Return True only when readable letters are Cyrillic (numbers are fine)."""
+    value = str(text or "")
+    return bool(re.search(r"[А-Яа-яЁё]", value)) and not bool(re.search(r"[A-Za-z]", value))
+
+
 def build_reference_rewrite_prompt(posts: list[dict], author_style: str | None) -> list[dict]:
     source_parts = []
     image_urls: list[str] = []
@@ -27,6 +33,8 @@ def build_reference_rewrite_prompt(posts: list[dict], author_style: str | None) 
             + "\n\nПравила: сохрани одну главную мысль исходных материалов; не добавляй бизнес,"
             " госзакупки, цифры, причины или выводы, которых нет в источнике; не выдавай"
             " догадки за факты. Если есть транскрипция, опирайся прежде всего на неё."
+            " Пиши только на русском языке кириллицей; переводи английские фразы из источника"
+            " по смыслу и не оставляй английские предложения, слова или латинские заголовки."
             " Если содержательного текста или транскрипции нет, верни ровно:"
             " НЕДОСТАТОЧНО ДАННЫХ ДЛЯ АНАЛИЗА."
             " Напиши 20–60 слов, чтобы одну мысль можно было раскрыть на 1–5 слайдах"
@@ -50,7 +58,11 @@ def build_reference_rewrite_prompt(posts: list[dict], author_style: str | None) 
 def fallback_reference_text(posts: list[dict]) -> str:
     pieces = []
     for post in posts:
-        text = re.sub(r"\s+", " ", str(post.get("body") or post.get("title") or "")).strip()
+        text = re.sub(
+            r"\s+",
+            " ",
+            str(post.get("transcript") or post.get("caption") or post.get("body") or post.get("title") or ""),
+        ).strip()
         if text:
             pieces.append(text)
     return "\n\n".join(pieces)[:3000]

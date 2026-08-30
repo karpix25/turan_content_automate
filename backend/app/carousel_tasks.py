@@ -3,14 +3,30 @@ import logging
 from . import models
 from .database import SessionLocal
 from .integrations.thumbnail_generator import ThumbnailGeneratorClient
-from .services.carousel_pipeline import build_package_prompts, normalize_design_image, output_dir
+from .services.carousel_pipeline import (
+    build_package_prompts,
+    get_design_profile,
+    limit_words,
+    normalize_design_image,
+    output_dir,
+    split_master_text,
+)
+from .services.carousel_text_renderer import render_text_overlay
 from .integrations.telegram_carousel import send_carousel_ready_to_telegram
 from .worker import celery_app
 
 logger = logging.getLogger(__name__)
 
 
-def _generate_slide(generator, prompt: str, references: list[str], output_path: str, design_format: str) -> str:
+def _generate_slide(
+    generator,
+    prompt: str,
+    references: list[str],
+    output_path: str,
+    design_format: str,
+    text: str,
+    cta: str | None,
+) -> str:
     result = generator.generate_image_from_references(
         prompt=prompt,
         reference_paths=references,
@@ -20,7 +36,14 @@ def _generate_slide(generator, prompt: str, references: list[str], output_path: 
     )
     if not result:
         raise RuntimeError(generator.get_last_error_message_ru() or f"KIE не создал слайд {output_path}")
-    return normalize_design_image(result, output_path, design_format)
+    normalized = normalize_design_image(result, output_path, design_format)
+    return render_text_overlay(
+        normalized,
+        output_path,
+        text=text,
+        cta=cta,
+        design_format=design_format,
+    )
 
 
 @celery_app.task(name="generate_carousel_task", soft_time_limit=3600, time_limit=3900)
@@ -40,6 +63,11 @@ def generate_carousel_task(draft_id: int) -> None:
             ("carousel", draft.slide_count, draft.reference_paths, draft.ctas, generated),
             ("story", draft.story_slide_count, draft.story_reference_paths or draft.reference_paths, draft.story_ctas, story_generated),
         ):
+            profile = get_design_profile(design_format)
+            slide_texts = [
+                limit_words(part, profile["max_words"])
+                for part in split_master_text(text, slide_count, profile["max_words"])
+            ]
             if not references:
                 raise RuntimeError(f"Не найден дизайн-референс для формата {design_format}")
             platforms = list(draft.platform_accounts or {})
@@ -50,8 +78,8 @@ def generate_carousel_task(draft_id: int) -> None:
                 str(destination / f"{design_format}-shared-{index}.png")
                 for index in range(1, len(shared_prompts) + 1)
             ]
-            for prompt, path in zip(shared_prompts, shared_paths):
-                _generate_slide(generator, prompt, list(references), path, design_format)
+            for prompt, path, slide_text in zip(shared_prompts, shared_paths, slide_texts[:-1]):
+                _generate_slide(generator, prompt, list(references), path, design_format, slide_text, None)
 
             for platform in platforms:
                 account_ids = [int(account_id) for account_id in (draft.platform_accounts or {}).get(platform, [])]
@@ -65,7 +93,15 @@ def generate_carousel_task(draft_id: int) -> None:
                             "но сохрани текст, стиль и CTA."
                         )
                     final_path = str(destination / f"{design_format}-{platform}-{account_id}-final.png")
-                    _generate_slide(generator, final_prompt, list(references), final_path, design_format)
+                    _generate_slide(
+                        generator,
+                        final_prompt,
+                        list(references),
+                        final_path,
+                        design_format,
+                        slide_texts[-1],
+                        limit_words(ctas.get(platform), 8),
+                    )
                     target[variant_key] = shared_paths + [final_path]
 
         if not generated or not story_generated:
