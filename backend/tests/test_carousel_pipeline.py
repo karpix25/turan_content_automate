@@ -1,14 +1,9 @@
 import datetime
-import tempfile
 import unittest
-from pathlib import Path
-
-from PIL import Image, ImageDraw, ImageFont
 
 from app.integrations.postmypost_carousel import build_carousel_payload
 from app.services.carousel_pipeline import build_package_prompts, build_slide_prompts, split_master_text, suggest_package_slide_count
 from app.services.carousel_copy import build_reference_rewrite_prompt, is_russian_text
-from app.services.carousel_text_renderer import render_text_overlay, wrap_text
 from app.services.project_cta_settings import normalize_ctas
 from app.services.reference_sources import extract_reference_post, resolve_project_platform_accounts
 from app.utils.platform_utils import _normalize_platform_code
@@ -59,8 +54,8 @@ class CarouselPipelineTests(unittest.TestCase):
         prompts = build_slide_prompts(text, 3, "instagram", "Подпишись")
         self.assertEqual(len(prompts), 3)
         self.assertNotIn("Подпишись", prompts[0])
-        self.assertNotIn("Подпишись", prompts[-1])
-        self.assertIn("CTA НЕ рендерить", prompts[-1])
+        self.assertIn("Подпишись", prompts[-1])
+        self.assertIn("отрисуй CTA дословно", prompts[-1])
 
     def test_split_text_respects_safe_slide_limit(self):
         slides = split_master_text("Один. Два. Три. Четыре.", 20)
@@ -71,37 +66,14 @@ class CarouselPipelineTests(unittest.TestCase):
         prompts = build_slide_prompts("раз два три четыре пять шесть семь восемь девять десять", 2, "instagram", "Смотри подробнее", "story")
         self.assertIn("1080x1920", prompts[0])
         self.assertIn("не больше 12 слов", prompts[0])
-        self.assertIn("весь русский текст будет наложен программно", prompts[0])
-        self.assertIn("текст НЕ рендерить", prompts[0])
+        self.assertIn("весь текст отрисуй непосредственно внутри него", prompts[0])
+        self.assertIn("не разрывай слова", prompts[0])
+        self.assertNotIn("будет наложен программно", prompts[0])
 
     def test_russian_copy_rejects_latin_words(self):
         self.assertTrue(is_russian_text("Текст для пяти слайдов 5"))
         self.assertFalse(is_russian_text("Русский text"))
         self.assertFalse(is_russian_text("English text"))
-
-    def test_text_wrap_keeps_words_and_one_letter_words_together(self):
-        image = Image.new("RGB", (500, 200))
-        draw = ImageDraw.Draw(image)
-        font = ImageFont.load_default()
-        lines = wrap_text(draw, "Это и важный текст для слайда", font, 100)
-        self.assertTrue(all(line.strip() for line in lines))
-        self.assertTrue(all(line.strip() != "и" for line in lines))
-        self.assertEqual(" ".join(lines).replace("\u00a0", " "), "Это и важный текст для слайда")
-
-    def test_text_overlay_has_fixed_canvas_size(self):
-        with tempfile.TemporaryDirectory() as directory:
-            source_path = Path(directory) / "source.png"
-            output_path = Path(directory) / "output.png"
-            Image.new("RGB", (1080, 1350), (180, 210, 180)).save(source_path)
-            render_text_overlay(
-                str(source_path),
-                str(output_path),
-                text="Это точный русский текст без разрывов",
-                cta="Подпишись",
-                design_format="carousel",
-            )
-            with Image.open(output_path) as result:
-                self.assertEqual(result.size, (1080, 1350))
 
     def test_package_count_fits_both_formats(self):
         self.assertEqual(suggest_package_slide_count("Один короткий тезис."), 1)
@@ -128,9 +100,9 @@ class CarouselPipelineTests(unittest.TestCase):
         self.assertEqual(len(shared), 2)
         self.assertEqual(set(finals), {"instagram", "vk"})
         self.assertTrue(all("CTA не добавляй" in prompt for prompt in shared))
-        self.assertNotIn("Смотри Instagram", finals["instagram"])
-        self.assertNotIn("Переходи в VK", finals["vk"])
-        self.assertIn("CTA НЕ рендерить", finals["instagram"])
+        self.assertIn("Смотри Instagram", finals["instagram"])
+        self.assertIn("Переходи в VK", finals["vk"])
+        self.assertIn("В нижней части слайда отрисуй CTA дословно", finals["instagram"])
 
     def test_package_reuses_custom_image_instructions_on_all_slides(self):
         shared, finals = build_package_prompts(

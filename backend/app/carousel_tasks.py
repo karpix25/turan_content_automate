@@ -5,14 +5,11 @@ from .database import SessionLocal
 from .integrations.thumbnail_generator import ThumbnailGeneratorClient
 from .services.carousel_pipeline import (
     build_package_prompts,
-    get_design_profile,
     limit_words,
     normalize_design_image,
     output_dir,
-    split_master_text,
 )
 from .services.carousel_copy import is_russian_text
-from .services.carousel_text_renderer import render_text_overlay
 from .services.project_cta_settings import get_project_image_prompt
 from .integrations.telegram_carousel import send_carousel_ready_to_telegram
 from .worker import celery_app
@@ -26,8 +23,6 @@ def _generate_slide(
     references: list[str],
     output_path: str,
     design_format: str,
-    text: str,
-    cta: str | None,
 ) -> str:
     result = generator.generate_image_from_references(
         prompt=prompt,
@@ -38,14 +33,7 @@ def _generate_slide(
     )
     if not result:
         raise RuntimeError(generator.get_last_error_message_ru() or f"KIE не создал слайд {output_path}")
-    normalized = normalize_design_image(result, output_path, design_format)
-    return render_text_overlay(
-        normalized,
-        output_path,
-        text=text,
-        cta=cta,
-        design_format=design_format,
-    )
+    return normalize_design_image(result, output_path, design_format)
 
 
 @celery_app.task(name="generate_carousel_task", soft_time_limit=3600, time_limit=3900)
@@ -68,28 +56,30 @@ def generate_carousel_task(draft_id: int) -> None:
             ("carousel", draft.slide_count, draft.reference_paths, draft.ctas, generated),
             ("story", draft.story_slide_count, draft.story_reference_paths or draft.reference_paths, draft.story_ctas, story_generated),
         ):
-            profile = get_design_profile(design_format)
-            slide_texts = [
-                limit_words(part, profile["max_words"])
-                for part in split_master_text(text, slide_count, profile["max_words"])
-            ]
             if not references:
                 raise RuntimeError(f"Не найден дизайн-референс для формата {design_format}")
             platforms = list(draft.platform_accounts or {})
+            safe_ctas = {}
+            for platform in platforms:
+                safe_cta = limit_words(ctas.get(platform), 8)
+                if safe_cta and not is_russian_text(safe_cta):
+                    logger.warning("Skipping non-Russian CTA for platform %s", platform)
+                    safe_cta = None
+                safe_ctas[platform] = safe_cta or ""
             shared_prompts, final_prompts = build_package_prompts(
                 text,
                 slide_count,
                 design_format,
                 platforms,
-                ctas or {},
+                safe_ctas,
                 image_instructions,
             )
             shared_paths = [
                 str(destination / f"{design_format}-shared-{index}.png")
                 for index in range(1, len(shared_prompts) + 1)
             ]
-            for prompt, path, slide_text in zip(shared_prompts, shared_paths, slide_texts[:-1]):
-                _generate_slide(generator, prompt, list(references), path, design_format, slide_text, None)
+            for prompt, path in zip(shared_prompts, shared_paths):
+                _generate_slide(generator, prompt, list(references), path, design_format)
 
             for platform in platforms:
                 account_ids = [int(account_id) for account_id in (draft.platform_accounts or {}).get(platform, [])]
@@ -103,18 +93,12 @@ def generate_carousel_task(draft_id: int) -> None:
                             "но сохрани текст, стиль и CTA."
                         )
                     final_path = str(destination / f"{design_format}-{platform}-{account_id}-final.png")
-                    safe_cta = limit_words(ctas.get(platform), 8)
-                    if safe_cta and not is_russian_text(safe_cta):
-                        logger.warning("Skipping non-Russian CTA for platform %s", platform)
-                        safe_cta = None
                     _generate_slide(
                         generator,
                         final_prompt,
                         list(references),
                         final_path,
                         design_format,
-                        slide_texts[-1],
-                        safe_cta,
                     )
                     target[variant_key] = shared_paths + [final_path]
 
