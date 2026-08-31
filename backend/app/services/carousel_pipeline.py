@@ -59,14 +59,26 @@ def suggest_package_slide_count(text: str) -> int:
     return max(suggest_slide_count(text, "carousel"), suggest_slide_count(text, "story"))
 
 
+def build_master_image_prompt(image_instructions: str | None = None) -> str:
+    prompt = (
+        "Общий визуальный мастер-промт всей серии: выдерживай один визуальный язык, "
+        "палитру, типографическую и композиционную логику на всех слайдах; "
+        "изменяй только визуальную сцену, которая поддерживает смысл конкретного слайда."
+    )
+    instructions = (image_instructions or "").strip()
+    return f"{prompt} Дополнительные инструкции пользователя: {instructions}" if instructions else prompt
+
+
 def build_slide_prompts(
     master_text: str,
     slide_count: int,
     platform: str,
     cta: str,
     design_format: str = "carousel",
+    image_instructions: str | None = None,
 ) -> list[str]:
     profile = get_design_profile(design_format)
+    master_prompt = build_master_image_prompt(image_instructions)
     parts = split_master_text(master_text, min(slide_count, profile["max_slides"]), profile["max_words"])
     prompts = []
     for index, part in enumerate(parts, start=1):
@@ -76,6 +88,7 @@ def build_slide_prompts(
         prompts.append(
             "Создай один слайд формата {format_name} размером ровно {width}x{height} px, "
             "соотношение сторон {ratio}, для {platform}. "
+            "{master_prompt} "
             "Сохрани стиль референсов и сделай чистую композицию с большим свободным местом "
             "под точный текстовый слой. Генератор создаёт только фон и визуальные элементы. "
             "Не рисуй и не добавляй никакие буквы, слова, цифры, подписи, логотипы, водяные знаки "
@@ -88,6 +101,7 @@ def build_slide_prompts(
                 height=profile["height"],
                 ratio=profile["ratio"],
                 platform=platform,
+                master_prompt=master_prompt,
                 text=slide_text,
                 max_words=profile["max_words"],
                 cta=("Оставь место под CTA в нижней части панели; сам CTA НЕ рендерить." if safe_cta else "CTA не добавляй."),
@@ -102,10 +116,25 @@ def build_package_prompts(
     design_format: str,
     platforms: list[str],
     ctas: dict[str, str],
+    image_instructions: str | None = None,
 ) -> tuple[list[str], dict[str, str]]:
-    shared = build_slide_prompts(master_text, slide_count, "всех социальных сетей", "", design_format)
+    shared = build_slide_prompts(
+        master_text,
+        slide_count,
+        "всех социальных сетей",
+        "",
+        design_format,
+        image_instructions,
+    )
     finals = {
-        platform: build_slide_prompts(master_text, slide_count, platform, ctas.get(platform, ""), design_format)[-1]
+        platform: build_slide_prompts(
+            master_text,
+            slide_count,
+            platform,
+            ctas.get(platform, ""),
+            design_format,
+            image_instructions,
+        )[-1]
         for platform in platforms
     }
     return shared[:-1], finals

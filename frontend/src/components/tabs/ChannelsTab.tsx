@@ -8,6 +8,7 @@ import { useTelegram } from '../../context/TelegramContext';
 import { EndingClip, PublishAccount } from '../../types';
 import { ChannelAccountCard } from './channels/ChannelAccountCard';
 import { ProjectCarouselCtaSettings } from './channels/ProjectCarouselCtaSettings';
+import { ProjectCarouselImagePrompt } from './channels/ProjectCarouselImagePrompt';
 import { ReferenceChannelLibrary } from './channels/ReferenceChannelLibrary';
 import { DesignReferenceLibrary } from './channels/DesignReferenceLibrary';
 
@@ -27,6 +28,7 @@ export const ChannelsTab: React.FC = () => {
   const [projectOtherFormatsLimit, setProjectOtherFormatsLimit] = useState(3);
   const [carouselCtas, setCarouselCtas] = useState<Record<string, string>>({});
   const [storyCtas, setStoryCtas] = useState<Record<string, string>>({});
+  const [carouselImagePrompt, setCarouselImagePrompt] = useState('');
   const [selectedPlateIdsByAccount, setSelectedPlateIdsByAccount] = useState<Record<number, number[]>>({});
   const [plateStartPercentByAccount, setPlateStartPercentByAccount] = useState<Record<number, number>>({});
   const [collapsedAccounts, setCollapsedAccounts] = useState<Record<number, boolean>>({});
@@ -123,6 +125,7 @@ export const ChannelsTab: React.FC = () => {
     setProjectOtherFormatsLimit(Math.min(selectedProject?.other_formats_limit_per_day ?? total - vizard, total - vizard));
     setCarouselCtas(selectedProject?.carousel_ctas || {});
     setStoryCtas(selectedProject?.story_ctas || {});
+    setCarouselImagePrompt(selectedProject?.carousel_image_prompt || '');
   }, [selectedProjectId, selectedProject]);
 
   const buildChannelSettingsPayload = (
@@ -143,7 +146,11 @@ export const ChannelsTab: React.FC = () => {
         publish_limit_per_day: projectPublishLimit,
         vizard_limit_per_day: projectVizardLimit,
         other_formats_limit_per_day: projectOtherFormatsLimit,
-      }, { carousel_ctas: carouselCtas, story_ctas: storyCtas });
+      }, {
+        carousel_ctas: carouselCtas,
+        story_ctas: storyCtas,
+        carousel_image_prompt: carouselImagePrompt,
+      });
       const data = await apiClient.updateChannels(telegramId, selectedProjectId, buildChannelSettingsPayload());
       applyChannelsData(data);
       await refreshProjects();
@@ -380,6 +387,10 @@ export const ChannelsTab: React.FC = () => {
           onCarouselChange={(platform, value) => setCarouselCtas(prev => ({ ...prev, [platform]: value }))}
           onStoryChange={(platform, value) => setStoryCtas(prev => ({ ...prev, [platform]: value }))}
         />
+      )}
+
+      {selectedProjectId && (
+        <ProjectCarouselImagePrompt value={carouselImagePrompt} onChange={setCarouselImagePrompt} />
       )}
 
       {selectedProjectId && <ReferenceChannelLibrary telegramId={telegramId} projectId={selectedProjectId} />}

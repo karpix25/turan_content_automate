@@ -132,6 +132,18 @@ class CarouselPipelineTests(unittest.TestCase):
         self.assertNotIn("Переходи в VK", finals["vk"])
         self.assertIn("CTA НЕ рендерить", finals["instagram"])
 
+    def test_package_reuses_custom_image_instructions_on_all_slides(self):
+        shared, finals = build_package_prompts(
+            "Первый тезис. Второй тезис. Третий тезис.",
+            3,
+            "carousel",
+            ["instagram", "vk"],
+            {},
+            "Единая зелёная палитра и мягкий свет",
+        )
+        self.assertTrue(all("Единая зелёная палитра и мягкий свет" in prompt for prompt in shared))
+        self.assertTrue(all("Единая зелёная палитра и мягкий свет" in prompt for prompt in finals.values()))
+
     def test_payload_keeps_one_caption_and_many_files(self):
         payload = build_carousel_payload(
             project_id=7,

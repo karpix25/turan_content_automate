@@ -244,6 +244,7 @@ class PostMyPostProjectSetting(Base):
     instagram_post_5s_image_prompt = Column(String, nullable=True)
     carousel_ctas = Column(JSON, nullable=True)
     story_ctas = Column(JSON, nullable=True)
+    carousel_image_prompt = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 

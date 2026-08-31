@@ -18,7 +18,12 @@ from ...services.video_uniqueization import (
     normalize_uniqueization_mode,
     set_project_uniqueization_mode,
 )
-from ...services.project_cta_settings import get_project_ctas, set_project_ctas
+from ...services.project_cta_settings import (
+    get_project_ctas,
+    get_project_image_prompt,
+    set_project_ctas,
+    set_project_image_prompt,
+)
 from ..deps import get_db, ensure_admin_access, get_or_create_user
 from ..utils import normalize_percent
 
@@ -67,7 +72,11 @@ def build_project_out(
         other_formats_limit_per_day=project_limits["other"],
     )
     carousel_ctas, story_ctas = get_project_ctas(db, user_id, int(normalized_project["id"]))
-    normalized_project.update(carousel_ctas=carousel_ctas, story_ctas=story_ctas)
+    normalized_project.update(
+        carousel_ctas=carousel_ctas,
+        story_ctas=story_ctas,
+        carousel_image_prompt=get_project_image_prompt(db, user_id, int(normalized_project["id"])),
+    )
     return schemas.PostMyPostProjectOut(**normalized_project)
 
 def get_user_channel_row_map(db: Session, user_id: int, project_id: int) -> dict[int, models.UserPublishChannel]:
@@ -350,6 +359,13 @@ def update_postmypost_project(
                 project_id=selected_project_id,
                 carousel_ctas=payload.carousel_ctas,
                 story_ctas=payload.story_ctas,
+            )
+        if payload.carousel_image_prompt is not None:
+            set_project_image_prompt(
+                db,
+                user_id=user.id,
+                project_id=selected_project_id,
+                value=payload.carousel_image_prompt,
             )
         selected_mode = get_project_uniqueization_mode(db, user.id, selected_project_id)
         disable_accounts_absent_from_project(db, user.id, valid_account_ids, selected_project_id)
