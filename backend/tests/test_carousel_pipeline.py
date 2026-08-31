@@ -4,6 +4,7 @@ import unittest
 from app.integrations.postmypost_carousel import build_carousel_payload
 from app.services.carousel_pipeline import build_package_prompts, build_slide_prompts, normalize_master_text, split_master_text, suggest_package_slide_count
 from app.services.carousel_copy import build_reference_rewrite_prompt, is_russian_text, strip_source_cta
+from app.services.design_composition import analyze_design_composition, build_design_composition_analysis_prompt
 from app.services.project_cta_settings import normalize_ctas
 from app.services.reference_sources import extract_reference_post, resolve_project_platform_accounts
 from app.utils.platform_utils import _normalize_platform_code
@@ -84,16 +85,34 @@ class CarouselPipelineTests(unittest.TestCase):
         self.assertIn("не разрывай слова", prompts[0])
         self.assertIn("Не используй нумерованные списки", prompts[0])
         self.assertIn("весь текст слайда целиком", prompts[0])
-        self.assertIn("заголовок начинается на одной высоте около 23% кадра", prompts[0])
-        self.assertIn("основной текст начинается на одной высоте около 43% кадра", prompts[0])
+        self.assertIn("самостоятельно определи по референсу положение заголовка", prompts[0])
+        self.assertNotIn("около 23% кадра", prompts[0])
         self.assertIn("Исходный CTA и любой текст с дизайн-референса считать чужими", prompts[0])
         self.assertNotIn("будет наложен программно", prompts[0])
 
-    def test_carousel_prompt_uses_fixed_composition_grid(self):
+    def test_carousel_prompt_uses_reference_derived_grid(self):
         prompt = build_slide_prompts("Заголовок. Основной текст.", 2, "vk", "Подпишись")[0]
-        self.assertIn("заголовок начинается на одной высоте около 8% кадра", prompt)
-        self.assertIn("основной текст начинается на одной высоте около 36% кадра", prompt)
-        self.assertIn("CTA, если он задан, находится в одной нижней зоне около 87% кадра", prompt)
+        self.assertIn("самостоятельно определи по референсу положение заголовка", prompt)
+        self.assertNotIn("около 8% кадра", prompt)
+
+    def test_composition_contract_is_reused_in_every_slide_prompt(self):
+        contract = '{"heading":{"top":"12%"},"body":{"top":"38%"},"cta":{"bottom":"8%"}}'
+        prompts = build_slide_prompts("Заголовок. Основной текст. Ещё текст.", 3, "vk", "Подпишись", composition_contract=contract)
+        self.assertEqual(len(prompts), 3)
+        self.assertTrue(all(contract in prompt for prompt in prompts))
+
+    def test_design_composition_analysis_returns_compact_contract(self):
+        class FakeLlm:
+            def _complete(self, messages, temperature):
+                self.messages = messages
+                self.temperature = temperature
+                return '```json\n{"heading":{"top":"12%"}}\n```'
+
+        client = FakeLlm()
+        contract = analyze_design_composition(client, ["https://example.com/reference.png"], "carousel")
+        self.assertEqual(contract, '{"heading":{"top":"12%"}}')
+        self.assertEqual(client.temperature, 0.1)
+        self.assertEqual(len(build_design_composition_analysis_prompt("carousel", ["https://example.com/reference.png"])), 2)
 
     def test_source_cta_is_removed_before_slide_composition(self):
         text = "Первый тезис. Остальные 7 мест у меня в Телеграм. Второй тезис."

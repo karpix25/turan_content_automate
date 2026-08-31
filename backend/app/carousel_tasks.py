@@ -1,6 +1,7 @@
 import logging
 
 from . import models
+from .core.config import llm
 from .database import SessionLocal
 from .integrations.thumbnail_generator import ThumbnailGeneratorClient
 from .services.carousel_pipeline import (
@@ -11,6 +12,7 @@ from .services.carousel_pipeline import (
 )
 from .services.carousel_copy import is_russian_text
 from .services.project_cta_settings import get_project_image_prompt
+from .services.design_composition import analyze_design_composition
 from .integrations.telegram_carousel import send_carousel_ready_to_telegram
 from .worker import celery_app
 
@@ -58,6 +60,14 @@ def generate_carousel_task(draft_id: int) -> None:
         ):
             if not references:
                 raise RuntimeError(f"Не найден дизайн-референс для формата {design_format}")
+            reference_urls = []
+            for index, reference in enumerate(references, start=1):
+                public_url = reference if str(reference).startswith(("http://", "https://")) else generator._ensure_public_url(
+                    str(reference), prefix=f"composition_{design_format}_{index}"
+                )
+                if public_url and public_url not in reference_urls:
+                    reference_urls.append(public_url)
+            composition_contract = analyze_design_composition(llm, reference_urls, design_format)
             platforms = list(draft.platform_accounts or {})
             safe_ctas = {}
             for platform in platforms:
@@ -73,6 +83,7 @@ def generate_carousel_task(draft_id: int) -> None:
                 platforms,
                 safe_ctas,
                 image_instructions,
+                composition_contract,
             )
             shared_paths = [
                 str(destination / f"{design_format}-shared-{index}.png")

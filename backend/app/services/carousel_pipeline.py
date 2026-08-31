@@ -122,23 +122,20 @@ def suggest_package_slide_count(text: str) -> int:
     return max(suggest_slide_count(text, "carousel"), suggest_slide_count(text, "story"))
 
 
-def build_master_image_prompt(image_instructions: str | None = None, design_format: str = "carousel") -> str:
+def build_master_image_prompt(
+    image_instructions: str | None = None,
+    design_format: str = "carousel",
+    composition_contract: str | None = None,
+) -> str:
     profile = get_design_profile(design_format)
-    if design_format == "story":
-        heading_zone = "заголовок начинается на одной высоте около 23% кадра"
-        body_zone = "основной текст начинается на одной высоте около 43% кадра"
-        cta_zone = "CTA, если он задан, находится в одной нижней зоне около 86% кадра"
-    else:
-        heading_zone = "заголовок начинается на одной высоте около 8% кадра"
-        body_zone = "основной текст начинается на одной высоте около 36% кадра"
-        cta_zone = "CTA, если он задан, находится в одной нижней зоне около 87% кадра"
+    reference_contract = (composition_contract or "").strip()
     prompt = (
         "Общий визуальный мастер-промт всей серии: выдерживай один визуальный язык, "
         "палитру, типографическую и композиционную логику на всех слайдах; "
         "изменяй только визуальную сцену, которая поддерживает смысл конкретного слайда. "
-        f"Формат серии — {profile['ratio']}. Фиксированная сетка обязательна: "
-        f"{heading_zone}; основной текст выровнен по той же левой границе и ширине блока; "
-        f"{body_zone}; {cta_zone}. "
+        f"Формат серии — {profile['ratio']}. Сначала опирайся на геометрию переданного дизайн-референса. "
+        "Один и тот же паспорт композиции ниже обязателен для всех слайдов серии: "
+        f"{reference_contract or 'самостоятельно определи по референсу положение заголовка, основного текста, CTA, отступы и безопасные зоны, а затем сохраняй их неизменными'}. "
         "Не центрируй каждый слайд заново и не сдвигай текст из-за разного объёма: "
         "меняй только размер шрифта и число строк внутри тех же зон. "
         "Каждый слайд собирай из двух текстовых блоков: первая короткая фраза или название пункта — заголовок, "
@@ -159,9 +156,10 @@ def build_slide_prompts(
     cta: str,
     design_format: str = "carousel",
     image_instructions: str | None = None,
+    composition_contract: str | None = None,
 ) -> list[str]:
     profile = get_design_profile(design_format)
-    master_prompt = build_master_image_prompt(image_instructions, design_format)
+    master_prompt = build_master_image_prompt(image_instructions, design_format, composition_contract)
     parts = split_master_text(master_text, min(slide_count, profile["max_slides"]), profile["max_words"])
     prompts = []
     for index, part in enumerate(parts, start=1):
@@ -210,6 +208,7 @@ def build_package_prompts(
     platforms: list[str],
     ctas: dict[str, str],
     image_instructions: str | None = None,
+    composition_contract: str | None = None,
 ) -> tuple[list[str], dict[str, str]]:
     shared = build_slide_prompts(
         master_text,
@@ -218,6 +217,7 @@ def build_package_prompts(
         "",
         design_format,
         image_instructions,
+        composition_contract,
     )
     finals = {
         platform: build_slide_prompts(
@@ -227,6 +227,7 @@ def build_package_prompts(
             ctas.get(platform, ""),
             design_format,
             image_instructions,
+            composition_contract,
         )[-1]
         for platform in platforms
     }
