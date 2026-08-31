@@ -100,6 +100,8 @@ class CarouselPipelineTests(unittest.TestCase):
         prompts = build_slide_prompts("Заголовок. Основной текст. Ещё текст.", 3, "vk", "Подпишись", composition_contract=contract)
         self.assertEqual(len(prompts), 3)
         self.assertTrue(all(contract in prompt for prompt in prompts))
+        self.assertTrue(all("невидимая техническая разметка" in prompt for prompt in prompts))
+        self.assertTrue(all("заменено на маркер «•»" in prompt for prompt in prompts))
 
     def test_design_composition_analysis_returns_compact_contract(self):
         class FakeLlm:
