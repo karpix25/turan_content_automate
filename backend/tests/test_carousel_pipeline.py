@@ -3,6 +3,7 @@ import unittest
 
 from app.integrations.postmypost_carousel import build_carousel_payload
 from app.services.carousel_pipeline import build_package_prompts, build_slide_prompts, normalize_master_text, split_master_text, suggest_package_slide_count
+from app.services.carousel_layout import build_layout_instruction, build_slide_text_spec, parse_text_slots, split_slide_content
 from app.services.carousel_copy import build_reference_rewrite_prompt, is_russian_text, strip_source_cta
 from app.services.design_composition import analyze_design_composition, build_design_composition_analysis_prompt
 from app.services.project_cta_settings import normalize_ctas
@@ -85,21 +86,48 @@ class CarouselPipelineTests(unittest.TestCase):
         self.assertIn("не разрывай слова", prompts[0])
         self.assertIn("Не используй нумерованные списки", prompts[0])
         self.assertIn("весь текст слайда целиком", prompts[0])
-        self.assertIn("самостоятельно определи по референсу положение заголовка", prompts[0])
+        self.assertIn("Жёсткий невидимый каркас", prompts[0])
         self.assertNotIn("около 23% кадра", prompts[0])
         self.assertIn("Исходный CTA и любой текст с дизайн-референса считать чужими", prompts[0])
         self.assertNotIn("будет наложен программно", prompts[0])
 
     def test_carousel_prompt_uses_reference_derived_grid(self):
         prompt = build_slide_prompts("Заголовок. Основной текст.", 2, "vk", "Подпишись")[0]
-        self.assertIn("самостоятельно определи по референсу положение заголовка", prompt)
+        self.assertIn("Жёсткий невидимый каркас", prompt)
+        self.assertIn("ровно 3 строки", prompt)
         self.assertNotIn("около 8% кадра", prompt)
+
+    def test_layout_contract_uses_reference_line_counts_without_raw_json(self):
+        contract = '{"text_slots":{"heading_lines":2,"description_lines":5,"bullet_heading_lines":1,"bullet_body_lines":3}}'
+        self.assertEqual(parse_text_slots(contract, "carousel"), {
+            "heading_lines": 2,
+            "description_lines": 5,
+            "bullet_heading_lines": 1,
+            "bullet_body_lines": 3,
+        })
+        instruction = build_layout_instruction(contract, "carousel")
+        self.assertIn("ровно 2 строки", instruction)
+        self.assertIn("описание буллета — ровно 3 строки", instruction)
+        self.assertNotIn("text_slots", instruction)
+
+    def test_slide_content_has_one_thought_and_explicit_heading_body(self):
+        content = split_slide_content("• Сириус. Бесплатная смена в Сочи и отбор.")
+        self.assertEqual(content, {
+            "heading": "Сириус.",
+            "body": "Бесплатная смена в Сочи и отбор.",
+            "is_bullet": True,
+        })
+        spec = build_slide_text_spec("• Сириус. Бесплатная смена в Сочи и отбор.", None, "carousel")
+        self.assertIn("РОВНО ОДНА МЫСЛЬ НА СЛАЙД", spec)
+        self.assertIn("ЗАГОЛОВОК (1 строку): • Сириус.", spec)
+        self.assertIn("ОПИСАНИЕ (4 строки): Бесплатная\nсмена", spec)
 
     def test_composition_contract_is_reused_in_every_slide_prompt(self):
         contract = '{"heading":{"top":"12%"},"body":{"top":"38%"},"cta":{"bottom":"8%"}}'
         prompts = build_slide_prompts("Заголовок. Основной текст. Ещё текст.", 3, "vk", "Подпишись", composition_contract=contract)
         self.assertEqual(len(prompts), 3)
-        self.assertTrue(all(contract in prompt for prompt in prompts))
+        self.assertTrue(all("Жёсткий невидимый каркас" in prompt for prompt in prompts))
+        self.assertTrue(all('"heading"' not in prompt for prompt in prompts))
         self.assertTrue(all("невидимая техническая разметка" in prompt for prompt in prompts))
         self.assertTrue(all("заменено на маркер «•»" in prompt for prompt in prompts))
 
