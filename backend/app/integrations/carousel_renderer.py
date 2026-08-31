@@ -13,7 +13,7 @@ class CarouselRendererClient:
     """Client for the internal karlo_carouselv2 HTML-to-PNG renderer."""
 
     def __init__(self) -> None:
-        self.base_url = (os.getenv("CAROUSEL_RENDERER_URL") or "").strip().rstrip("/")
+        self.base_url = (os.getenv("CAROUSEL_RENDERER_URL") or "http://karlo-carousel:2305").strip().rstrip("/")
         self.api_key = (os.getenv("CAROUSEL_RENDERER_API_KEY") or "").strip()
         self.timeout_seconds = max(30.0, float(os.getenv("CAROUSEL_RENDERER_TIMEOUT_SECONDS", "180")))
 
