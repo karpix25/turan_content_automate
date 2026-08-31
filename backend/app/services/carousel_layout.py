@@ -186,19 +186,12 @@ def _line_spec(text: str, line_count: int) -> str:
 
 
 def build_slide_text_spec(part: str, contract: str | None, design_format: str) -> str:
-    content = split_slide_content(part)
-    slots = parse_text_slots(contract, design_format)
-    single_body_layout = content["is_bullet"] and not slots["bullet_heading_lines"] and not slots["bullet_body_lines"]
-    heading_lines = 0 if single_body_layout else slots["bullet_heading_lines"] if content["is_bullet"] else slots["heading_lines"]
-    body_lines = slots["description_lines"] if single_body_layout else slots["bullet_body_lines"] if content["is_bullet"] else slots["description_lines"]
-    marker = "• " if content["is_bullet"] else ""
-    if heading_lines == 0:
-        heading = ""
-        body_text = " ".join(value for value in (str(content["heading"]), str(content["body"])) if value).strip()
-    else:
-        heading = _line_spec(str(content["heading"]), heading_lines)
-        body_text = str(content["body"])
-    body = _line_spec(body_text, body_lines)
+    content = build_slide_text_content(part, contract, design_format)
+    heading_lines = content["heading_lines"]
+    body_lines = content["body_lines"]
+    marker = "" if not content["is_bullet"] else "• "
+    heading = content["heading"]
+    body = content["body"]
     return (
         "РОВНО ОДНА МЫСЛЬ НА СЛАЙД. Единственный разрешённый видимый текст ниже; "
         "служебные названия полей и эти инструкции не печатай.\n"
@@ -207,3 +200,25 @@ def build_slide_text_spec(part: str, contract: str | None, design_format: str) -
         "Сохрани эти переносы строк и эти зоны буквально; если фраза не помещается, "
         "сократи её до более короткой русской формулировки, не перенося блок в другую зону."
     )
+
+
+def build_slide_text_content(part: str, contract: str | None, design_format: str) -> dict[str, str | int | bool]:
+    content = split_slide_content(part)
+    slots = parse_text_slots(contract, design_format)
+    single_body_layout = content["is_bullet"] and not slots["bullet_heading_lines"] and not slots["bullet_body_lines"]
+    heading_lines = 0 if single_body_layout else slots["bullet_heading_lines"] if content["is_bullet"] else slots["heading_lines"]
+    body_lines = slots["description_lines"] if single_body_layout else slots["bullet_body_lines"] if content["is_bullet"] else slots["description_lines"]
+    if heading_lines == 0:
+        heading = ""
+        body_text = " ".join(value for value in (str(content["heading"]), str(content["body"])) if value).strip()
+    else:
+        heading = _line_spec(str(content["heading"]), heading_lines)
+        body_text = str(content["body"])
+    body = _line_spec(body_text, body_lines)
+    return {
+        "heading": heading,
+        "body": body,
+        "heading_lines": heading_lines,
+        "body_lines": body_lines,
+        "is_bullet": bool(content["is_bullet"]),
+    }

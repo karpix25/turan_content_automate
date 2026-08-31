@@ -5,7 +5,12 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def build_design_composition_analysis_prompt(design_format: str, reference_urls: list[str]) -> list[dict[str, Any]]:
+def build_design_composition_analysis_prompt(
+    design_format: str,
+    reference_urls: list[str],
+    additional_instructions: str | None = None,
+) -> list[dict[str, Any]]:
+    user_instructions = (additional_instructions or "").strip()[:3000]
     content: list[dict[str, Any]] = [{
         "type": "text",
         "text": (
@@ -19,14 +24,16 @@ def build_design_composition_analysis_prompt(design_format: str, reference_urls:
             "сколько строк занимает заголовок, описание, заголовок буллета и описание буллета. "
             "Это должны быть целые числа, одинаковые для всей серии; зафиксируй максимальную вместимость "
             "каждой зоны, чтобы длинный текст сокращался, а не разъезжался по макету. "
+            "Определи палитру и верни её в поле palette: background, surface, text, muted, accent. "
             "Отдельно укажи, какие элементы являются чужим контентом и должны быть удалены: "
             "исходный CTA, никнеймы, подписи, логотипы, водяные знаки, социальные иконки и цифры. "
             "Позиции указывай относительно кадра в процентах и, если видно, в пикселях. "
             "Не копируй и не цитируй слова, имена, CTA или цифры с референса. "
-            "Верни только JSON с ключами: canvas, alignment, heading, body, cta, spacing, typography, "
+            "Верни только JSON с ключами: canvas, palette, alignment, heading, body, cta, spacing, typography, "
             "safe_zones, foreign_elements, text_slots. В text_slots обязательно укажи "
             "heading_lines, description_lines, bullet_heading_lines, bullet_body_lines. "
             "Значения должны быть короткими и конкретными."
+            + (f" Дополнительные инструкции пользователя для стиля: {user_instructions}" if user_instructions else "")
         ),
     }]
     content.extend({"type": "image_url", "image_url": {"url": url}} for url in reference_urls)
@@ -42,12 +49,17 @@ def build_design_composition_analysis_prompt(design_format: str, reference_urls:
     ]
 
 
-def analyze_design_composition(llm_client: Any, reference_urls: list[str], design_format: str) -> str:
+def analyze_design_composition(
+    llm_client: Any,
+    reference_urls: list[str],
+    design_format: str,
+    additional_instructions: str | None = None,
+) -> str:
     urls = [url.strip() for url in reference_urls if isinstance(url, str) and url.strip()]
     if not urls:
         return ""
     result = llm_client._complete(
-        build_design_composition_analysis_prompt(design_format, urls[:4]),
+        build_design_composition_analysis_prompt(design_format, urls[:4], additional_instructions),
         temperature=0.1,
     )
     if not result:

@@ -1,16 +1,19 @@
 import logging
+import os
 
 from . import models
 from .core.config import llm
 from .database import SessionLocal
-from .integrations.thumbnail_generator import ThumbnailGeneratorClient
+from .integrations.carousel_renderer import CarouselRendererClient
+from .integrations.cloudinary_storage import CloudinaryStorage
 from .services.carousel_pipeline import (
-    build_package_prompts,
+    get_design_profile,
     limit_words,
-    normalize_design_image,
     output_dir,
+    split_master_text,
 )
-from .services.carousel_copy import is_russian_text
+from .services.carousel_copy import is_russian_text, strip_source_cta
+from .services.carousel_template import build_carousel_render_request
 from .services.project_cta_settings import get_project_image_prompt
 from .services.design_composition import analyze_design_composition
 from .integrations.telegram_carousel import send_carousel_ready_to_telegram
@@ -19,23 +22,21 @@ from .worker import celery_app
 logger = logging.getLogger(__name__)
 
 
-def _generate_slide(
-    generator,
-    prompt: str,
-    references: list[str],
+def _render_slide(
+    renderer: CarouselRendererClient,
+    part: str,
+    composition_contract: str,
+    cta: str,
     output_path: str,
     design_format: str,
 ) -> str:
-    result = generator.generate_image_from_references(
-        prompt=prompt,
-        reference_paths=references,
-        output_path=output_path,
-        aspect_ratio="4:5" if design_format == "carousel" else "9:16",
-        resolution="1K",
+    template, data = build_carousel_render_request(
+        part,
+        composition_contract,
+        design_format,
+        cta,
     )
-    if not result:
-        raise RuntimeError(generator.get_last_error_message_ru() or f"KIE не создал слайд {output_path}")
-    return normalize_design_image(result, output_path, design_format)
+    return renderer.render(template, data, output_path)
 
 
 @celery_app.task(name="generate_carousel_task", soft_time_limit=3600, time_limit=3900)
@@ -45,10 +46,14 @@ def generate_carousel_task(draft_id: int) -> None:
         draft = db.query(models.CarouselDraft).filter(models.CarouselDraft.id == draft_id).first()
         if not draft:
             return
-        generator = ThumbnailGeneratorClient()
+        renderer = CarouselRendererClient()
+        reference_storage = CloudinaryStorage(
+            timeout_seconds=180.0,
+            folder=(os.getenv("DESIGN_REFERENCES_CLOUDINARY_FOLDER") or "turan/design-references").strip(),
+        )
         destination = output_dir(draft.id)
         destination.mkdir(parents=True, exist_ok=True)
-        text = draft.approved_text or draft.master_text
+        text = strip_source_cta(draft.approved_text or draft.master_text)
         if not is_russian_text(text):
             raise RuntimeError("Текст карусели содержит латинские слова: генерация остановлена")
         image_instructions = get_project_image_prompt(db, draft.user_id, draft.project_id)
@@ -62,12 +67,19 @@ def generate_carousel_task(draft_id: int) -> None:
                 raise RuntimeError(f"Не найден дизайн-референс для формата {design_format}")
             reference_urls = []
             for index, reference in enumerate(references, start=1):
-                public_url = reference if str(reference).startswith(("http://", "https://")) else generator._ensure_public_url(
-                    str(reference), prefix=f"composition_{design_format}_{index}"
+                raw_reference = str(reference).strip()
+                public_url = raw_reference if raw_reference.startswith(("http://", "https://")) else reference_storage.upload_file(
+                    raw_reference,
+                    prefix=f"composition_{design_format}_{index}",
                 )
                 if public_url and public_url not in reference_urls:
                     reference_urls.append(public_url)
-            composition_contract = analyze_design_composition(llm, reference_urls, design_format)
+            composition_contract = analyze_design_composition(
+                llm,
+                reference_urls,
+                design_format,
+                additional_instructions=image_instructions,
+            )
             platforms = list(draft.platform_accounts or {})
             safe_ctas = {}
             for platform in platforms:
@@ -76,41 +88,21 @@ def generate_carousel_task(draft_id: int) -> None:
                     logger.warning("Skipping non-Russian CTA for platform %s", platform)
                     safe_cta = None
                 safe_ctas[platform] = safe_cta or ""
-            shared_prompts, final_prompts = build_package_prompts(
-                text,
-                slide_count,
-                design_format,
-                platforms,
-                safe_ctas,
-                image_instructions,
-                composition_contract,
-            )
+            profile = get_design_profile(design_format)
+            parts = split_master_text(text, min(slide_count, profile["max_slides"]), profile["max_words"])
             shared_paths = [
                 str(destination / f"{design_format}-shared-{index}.png")
-                for index in range(1, len(shared_prompts) + 1)
+                for index in range(1, len(parts))
             ]
-            for prompt, path in zip(shared_prompts, shared_paths):
-                _generate_slide(generator, prompt, list(references), path, design_format)
+            for part, path in zip(parts[:-1], shared_paths):
+                _render_slide(renderer, part, composition_contract, "", path, design_format)
 
             for platform in platforms:
                 account_ids = [int(account_id) for account_id in (draft.platform_accounts or {}).get(platform, [])]
                 for account_id in account_ids:
                     variant_key = platform if len(account_ids) == 1 else f"{platform}:{account_id}"
-                    final_prompt = final_prompts[platform]
-                    if len(account_ids) > 1:
-                        final_prompt += (
-                            f" Это уникальный вариант для аккаунта {account_id}. "
-                            "Измени визуальную композицию и акцент финального слайда, "
-                            "но сохрани текст, стиль и CTA."
-                        )
                     final_path = str(destination / f"{design_format}-{platform}-{account_id}-final.png")
-                    _generate_slide(
-                        generator,
-                        final_prompt,
-                        list(references),
-                        final_path,
-                        design_format,
-                    )
+                    _render_slide(renderer, parts[-1], composition_contract, safe_ctas[platform], final_path, design_format)
                     target[variant_key] = shared_paths + [final_path]
 
         if not generated or not story_generated:
