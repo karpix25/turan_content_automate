@@ -74,6 +74,12 @@ class CarouselPipelineTests(unittest.TestCase):
         self.assertNotIn("1.", normalize_master_text("1. Текст"))
         self.assertEqual(normalize_master_text("1-ое Сириус. 2-ое — Физтехшкола."), "• Сириус. • Физтехшкола.")
 
+    def test_inline_numbering_becomes_separate_thoughts(self):
+        self.assertEqual(
+            split_master_text("1. Первый тезис. 2. Второй тезис. 3. Третий тезис.", 1),
+            ["• Первый тезис.", "• Второй тезис.", "• Третий тезис."],
+        )
+
     def test_split_text_does_not_merge_independent_thoughts(self):
         self.assertEqual(
             split_master_text("Первый тезис. Второй тезис. Третий тезис.", 1),
@@ -149,6 +155,13 @@ class CarouselPipelineTests(unittest.TestCase):
         self.assertIn("ЗАГОЛОВОК (1 строку): • Сириус.", spec)
         self.assertIn("ОПИСАНИЕ (4 строки): Бесплатная\nсмена", spec)
         self.assertIn("Сохрани эти переносы строк и эти зоны буквально", spec)
+
+    def test_zero_heading_slot_keeps_story_content_in_one_body_block(self):
+        contract = '{"text_slots":{"heading_lines":0,"description_lines":3,"bullet_heading_lines":0,"bullet_body_lines":0}}'
+        spec = build_slide_text_spec("Первое предложение. Второе предложение.", contract, "story")
+        self.assertIn("ЗАГОЛОВОК (0 строк):", spec)
+        self.assertIn("ОПИСАНИЕ (3 строки): Первое", spec)
+        self.assertIn("предложение.", spec)
 
     def test_composition_contract_is_reused_in_every_slide_prompt(self):
         contract = '{"heading":{"top":"12%"},"body":{"top":"38%"},"cta":{"bottom":"8%"}}'

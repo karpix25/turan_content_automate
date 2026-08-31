@@ -20,14 +20,16 @@ DEFAULT_TEXT_SLOTS = {
 }
 
 
-def _positive_int(value: Any, fallback: int) -> int:
+def _bounded_int(value: Any, fallback: int, minimum: int = 0) -> int:
     try:
-        return max(1, min(12, int(value)))
+        return max(minimum, min(12, int(value)))
     except (TypeError, ValueError):
         return fallback
 
 
 def _line_label(value: int) -> str:
+    if value == 0:
+        return "строк"
     return "строку" if value == 1 else "строки"
 
 
@@ -47,13 +49,28 @@ def _slot(data: dict[str, Any], name: str) -> dict[str, Any]:
 
 
 def _layout_values(section: dict[str, Any]) -> str:
-    labels = ("top", "bottom", "left", "right", "width", "height", "x", "y", "align", "alignment")
-    values = []
-    for label in labels:
-        value = section.get(label)
-        if value not in (None, ""):
-            values.append(f"{label}={value}")
-    return ", ".join(values)
+    labels = {
+        "top", "bottom", "left", "right", "width", "height", "x", "y",
+        "align", "alignment", "horizontal_align", "vertical_align",
+        "top_percent", "bottom_percent", "left_percent", "right_percent",
+        "top_px", "bottom_px", "left_px", "right_px",
+    }
+    values: list[str] = []
+
+    def visit(value: dict[str, Any]) -> None:
+        for label, item in value.items():
+            if isinstance(item, dict):
+                visit(item)
+            elif label in labels and item not in (None, ""):
+                normalized = label.removesuffix("_percent")
+                if label.endswith("_percent"):
+                    value = str(item) if str(item).endswith("%") else f"{item}%"
+                    values.append(f"{normalized}={value}")
+                else:
+                    values.append(f"{label}={item}")
+
+    visit(section)
+    return ", ".join(dict.fromkeys(values))
 
 
 def parse_text_slots(contract: str | None, design_format: str) -> dict[str, int]:
@@ -64,20 +81,24 @@ def parse_text_slots(contract: str | None, design_format: str) -> dict[str, int]
         slots = _slot(data, "content") or _slot(data, "default")
     heading = _slot(data, "heading")
     body = _slot(data, "body")
+    heading_value = slots.get("heading_lines") if "heading_lines" in slots else heading.get("lines")
+    description_value = next(
+        (slots[name] for name in ("description_lines", "body_lines") if name in slots),
+        body.get("lines"),
+    )
+    bullet_heading_value = next(
+        (slots[name] for name in ("bullet_heading_lines", "item_heading_lines") if name in slots),
+        None,
+    )
+    bullet_body_value = next(
+        (slots[name] for name in ("bullet_body_lines", "item_body_lines") if name in slots),
+        None,
+    )
     return {
-        "heading_lines": _positive_int(slots.get("heading_lines") or heading.get("lines"), defaults["heading_lines"]),
-        "description_lines": _positive_int(
-            slots.get("description_lines") or slots.get("body_lines") or body.get("lines"),
-            defaults["description_lines"],
-        ),
-        "bullet_heading_lines": _positive_int(
-            slots.get("bullet_heading_lines") or slots.get("item_heading_lines"),
-            defaults["bullet_heading_lines"],
-        ),
-        "bullet_body_lines": _positive_int(
-            slots.get("bullet_body_lines") or slots.get("item_body_lines"),
-            defaults["bullet_body_lines"],
-        ),
+        "heading_lines": _bounded_int(heading_value, defaults["heading_lines"]),
+        "description_lines": _bounded_int(description_value, defaults["description_lines"]),
+        "bullet_heading_lines": _bounded_int(bullet_heading_value, defaults["bullet_heading_lines"]),
+        "bullet_body_lines": _bounded_int(bullet_body_value, defaults["bullet_body_lines"]),
     }
 
 
@@ -94,10 +115,11 @@ def build_layout_instruction(contract: str | None, design_format: str) -> str:
             f"Зона CTA: {cta_layout}." if cta_layout else "",
         )
     )
+    heading_rule = "заголовок отсутствует" if slots["heading_lines"] == 0 else f"заголовок всегда в одной и той же зоне и выравнивании, ровно {slots['heading_lines']} {_line_label(slots['heading_lines'])}"
+    description_rule = "описание отсутствует" if slots["description_lines"] == 0 else f"описание всегда в одной и той же зоне под ним, ровно {slots['description_lines']} {_line_label(slots['description_lines'])}"
     return (
         "Жёсткий невидимый каркас, извлечённый из дизайн-референса: "
-        f"заголовок всегда в одной и той же зоне и выравнивании, ровно {slots['heading_lines']} {_line_label(slots['heading_lines'])}; "
-        f"описание всегда в одной и той же зоне под ним, ровно {slots['description_lines']} {_line_label(slots['description_lines'])}; "
+        f"{heading_rule}; {description_rule}; "
         f"заголовок буллета — ровно {slots['bullet_heading_lines']} {_line_label(slots['bullet_heading_lines'])}, "
         f"описание буллета — ровно {slots['bullet_body_lines']} {_line_label(slots['bullet_body_lines'])}. "
         "Не меняй эти зоны и количество строк между слайдами. "
@@ -163,8 +185,13 @@ def build_slide_text_spec(part: str, contract: str | None, design_format: str) -
     heading_lines = slots["bullet_heading_lines"] if content["is_bullet"] else slots["heading_lines"]
     body_lines = slots["bullet_body_lines"] if content["is_bullet"] else slots["description_lines"]
     marker = "• " if content["is_bullet"] else ""
-    heading = _line_spec(str(content["heading"]), heading_lines)
-    body = _line_spec(str(content["body"]), body_lines)
+    if heading_lines == 0:
+        heading = ""
+        body_text = " ".join(value for value in (str(content["heading"]), str(content["body"])) if value).strip()
+    else:
+        heading = _line_spec(str(content["heading"]), heading_lines)
+        body_text = str(content["body"])
+    body = _line_spec(body_text, body_lines)
     return (
         "РОВНО ОДНА МЫСЛЬ НА СЛАЙД. Единственный разрешённый видимый текст ниже; "
         "служебные названия полей и эти инструкции не печатай.\n"
