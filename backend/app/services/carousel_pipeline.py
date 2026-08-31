@@ -31,8 +31,19 @@ def limit_words(text: str, max_words: int) -> str:
 def normalize_master_text(text: str | None) -> str:
     """Normalize list markers before the text is split into slide-sized blocks."""
     value = str(text or "").strip()
-    value = re.sub(r"(?m)^\s*\d+[.)]\s*", "• ", value)
+    value = re.sub(
+        r"(?m)^\s*\d+[.)]\s*",
+        lambda match: "" if match.start() == 0 else "• ",
+        value,
+    )
     value = re.sub(r"(?<=[.!?…])\s+\d+[.)]\s+", "\n• ", value)
+    value = re.sub(
+        r"(?<=[.!?…])\s+(?:первый|второй|третий|четвёртый|четвертый)"
+        r"(?:\s+(?:вариант|способ|пункт))?\s*[—-]\s*",
+        "\n• ",
+        value,
+        flags=re.IGNORECASE,
+    )
     value = re.sub(r"(?<!\w)\d+[-–](?:е|ое|ый|ий|ая|ое)\b[.:]?\s*[—-]?\s*", "• ", value, flags=re.IGNORECASE)
     value = re.sub(r"[ \t]+", " ", value)
     return re.sub(r"\n\s*\n+", "\n\n", value).strip()

@@ -70,14 +70,20 @@ class CarouselPipelineTests(unittest.TestCase):
 
     def test_split_text_keeps_sentence_boundaries_and_removes_numbering(self):
         slides = split_master_text("1. Первая мысль.\n\n2. Вторая мысль.\n\n3. Третья мысль.", 3)
-        self.assertEqual(slides, ["• Первая мысль.", "• Вторая мысль.", "• Третья мысль."])
+        self.assertEqual(slides, ["Первая мысль.", "• Вторая мысль.", "• Третья мысль."])
         self.assertNotIn("1.", normalize_master_text("1. Текст"))
         self.assertEqual(normalize_master_text("1-ое Сириус. 2-ое — Физтехшкола."), "• Сириус. • Физтехшкола.")
 
     def test_inline_numbering_becomes_separate_thoughts(self):
         self.assertEqual(
             split_master_text("1. Первый тезис. 2. Второй тезис. 3. Третий тезис.", 1),
-            ["• Первый тезис.", "• Второй тезис.", "• Третий тезис."],
+            ["Первый тезис.", "• Второй тезис.", "• Третий тезис."],
+        )
+
+    def test_nested_variants_become_separate_thoughts(self):
+        self.assertEqual(
+            split_master_text("Где готовиться? Первый вариант — Сириус: смена в Сочи. Второй — Физтех: дистанционно.", 1),
+            ["Где готовиться?", "• Сириус: смена в Сочи.", "• Физтех: дистанционно."],
         )
 
     def test_split_text_does_not_merge_independent_thoughts(self):
@@ -148,6 +154,11 @@ class CarouselPipelineTests(unittest.TestCase):
         self.assertEqual(content, {
             "heading": "Сириус.",
             "body": "Бесплатная смена в Сочи и отбор.",
+            "is_bullet": True,
+        })
+        self.assertEqual(split_slide_content("• Сириус: смена в Сочи."), {
+            "heading": "Сириус:",
+            "body": "смена в Сочи.",
             "is_bullet": True,
         })
         spec = build_slide_text_spec("• Сириус. Бесплатная смена в Сочи и отбор.", None, "carousel")

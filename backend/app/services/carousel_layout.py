@@ -146,6 +146,10 @@ def split_slide_content(part: str) -> dict[str, str | bool]:
     if is_bullet and sentences:
         heading = sentences[0]
         body = " ".join(sentences[1:]).strip()
+        if ":" in heading:
+            heading, first_body = heading.split(":", 1)
+            heading = f"{heading.strip()}:"
+            body = " ".join(value for value in (first_body.strip(), body) if value)
     elif len(sentences) > 1:
         heading = sentences[0]
         body = " ".join(sentences[1:]).strip()
