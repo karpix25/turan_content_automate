@@ -60,6 +60,8 @@ def _split_longest_block(blocks: list[str]) -> bool:
         return False
     index = max(range(len(blocks)), key=lambda item: len(blocks[item].split()))
     block = blocks[index]
+    if block.startswith("• "):
+        return False
     prefix = "• " if block.startswith("• ") else ""
     body = block[2:].strip() if prefix else block
     sentences = _split_sentences(body)

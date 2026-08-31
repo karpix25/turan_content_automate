@@ -79,6 +79,15 @@ class CarouselPipelineTests(unittest.TestCase):
             "• Физтехшкола. Дистанционные занятия.",
         ])
 
+    def test_split_text_does_not_break_one_bullet_into_two_slides(self):
+        text = "Варианты подготовки. 1-ое Сириус. Бесплатная смена в Сочи. 2-ое Физтехшкола. Дистанционные занятия."
+        slides = split_master_text(text, 5, 20)
+        self.assertEqual(slides, [
+            "Варианты подготовки.",
+            "• Сириус. Бесплатная смена в Сочи.",
+            "• Физтехшкола. Дистанционные занятия.",
+        ])
+
     def test_story_prompt_has_story_format_and_word_limit(self):
         prompts = build_slide_prompts("раз два три четыре пять шесть семь восемь девять десять", 2, "instagram", "Смотри подробнее", "story")
         self.assertIn("1080x1920", prompts[0])
