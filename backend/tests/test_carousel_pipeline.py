@@ -55,6 +55,10 @@ class CarouselPipelineTests(unittest.TestCase):
         text = "Первый тезис. Второй тезис. Третий тезис."
         prompts = build_slide_prompts(text, 3, "instagram", "Подпишись")
         self.assertEqual(len(prompts), 3)
+        self.assertIn("СПЕЦИФИКАЦИЯ ТЕКСТА СЛАЙДА", prompts[0])
+        self.assertIn("ЗАГОЛОВОК", prompts[0])
+        self.assertIn("Первый\nтезис", prompts[0])
+        self.assertNotIn("Второй тезис", prompts[0])
         self.assertNotIn("Подпишись", prompts[0])
         self.assertIn("Подпишись", prompts[-1])
         self.assertIn("отрисуй CTA дословно", prompts[-1])
