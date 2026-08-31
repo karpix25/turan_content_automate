@@ -84,7 +84,16 @@ class CarouselPipelineTests(unittest.TestCase):
         self.assertIn("не разрывай слова", prompts[0])
         self.assertIn("Не используй нумерованные списки", prompts[0])
         self.assertIn("весь текст слайда целиком", prompts[0])
+        self.assertIn("заголовок начинается на одной высоте около 23% кадра", prompts[0])
+        self.assertIn("основной текст начинается на одной высоте около 43% кадра", prompts[0])
+        self.assertIn("Исходный CTA и любой текст с дизайн-референса считать чужими", prompts[0])
         self.assertNotIn("будет наложен программно", prompts[0])
+
+    def test_carousel_prompt_uses_fixed_composition_grid(self):
+        prompt = build_slide_prompts("Заголовок. Основной текст.", 2, "vk", "Подпишись")[0]
+        self.assertIn("заголовок начинается на одной высоте около 8% кадра", prompt)
+        self.assertIn("основной текст начинается на одной высоте около 36% кадра", prompt)
+        self.assertIn("CTA, если он задан, находится в одной нижней зоне около 87% кадра", prompt)
 
     def test_russian_copy_rejects_latin_words(self):
         self.assertTrue(is_russian_text("Текст для пяти слайдов 5"))

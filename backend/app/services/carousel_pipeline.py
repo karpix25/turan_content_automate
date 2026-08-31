@@ -122,11 +122,28 @@ def suggest_package_slide_count(text: str) -> int:
     return max(suggest_slide_count(text, "carousel"), suggest_slide_count(text, "story"))
 
 
-def build_master_image_prompt(image_instructions: str | None = None) -> str:
+def build_master_image_prompt(image_instructions: str | None = None, design_format: str = "carousel") -> str:
+    profile = get_design_profile(design_format)
+    if design_format == "story":
+        heading_zone = "заголовок начинается на одной высоте около 23% кадра"
+        body_zone = "основной текст начинается на одной высоте около 43% кадра"
+        cta_zone = "CTA, если он задан, находится в одной нижней зоне около 86% кадра"
+    else:
+        heading_zone = "заголовок начинается на одной высоте около 8% кадра"
+        body_zone = "основной текст начинается на одной высоте около 36% кадра"
+        cta_zone = "CTA, если он задан, находится в одной нижней зоне около 87% кадра"
     prompt = (
         "Общий визуальный мастер-промт всей серии: выдерживай один визуальный язык, "
         "палитру, типографическую и композиционную логику на всех слайдах; "
-        "изменяй только визуальную сцену, которая поддерживает смысл конкретного слайда."
+        "изменяй только визуальную сцену, которая поддерживает смысл конкретного слайда. "
+        f"Формат серии — {profile['ratio']}. Фиксированная сетка обязательна: "
+        f"{heading_zone}; основной текст выровнен по той же левой границе и ширине блока; "
+        f"{body_zone}; {cta_zone}. "
+        "Не центрируй каждый слайд заново и не сдвигай текст из-за разного объёма: "
+        "меняй только размер шрифта и число строк внутри тех же зон. "
+        "До генерации очисти референсы от чужого текста: не переноси и визуально убери исходные CTA, "
+        "ники, подписи, логотипы, водяные знаки, социальные иконки и цифры. "
+        "Из референса используй только фон, фактуру, цвет, контраст, шрифтовую манеру и сетку."
     )
     instructions = (image_instructions or "").strip()
     return f"{prompt} Дополнительные инструкции пользователя: {instructions}" if instructions else prompt
@@ -141,7 +158,7 @@ def build_slide_prompts(
     image_instructions: str | None = None,
 ) -> list[str]:
     profile = get_design_profile(design_format)
-    master_prompt = build_master_image_prompt(image_instructions)
+    master_prompt = build_master_image_prompt(image_instructions, design_format)
     parts = split_master_text(master_text, min(slide_count, profile["max_slides"]), profile["max_words"])
     prompts = []
     for index, part in enumerate(parts, start=1):
@@ -159,6 +176,7 @@ def build_slide_prompts(
             "без перевода, сокращений, перефразирования и добавления новых слов: «{text}». "
             "Используй единый шрифт и единый стиль текста на всей серии; не разрывай слова и не оставляй "
             "одиночные буквы на конце строки. Не добавляй никакого текста, кроме указанного основного текста и CTA. "
+            "Исходный CTA и любой текст с дизайн-референса считать чужими: полностью удали их и не воспроизводи. "
             "Не используй нумерованные списки и префиксы «1.», «2.», «3.»; если нужен список, используй маркер «•». "
             "Размести весь текст слайда целиком: не обрывай предложения и не опускай слова; "
             "если текста много, уменьши размер шрифта и добавь строки, сохранив читаемость. "
