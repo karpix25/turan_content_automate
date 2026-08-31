@@ -174,6 +174,14 @@ class CarouselPipelineTests(unittest.TestCase):
         self.assertIn("ОПИСАНИЕ (3 строки): Первое", spec)
         self.assertIn("предложение.", spec)
 
+    def test_story_without_heading_uses_description_slot_for_bullets(self):
+        contract = '{"text_slots":{"heading_lines":0,"description_lines":10,"bullet_heading_lines":0,"bullet_body_lines":0}}'
+        spec = build_slide_text_spec("• Сириус: смена в Сочи.", contract, "story")
+        self.assertIn("ОПИСАНИЕ (10 строк): Сириус:", spec)
+        self.assertIn("смена", spec)
+        self.assertIn("Сочи.", spec)
+        self.assertNotIn("ОПИСАНИЕ (0 строк): нет", spec)
+
     def test_composition_contract_is_reused_in_every_slide_prompt(self):
         contract = '{"heading":{"top":"12%"},"body":{"top":"38%"},"cta":{"bottom":"8%"}}'
         prompts = build_slide_prompts("Заголовок. Основной текст. Ещё текст.", 3, "vk", "Подпишись", composition_contract=contract)

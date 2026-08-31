@@ -28,9 +28,11 @@ def _bounded_int(value: Any, fallback: int, minimum: int = 0) -> int:
 
 
 def _line_label(value: int) -> str:
-    if value == 0:
-        return "строк"
-    return "строку" if value == 1 else "строки"
+    if value == 1:
+        return "строку"
+    if 2 <= value <= 4:
+        return "строки"
+    return "строк"
 
 
 def _contract_data(contract: str | None) -> dict[str, Any]:
@@ -186,8 +188,9 @@ def _line_spec(text: str, line_count: int) -> str:
 def build_slide_text_spec(part: str, contract: str | None, design_format: str) -> str:
     content = split_slide_content(part)
     slots = parse_text_slots(contract, design_format)
-    heading_lines = slots["bullet_heading_lines"] if content["is_bullet"] else slots["heading_lines"]
-    body_lines = slots["bullet_body_lines"] if content["is_bullet"] else slots["description_lines"]
+    single_body_layout = content["is_bullet"] and not slots["bullet_heading_lines"] and not slots["bullet_body_lines"]
+    heading_lines = 0 if single_body_layout else slots["bullet_heading_lines"] if content["is_bullet"] else slots["heading_lines"]
+    body_lines = slots["description_lines"] if single_body_layout else slots["bullet_body_lines"] if content["is_bullet"] else slots["description_lines"]
     marker = "• " if content["is_bullet"] else ""
     if heading_lines == 0:
         heading = ""
