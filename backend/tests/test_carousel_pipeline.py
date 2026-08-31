@@ -3,7 +3,7 @@ import unittest
 
 from app.integrations.postmypost_carousel import build_carousel_payload
 from app.services.carousel_pipeline import build_package_prompts, build_slide_prompts, normalize_master_text, split_master_text, suggest_package_slide_count
-from app.services.carousel_copy import build_reference_rewrite_prompt, is_russian_text
+from app.services.carousel_copy import build_reference_rewrite_prompt, is_russian_text, strip_source_cta
 from app.services.project_cta_settings import normalize_ctas
 from app.services.reference_sources import extract_reference_post, resolve_project_platform_accounts
 from app.utils.platform_utils import _normalize_platform_code
@@ -94,6 +94,10 @@ class CarouselPipelineTests(unittest.TestCase):
         self.assertIn("заголовок начинается на одной высоте около 8% кадра", prompt)
         self.assertIn("основной текст начинается на одной высоте около 36% кадра", prompt)
         self.assertIn("CTA, если он задан, находится в одной нижней зоне около 87% кадра", prompt)
+
+    def test_source_cta_is_removed_before_slide_composition(self):
+        text = "Первый тезис. Остальные 7 мест у меня в Телеграм. Второй тезис."
+        self.assertEqual(strip_source_cta(text), "Первый тезис. Второй тезис.")
 
     def test_russian_copy_rejects_latin_words(self):
         self.assertTrue(is_russian_text("Текст для пяти слайдов 5"))

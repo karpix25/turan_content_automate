@@ -8,7 +8,7 @@ import httpx
 from . import models
 from .core.config import llm, pmp_client
 from .database import SessionLocal
-from .services.carousel_copy import build_reference_rewrite_prompt, fallback_reference_text, is_russian_text
+from .services.carousel_copy import build_reference_rewrite_prompt, fallback_reference_text, is_russian_text, strip_source_cta
 from .services.carousel_pipeline import normalize_master_text, resolve_reference_paths, suggest_package_slide_count
 from .services.project_cta_settings import get_project_ctas
 from .services.reference_sources import extract_reference_post, reference_post_content, resolve_project_platform_accounts
@@ -134,10 +134,10 @@ def _build_master_text(user: models.User, posts: list[models.ReferencePost], scr
         if item.get("content_kind") == "video" and not item.get("transcript") and len(source_text.split()) < 8:
             raise ValueError("Не удалось извлечь содержательный текст из видео референса")
     generated = llm._complete(build_reference_rewrite_prompt(payload, user.author_style_profile), temperature=0.65)
-    text = normalize_master_text(generated or fallback_reference_text(payload))
+    text = strip_source_cta(normalize_master_text(generated or fallback_reference_text(payload)))
     if not is_russian_text(text):
         logger.warning("Reference rewrite was not Russian; using source fallback for project %s", user.postmypost_project_id)
-        text = normalize_master_text(fallback_reference_text(payload))
+        text = strip_source_cta(normalize_master_text(fallback_reference_text(payload)))
     if not is_russian_text(text):
         raise ValueError("Не удалось получить текст карусели только на русском языке")
     if text.upper().startswith("НЕДОСТАТОЧНО ДАННЫХ"):

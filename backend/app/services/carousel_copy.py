@@ -3,10 +3,26 @@ import re
 from .reference_sources import reference_post_content
 
 
+SOURCE_CTA_PATTERN = re.compile(
+    r"(?:телеграм|telegram|ссылк[аеиу]|в профиле|подпис(?:ывайся|аться|ывайтесь|ка)|"
+    r"подпиш(?:ись|итесь)|"
+    r"ставь реакци|пиши слово|подробнее|остальн\w*\s+\d+\s+мест)",
+    re.IGNORECASE,
+)
+
+
 def is_russian_text(text: str | None) -> bool:
     """Return True only when readable letters are Cyrillic (numbers are fine)."""
     value = str(text or "")
     return bool(re.search(r"[А-Яа-яЁё]", value)) and not bool(re.search(r"[A-Za-z]", value))
+
+
+def strip_source_cta(text: str | None) -> str:
+    """Remove source-specific calls to action before slide composition."""
+    value = re.sub(r"\s+", " ", str(text or "").strip())
+    fragments = re.split(r"(?<=[.!?…])\s+", value)
+    kept = [fragment for fragment in fragments if fragment and not SOURCE_CTA_PATTERN.search(fragment)]
+    return re.sub(r"\s+", " ", " ".join(kept)).strip()
 
 
 def build_reference_rewrite_prompt(posts: list[dict], author_style: str | None) -> list[dict]:
