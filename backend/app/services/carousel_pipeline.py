@@ -27,22 +27,57 @@ def limit_words(text: str, max_words: int) -> str:
     return " ".join(re.findall(r"\S+", (text or "").strip())[:max_words]).strip()
 
 
+def normalize_master_text(text: str | None) -> str:
+    """Normalize list markers before the text is split into slide-sized blocks."""
+    value = str(text or "").strip()
+    value = re.sub(r"(?m)^\s*\d+[.)]\s*", "• ", value)
+    value = re.sub(r"[ \t]+", " ", value)
+    return re.sub(r"\n\s*\n+", "\n\n", value).strip()
+
+
+def _split_sentences(text: str) -> list[str]:
+    return [
+        part.strip()
+        for part in re.split(r"(?<=[.!?…])\s+(?=[А-ЯЁ«„])", text)
+        if part.strip()
+    ]
+
+
 def split_master_text(text: str, slide_count: int, max_words: int = 20) -> list[str]:
-    clean = re.sub(r"\s+", " ", (text or "")).strip()
+    clean = normalize_master_text(text)
     if not clean:
         raise ValueError("Текст карусели не может быть пустым")
     count = max(1, min(5, int(slide_count or 1)))
     words = clean.split()
     required_count = math.ceil(len(words) / max(1, int(max_words)))
     count = min(5, max(count, required_count))
-    base_size, remainder = divmod(len(words), count)
+    sentences = _split_sentences(clean)
+    if len(sentences) < count:
+        base_size, remainder = divmod(len(words), count)
+        parts = []
+        offset = 0
+        for index in range(count):
+            size = base_size + (1 if index < remainder else 0)
+            if size:
+                parts.append(" ".join(words[offset:offset + size]))
+                offset += size
+        return parts
+
     parts = []
-    offset = 0
-    for index in range(count):
-        size = base_size + (1 if index < remainder else 0)
-        if size:
-            parts.append(" ".join(words[offset:offset + size]))
-            offset += size
+    current = []
+    remaining_words = sum(len(sentence.split()) for sentence in sentences)
+    remaining_groups = count
+    for sentence in sentences:
+        sentence_words = len(sentence.split())
+        target = math.ceil(remaining_words / remaining_groups)
+        if current and len(" ".join(current).split()) + sentence_words > target and remaining_groups > 1:
+            parts.append(" ".join(current))
+            remaining_words -= len(" ".join(current).split())
+            remaining_groups -= 1
+            current = []
+        current.append(sentence)
+    if current:
+        parts.append(" ".join(current))
     return parts
 
 
@@ -83,7 +118,7 @@ def build_slide_prompts(
     prompts = []
     for index, part in enumerate(parts, start=1):
         final_cta = cta if index == len(parts) else ""
-        slide_text = limit_words(part, profile["max_words"])
+        slide_text = part.strip()
         safe_cta = limit_words(final_cta, 8)
         prompts.append(
             "Создай один готовый финальный слайд формата {format_name} размером ровно {width}x{height} px, "
@@ -96,8 +131,10 @@ def build_slide_prompts(
             "без перевода, сокращений, перефразирования и добавления новых слов: «{text}». "
             "Используй единый шрифт и единый стиль текста на всей серии; не разрывай слова и не оставляй "
             "одиночные буквы на конце строки. Не добавляй никакого текста, кроме указанного основного текста и CTA. "
+            "Не используй нумерованные списки и префиксы «1.», «2.», «3.»; если нужен список, используй маркер «•». "
+            "Размести весь текст слайда целиком: не обрывай предложения и не опускай слова; "
+            "если текста много, уменьши размер шрифта и добавь строки, сохранив читаемость. "
             "Не добавляй логотипы, водяные знаки или псевдотекст. "
-            "На слайде должно быть не больше {max_words} слов основного текста. "
             "{cta}".format(
                 format_name="карусели" if design_format == "carousel" else "сторис",
                 width=profile["width"],
@@ -106,7 +143,6 @@ def build_slide_prompts(
                 platform=platform,
                 master_prompt=master_prompt,
                 text=slide_text,
-                max_words=profile["max_words"],
                 cta=(
                     "В нижней части слайда отрисуй CTA дословно, без изменений: «{cta}»."
                     .format(cta=safe_cta)

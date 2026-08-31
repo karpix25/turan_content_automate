@@ -2,7 +2,7 @@ import datetime
 import unittest
 
 from app.integrations.postmypost_carousel import build_carousel_payload
-from app.services.carousel_pipeline import build_package_prompts, build_slide_prompts, split_master_text, suggest_package_slide_count
+from app.services.carousel_pipeline import build_package_prompts, build_slide_prompts, normalize_master_text, split_master_text, suggest_package_slide_count
 from app.services.carousel_copy import build_reference_rewrite_prompt, is_russian_text
 from app.services.project_cta_settings import normalize_ctas
 from app.services.reference_sources import extract_reference_post, resolve_project_platform_accounts
@@ -62,12 +62,18 @@ class CarouselPipelineTests(unittest.TestCase):
         self.assertLessEqual(len(slides), 10)
         self.assertTrue(all(slides))
 
+    def test_split_text_keeps_sentence_boundaries_and_removes_numbering(self):
+        slides = split_master_text("1. Первая мысль.\n\n2. Вторая мысль.\n\n3. Третья мысль.", 3)
+        self.assertEqual(slides, ["• Первая мысль.", "• Вторая мысль.", "• Третья мысль."])
+        self.assertNotIn("1.", normalize_master_text("1. Текст"))
+
     def test_story_prompt_has_story_format_and_word_limit(self):
         prompts = build_slide_prompts("раз два три четыре пять шесть семь восемь девять десять", 2, "instagram", "Смотри подробнее", "story")
         self.assertIn("1080x1920", prompts[0])
-        self.assertIn("не больше 12 слов", prompts[0])
         self.assertIn("весь текст отрисуй непосредственно внутри него", prompts[0])
         self.assertIn("не разрывай слова", prompts[0])
+        self.assertIn("Не используй нумерованные списки", prompts[0])
+        self.assertIn("весь текст слайда целиком", prompts[0])
         self.assertNotIn("будет наложен программно", prompts[0])
 
     def test_russian_copy_rejects_latin_words(self):
