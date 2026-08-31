@@ -74,6 +74,12 @@ class CarouselPipelineTests(unittest.TestCase):
         self.assertNotIn("1.", normalize_master_text("1. Текст"))
         self.assertEqual(normalize_master_text("1-ое Сириус. 2-ое — Физтехшкола."), "• Сириус. • Физтехшкола.")
 
+    def test_split_text_does_not_merge_independent_thoughts(self):
+        self.assertEqual(
+            split_master_text("Первый тезис. Второй тезис. Третий тезис.", 1),
+            ["Первый тезис.", "Второй тезис.", "Третий тезис."],
+        )
+
     def test_split_text_keeps_bullet_description_together(self):
         text = "Варианты подготовки. 1-ое Сириус. Бесплатная смена в Сочи. 2-ое Физтехшкола. Дистанционные занятия."
         slides = split_master_text(text, 3, 20)
@@ -123,6 +129,14 @@ class CarouselPipelineTests(unittest.TestCase):
         self.assertIn("описание буллета — ровно 3 строки", instruction)
         self.assertNotIn("text_slots", instruction)
 
+    def test_layout_instruction_passes_reference_positions_without_raw_contract(self):
+        contract = '{"heading":{"top":"12%","left":"8%","align":"left"},"body":{"top":"38%","width":"84%"},"cta":{"bottom":"8%"}}'
+        instruction = build_layout_instruction(contract, "carousel")
+        self.assertIn("Зона заголовка: top=12%, left=8%, align=left.", instruction)
+        self.assertIn("Зона описания: top=38%, width=84%.", instruction)
+        self.assertIn("Зона CTA: bottom=8%.", instruction)
+        self.assertNotIn('"heading"', instruction)
+
     def test_slide_content_has_one_thought_and_explicit_heading_body(self):
         content = split_slide_content("• Сириус. Бесплатная смена в Сочи и отбор.")
         self.assertEqual(content, {
@@ -134,6 +148,7 @@ class CarouselPipelineTests(unittest.TestCase):
         self.assertIn("РОВНО ОДНА МЫСЛЬ НА СЛАЙД", spec)
         self.assertIn("ЗАГОЛОВОК (1 строку): • Сириус.", spec)
         self.assertIn("ОПИСАНИЕ (4 строки): Бесплатная\nсмена", spec)
+        self.assertIn("Сохрани эти переносы строк и эти зоны буквально", spec)
 
     def test_composition_contract_is_reused_in_every_slide_prompt(self):
         contract = '{"heading":{"top":"12%"},"body":{"top":"38%"},"cta":{"bottom":"8%"}}'

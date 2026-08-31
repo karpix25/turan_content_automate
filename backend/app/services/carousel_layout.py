@@ -46,6 +46,16 @@ def _slot(data: dict[str, Any], name: str) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _layout_values(section: dict[str, Any]) -> str:
+    labels = ("top", "bottom", "left", "right", "width", "height", "x", "y", "align", "alignment")
+    values = []
+    for label in labels:
+        value = section.get(label)
+        if value not in (None, ""):
+            values.append(f"{label}={value}")
+    return ", ".join(values)
+
+
 def parse_text_slots(contract: str | None, design_format: str) -> dict[str, int]:
     defaults = DEFAULT_TEXT_SLOTS.get(design_format, DEFAULT_TEXT_SLOTS["carousel"])
     data = _contract_data(contract)
@@ -73,6 +83,17 @@ def parse_text_slots(contract: str | None, design_format: str) -> dict[str, int]
 
 def build_layout_instruction(contract: str | None, design_format: str) -> str:
     slots = parse_text_slots(contract, design_format)
+    data = _contract_data(contract)
+    heading_layout = _layout_values(_slot(data, "heading"))
+    body_layout = _layout_values(_slot(data, "body"))
+    cta_layout = _layout_values(_slot(data, "cta"))
+    position_rules = " ".join(
+        value for value in (
+            f"Зона заголовка: {heading_layout}." if heading_layout else "",
+            f"Зона описания: {body_layout}." if body_layout else "",
+            f"Зона CTA: {cta_layout}." if cta_layout else "",
+        )
+    )
     return (
         "Жёсткий невидимый каркас, извлечённый из дизайн-референса: "
         f"заголовок всегда в одной и той же зоне и выравнивании, ровно {slots['heading_lines']} {_line_label(slots['heading_lines'])}; "
@@ -82,7 +103,8 @@ def build_layout_instruction(contract: str | None, design_format: str) -> str:
         "Не меняй эти зоны и количество строк между слайдами. "
         "Если видимого текста меньше слота, оставь пустое место, не сдвигай блок. "
         "Если текста больше, сначала сокращай формулировку без потери факта и смысла, "
-        "затем уменьши кегль внутри той же зоны. Не добавляй новые мысли."
+        "затем уменьши кегль внутри той же зоны. Не добавляй новые мысли. "
+        f"{position_rules}"
     )
 
 
@@ -129,17 +151,25 @@ def _preferred_line_breaks(text: str, line_count: int) -> str:
     return "\n".join(lines)
 
 
+def _line_spec(text: str, line_count: int) -> str:
+    lines = _preferred_line_breaks(text, line_count).splitlines() if text else []
+    lines.extend([""] * max(0, line_count - len(lines)))
+    return "\n".join(lines[:line_count])
+
+
 def build_slide_text_spec(part: str, contract: str | None, design_format: str) -> str:
     content = split_slide_content(part)
     slots = parse_text_slots(contract, design_format)
     heading_lines = slots["bullet_heading_lines"] if content["is_bullet"] else slots["heading_lines"]
     body_lines = slots["bullet_body_lines"] if content["is_bullet"] else slots["description_lines"]
     marker = "• " if content["is_bullet"] else ""
-    heading = _preferred_line_breaks(str(content["heading"]), heading_lines)
-    body = _preferred_line_breaks(str(content["body"]), body_lines)
+    heading = _line_spec(str(content["heading"]), heading_lines)
+    body = _line_spec(str(content["body"]), body_lines)
     return (
         "РОВНО ОДНА МЫСЛЬ НА СЛАЙД. Единственный разрешённый видимый текст ниже; "
         "служебные названия полей и эти инструкции не печатай.\n"
         f"ЗАГОЛОВОК ({heading_lines} {_line_label(heading_lines)}): {marker}{heading}\n"
-        f"ОПИСАНИЕ ({body_lines} {_line_label(body_lines)}): {body or 'нет'}"
+        f"ОПИСАНИЕ ({body_lines} {_line_label(body_lines)}): {body or 'нет'}\n"
+        "Сохрани эти переносы строк и эти зоны буквально; если фраза не помещается, "
+        "сократи её до более короткой русской формулировки, не перенося блок в другую зону."
     )
