@@ -69,6 +69,20 @@ def _split_bullet_blocks(text: str) -> list[str]:
     return blocks or _split_sentences(text)
 
 
+def _split_long_bullet_thoughts(blocks: list[str]) -> list[str]:
+    result = []
+    for block in blocks:
+        if not block.startswith("• "):
+            result.append(block)
+            continue
+        sentences = _split_sentences(block[2:].strip())
+        if len(sentences) <= 2:
+            result.append(block)
+            continue
+        result.extend("• " + " ".join(sentences[index:index + 2]) for index in range(0, len(sentences), 2))
+    return result
+
+
 def _split_longest_block(blocks: list[str]) -> bool:
     if not blocks:
         return False
@@ -101,7 +115,7 @@ def split_master_text(text: str, slide_count: int, max_words: int = 20) -> list[
     words = clean.split()
     required_count = math.ceil(len(words) / max(1, int(max_words)))
     count = min(5, max(count, required_count))
-    blocks = _split_bullet_blocks(clean)
+    blocks = _split_long_bullet_thoughts(_split_bullet_blocks(clean))
     # One sentence/list item is one thought; never merge short independent thoughts.
     count = max(count, len(blocks))
     while len(blocks) < count and _split_longest_block(blocks):

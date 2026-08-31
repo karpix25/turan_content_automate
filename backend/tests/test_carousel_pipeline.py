@@ -110,6 +110,13 @@ class CarouselPipelineTests(unittest.TestCase):
             "• Физтехшкола. Дистанционные занятия.",
         ])
 
+    def test_long_bullet_is_split_into_short_thought_blocks(self):
+        text = "• Метапознание важно. Оно помогает принимать решения. Навык можно тренировать. Делайте это каждый день."
+        self.assertEqual(split_master_text(text, 1), [
+            "• Метапознание важно. Оно помогает принимать решения.",
+            "• Навык можно тренировать. Делайте это каждый день.",
+        ])
+
     def test_story_prompt_has_story_format_and_word_limit(self):
         prompts = build_slide_prompts("раз два три четыре пять шесть семь восемь девять десять", 2, "instagram", "Смотри подробнее", "story")
         self.assertIn("1080x1920", prompts[0])
