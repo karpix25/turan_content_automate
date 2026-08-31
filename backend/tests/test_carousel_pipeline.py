@@ -68,6 +68,15 @@ class CarouselPipelineTests(unittest.TestCase):
         self.assertNotIn("1.", normalize_master_text("1. Текст"))
         self.assertEqual(normalize_master_text("1-ое Сириус. 2-ое — Физтехшкола."), "• Сириус. • Физтехшкола.")
 
+    def test_split_text_keeps_bullet_description_together(self):
+        text = "Варианты подготовки. 1-ое Сириус. Бесплатная смена в Сочи. 2-ое Физтехшкола. Дистанционные занятия."
+        slides = split_master_text(text, 3, 20)
+        self.assertEqual(slides, [
+            "Варианты подготовки.",
+            "• Сириус. Бесплатная смена в Сочи.",
+            "• Физтехшкола. Дистанционные занятия.",
+        ])
+
     def test_story_prompt_has_story_format_and_word_limit(self):
         prompts = build_slide_prompts("раз два три четыре пять шесть семь восемь девять десять", 2, "instagram", "Смотри подробнее", "story")
         self.assertIn("1080x1920", prompts[0])

@@ -44,6 +44,38 @@ def _split_sentences(text: str) -> list[str]:
     ]
 
 
+def _split_bullet_blocks(text: str) -> list[str]:
+    marked = re.sub(r"\s*•\s*", "\n• ", text).strip()
+    blocks = []
+    for line in marked.splitlines():
+        value = line.strip()
+        if value:
+            blocks.append(value)
+    return blocks or _split_sentences(text)
+
+
+def _split_longest_block(blocks: list[str]) -> bool:
+    if not blocks:
+        return False
+    index = max(range(len(blocks)), key=lambda item: len(blocks[item].split()))
+    block = blocks[index]
+    prefix = "• " if block.startswith("• ") else ""
+    body = block[2:].strip() if prefix else block
+    sentences = _split_sentences(body)
+    if len(sentences) > 1:
+        midpoint = max(1, len(sentences) // 2)
+        first = " ".join(sentences[:midpoint])
+        second = " ".join(sentences[midpoint:])
+        blocks[index:index + 1] = [prefix + first, second]
+        return True
+    words = body.split()
+    if len(words) < 2:
+        return False
+    midpoint = max(1, len(words) // 2)
+    blocks[index:index + 1] = [prefix + " ".join(words[:midpoint]), " ".join(words[midpoint:])]
+    return True
+
+
 def split_master_text(text: str, slide_count: int, max_words: int = 20) -> list[str]:
     clean = normalize_master_text(text)
     if not clean:
@@ -52,31 +84,26 @@ def split_master_text(text: str, slide_count: int, max_words: int = 20) -> list[
     words = clean.split()
     required_count = math.ceil(len(words) / max(1, int(max_words)))
     count = min(5, max(count, required_count))
-    sentences = _split_sentences(clean)
-    if len(sentences) < count:
-        base_size, remainder = divmod(len(words), count)
-        parts = []
-        offset = 0
-        for index in range(count):
-            size = base_size + (1 if index < remainder else 0)
-            if size:
-                parts.append(" ".join(words[offset:offset + size]))
-                offset += size
-        return parts
+    blocks = _split_bullet_blocks(clean)
+    while len(blocks) < count and _split_longest_block(blocks):
+        pass
+    if len(blocks) <= count:
+        return blocks
 
     parts = []
     current = []
-    remaining_words = sum(len(sentence.split()) for sentence in sentences)
+    remaining_words = sum(len(block.split()) for block in blocks)
     remaining_groups = count
-    for sentence in sentences:
-        sentence_words = len(sentence.split())
+    for block in blocks:
+        block_words = len(block.split())
         target = math.ceil(remaining_words / remaining_groups)
-        if current and len(" ".join(current).split()) + sentence_words > target and remaining_groups > 1:
+        current_words = len(" ".join(current).split())
+        if current and current_words + block_words > target and remaining_groups > 1:
             parts.append(" ".join(current))
-            remaining_words -= len(" ".join(current).split())
+            remaining_words -= current_words
             remaining_groups -= 1
             current = []
-        current.append(sentence)
+        current.append(block)
     if current:
         parts.append(" ".join(current))
     return parts
