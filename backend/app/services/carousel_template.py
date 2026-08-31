@@ -138,6 +138,7 @@ def _text_element(
     color: str,
     weight: int,
     align: str,
+    vertical_align: str = "top",
 ) -> dict[str, Any]:
     return {
         "id": element_id,
@@ -150,7 +151,7 @@ def _text_element(
         "lineHeight": 1.15,
         "color": color,
         "textAlign": align,
-        "verticalAlign": "top",
+        "verticalAlign": vertical_align,
         "wordBreak": False,
     }
 
@@ -194,5 +195,5 @@ def build_carousel_render_request(
         elements.append(_text_element("body", body_box, str(content["body"]), font, body_size, palette["muted"], 400, _text_align(_section(data, "body"))))
     if cta:
         elements.append({"id": "cta-background", "type": "shape", **cta_box, "backgroundColor": palette["accent"], "borderRadius": 18})
-        elements.append(_text_element("cta", cta_box, cta, font, cta_size, palette["background"], 700, _text_align(_section(data, "cta"))))
+        elements.append(_text_element("cta", cta_box, cta, font, cta_size, palette["background"], 700, _text_align(_section(data, "cta")), "middle"))
     return {"width": width, "height": height, "elements": elements}, {}
