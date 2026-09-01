@@ -1,44 +1,87 @@
+import tempfile
 import unittest
+from pathlib import Path
 
-from app.services.carousel_template import build_carousel_render_request
+from app.services.karpix_carousel import build_template_data, load_template_set, render_account_carousel
 
 
-class CarouselRendererTemplateTests(unittest.TestCase):
-    def test_template_renders_exact_size_and_text_without_image_generator(self):
-        contract = (
-            '{"palette":{"background":"#111111","text":"#ffffff","muted":"#dddddd",'
-            '"accent":"#ffcc00"},"heading":{"top":"10%","left":"8%","width":"84%"},'
-            '"body":{"top":"35%","left":"8%","width":"84%"},'
-            '"text_slots":{"heading_lines":2,"description_lines":3,"bullet_heading_lines":1,"bullet_body_lines":3}}'
+def _template(name, variables, width=1080, height=1350):
+    return {"id": name, "name": name, "width": width, "height": height, "variables": variables}
+
+
+class KarpixCarouselTests(unittest.TestCase):
+    def setUp(self):
+        self.templates = [
+            _template("ОБЛОЖКА", {
+                "headlineAccent": {"required": True},
+                "headlineMain": {"required": True},
+                "аватар": {"required": True},
+                "author": {"required": True},
+            }),
+            _template("Основное", {
+                "Заголовок": {"required": True},
+                "подзаголовок": {"required": True},
+                "аватара": {"required": True},
+                "автор": {"required": True},
+            }),
+            _template("СТА", {
+                "CTA": {"required": True},
+                "аватар": {"required": True},
+                "author": {"required": True},
+            }),
+        ]
+
+    def test_loads_saved_templates_by_name(self):
+        loaded = load_template_set(type("Renderer", (), {"list_templates": lambda _: self.templates})())
+        self.assertEqual(loaded["cover"]["id"], "ОБЛОЖКА")
+        self.assertEqual(loaded["content"]["id"], "Основное")
+        self.assertEqual(loaded["cta"]["id"], "СТА")
+
+    def test_builds_all_required_fields_from_saved_template(self):
+        data = build_template_data(
+            self.templates[1],
+            "• Сириус: бесплатная смена в Сочи.",
+            author="@turan",
+            avatar_url="https://cdn.test/avatar.jpg",
         )
-        template, data = build_carousel_render_request(
-            "• Сириус: Бесплатная смена в Сочи и отбор.",
-            contract,
-            "carousel",
-            "Подпишись",
-            "@turantender",
-        )
-        self.assertEqual((template["width"], template["height"]), (1080, 1350))
-        self.assertEqual(data, {})
-        self.assertFalse(any(element["type"] == "image" for element in template["elements"]))
-        self.assertIn("• Сириус:", next(element["content"] for element in template["elements"] if element["id"] == "heading"))
-        self.assertEqual(next(element["content"] for element in template["elements"] if element["id"] == "cta"), "Подпишись")
-        self.assertEqual(next(element["content"] for element in template["elements"] if element["id"] == "author"), "@turantender")
+        self.assertEqual(data, {
+            "Заголовок": "Сириус:",
+            "подзаголовок": "бесплатная смена в Сочи.",
+            "аватара": "https://cdn.test/avatar.jpg",
+            "автор": "@turan",
+        })
 
-    def test_template_passes_social_avatar_to_dynamic_image_field(self):
-        template, data = build_carousel_render_request(
-            "Одна мысль.",
-            '{"avatar":{"left":"8%","top":"92%","width":64,"height":64}}',
-            "carousel",
-            author="@turantender",
-            avatar_url="https://cdn.test/turan.jpg",
-        )
-        avatar = next(element for element in template["elements"] if element["id"] == "avatar")
-        self.assertEqual(data, {"аватар": "https://cdn.test/turan.jpg"})
-        self.assertEqual(avatar["variableName"], "аватар")
-        self.assertEqual(avatar["content"], "{{аватар}}")
-        self.assertEqual((avatar["x"], avatar["y"], avatar["width"], avatar["height"]), (86, 1242, 64, 64))
-        self.assertEqual(avatar["borderRadius"], 32)
+    def test_renders_saved_templates_in_cover_content_cta_order(self):
+        class Renderer:
+            def __init__(self):
+                self.calls = []
+
+            def render_saved_template(self, template_id, data, output_path):
+                self.calls.append((template_id, data))
+                Path(output_path).touch()
+
+        renderer = Renderer()
+        with tempfile.TemporaryDirectory() as directory:
+            paths = render_account_carousel(
+                renderer,
+                {"cover": self.templates[0], "content": self.templates[1], "cta": self.templates[2]},
+                "Хук. Первый тезис. Второй тезис.",
+                4,
+                "Подпишись",
+                "@turan",
+                "https://cdn.test/avatar.jpg",
+                Path(directory),
+                "carousel",
+                "vk",
+                12,
+            )
+        self.assertEqual([call[0] for call in renderer.calls], ["ОБЛОЖКА", "Основное", "Основное", "СТА"])
+        self.assertEqual(renderer.calls[-1][1]["CTA"], "Подпишись")
+        self.assertEqual(len(paths), 4)
+
+    def test_missing_saved_template_fails_instead_of_using_fallback(self):
+        with self.assertRaisesRegex(ValueError, "сохранённый шаблон"):
+            load_template_set(type("Renderer", (), {"list_templates": lambda _: self.templates[:2]})())
 
 
 if __name__ == "__main__":

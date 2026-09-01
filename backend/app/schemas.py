@@ -120,7 +120,6 @@ class PostMyPostProjectUpdate(BaseModel):
     other_formats_limit_per_day: Optional[int] = None
     carousel_ctas: Optional[dict[str, str]] = None
     story_ctas: Optional[dict[str, str]] = None
-    carousel_image_prompt: Optional[str] = None
 
 class PostMyPostProjectOut(BaseModel):
     id: int
@@ -133,7 +132,6 @@ class PostMyPostProjectOut(BaseModel):
     other_formats_limit_per_day: int = 3
     carousel_ctas: dict[str, str] = {}
     story_ctas: dict[str, str] = {}
-    carousel_image_prompt: Optional[str] = None
 
 class PostMyPostProjectsOut(BaseModel):
     selected_project_id: Optional[int]
@@ -145,8 +143,6 @@ class CarouselDraftCreate(BaseModel):
     master_text: str
     project_id: Optional[int] = None
     slide_count: Optional[int] = None
-    reference_ids: list[int] = []
-    design_reference_ids: list[int] = []
     telegram_chat_id: Optional[str] = None
     telegram_reply_message_id: Optional[str] = None
 

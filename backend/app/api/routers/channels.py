@@ -20,9 +20,7 @@ from ...services.video_uniqueization import (
 )
 from ...services.project_cta_settings import (
     get_project_ctas,
-    get_project_image_prompt,
     set_project_ctas,
-    set_project_image_prompt,
 )
 from ...services.account_avatars import sync_missing_account_avatars
 from ..deps import get_db, ensure_admin_access, get_or_create_user
@@ -76,7 +74,6 @@ def build_project_out(
     normalized_project.update(
         carousel_ctas=carousel_ctas,
         story_ctas=story_ctas,
-        carousel_image_prompt=get_project_image_prompt(db, user_id, int(normalized_project["id"])),
     )
     return schemas.PostMyPostProjectOut(**normalized_project)
 
@@ -364,13 +361,6 @@ def update_postmypost_project(
                 project_id=selected_project_id,
                 carousel_ctas=payload.carousel_ctas,
                 story_ctas=payload.story_ctas,
-            )
-        if payload.carousel_image_prompt is not None:
-            set_project_image_prompt(
-                db,
-                user_id=user.id,
-                project_id=selected_project_id,
-                value=payload.carousel_image_prompt,
             )
         selected_mode = get_project_uniqueization_mode(db, user.id, selected_project_id)
         disable_accounts_absent_from_project(db, user.id, valid_account_ids, selected_project_id)

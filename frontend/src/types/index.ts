@@ -114,7 +114,6 @@ export type PostMyPostProject = {
   other_formats_limit_per_day?: number;
   carousel_ctas?: Record<string, string>;
   story_ctas?: Record<string, string>;
-  carousel_image_prompt?: string | null;
 };
 
 export type ReferenceChannel = {

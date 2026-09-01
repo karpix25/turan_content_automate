@@ -35,11 +35,39 @@ class CarouselRendererClient:
             logger.exception("karlo_carouselv2 render failed")
             raise RuntimeError(f"Renderer karlo_carouselv2 недоступен: {exc}") from exc
 
-        if not response.content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return self._save_png(response.content, output_path)
+
+    def list_templates(self) -> list[dict[str, Any]]:
+        response = self._request("GET", "/templates")
+        payload = response.json()
+        if not isinstance(payload, list):
+            raise RuntimeError("karlo_carouselv2 вернул некорректный список шаблонов")
+        return payload
+
+    def render_saved_template(self, template_id: str, data: dict[str, Any], output_path: str) -> str:
+        response = self._request("POST", f"/templates/{template_id}/render", json=data)
+        return self._save_png(response.content, output_path)
+
+    def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["X-API-Key"] = self.api_key
+        try:
+            with httpx.Client(timeout=self.timeout_seconds, follow_redirects=True) as client:
+                response = client.request(method, f"{self.base_url}{path}", headers=headers, **kwargs)
+                response.raise_for_status()
+                return response
+        except (httpx.HTTPError, OSError) as exc:
+            logger.exception("karlo_carouselv2 request failed")
+            raise RuntimeError(f"Renderer karlo_carouselv2 недоступен: {exc}") from exc
+
+    @staticmethod
+    def _save_png(content: bytes, output_path: str) -> str:
+        if not content.startswith(b"\x89PNG\r\n\x1a\n"):
             raise RuntimeError("karlo_carouselv2 вернул не PNG")
         destination = Path(output_path)
         destination.parent.mkdir(parents=True, exist_ok=True)
         temporary = destination.with_name(f".{destination.name}.tmp")
-        temporary.write_bytes(response.content)
+        temporary.write_bytes(content)
         temporary.replace(destination)
         return str(destination)

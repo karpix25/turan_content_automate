@@ -128,7 +128,6 @@ export const apiClient = {
     ctas?: {
       carousel_ctas?: Record<string, string>;
       story_ctas?: Record<string, string>;
-      carousel_image_prompt?: string | null;
     },
   ) => {
     const res = await axios.post<PostMyPostProjectsResponse>(API_BASE + '/postmypost/projects/' + telegramId, {

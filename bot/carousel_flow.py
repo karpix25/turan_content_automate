@@ -45,7 +45,7 @@ def register_carousel_handlers(dispatcher: Dispatcher, bot, backend_api_url: str
             await message.reply(f"❌ Не удалось создать карусель: {exc.response.text[:500]}")
         except Exception:
             logging.exception("Failed to create carousel from Telegram")
-            await message.reply("❌ Не удалось создать карусель. Проверьте настройки проекта и референсы.")
+            await message.reply("❌ Не удалось создать карусель. Проверьте настройки проекта и шаблоны KARPIX Carousel.")
 
     @dispatcher.message_handler(lambda message: str(message.from_user.id) in pending_edits)
     async def carousel_edit(message: types.Message):

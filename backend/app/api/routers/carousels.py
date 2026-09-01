@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from ... import models, schemas
 from ...core.config import celery_client, pmp_client
 from ...carousel_publication_service import schedule_carousel_publications
-from ...services.carousel_pipeline import resolve_reference_paths, suggest_package_slide_count
+from ...services.carousel_pipeline import suggest_package_slide_count
 from ...services.project_cta_settings import get_project_ctas
 from ...services.reference_sources import resolve_project_platform_accounts
 from ...integrations.telegram_carousel import send_carousel_text_review_to_telegram
@@ -43,20 +43,6 @@ def create_carousel(
         platform_accounts = resolve_project_platform_accounts(project_id, pmp_client, db, user.id)
         if not platform_accounts:
             raise ValueError("В проекте нет активных подключенных аккаунтов")
-        reference_paths = resolve_reference_paths(
-            db,
-            user.id,
-            payload.design_reference_ids or payload.reference_ids,
-            project_id=project_id,
-            design_format="carousel",
-        )
-        story_reference_paths = resolve_reference_paths(
-            db,
-            user.id,
-            [],
-            project_id=project_id,
-            design_format="story",
-        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
@@ -81,8 +67,8 @@ def create_carousel(
         status="awaiting_approval",
         slide_count=package_slide_count,
         story_slide_count=package_slide_count,
-        reference_paths=reference_paths,
-        story_reference_paths=story_reference_paths,
+        reference_paths=[],
+        story_reference_paths=[],
         platform_accounts=platform_accounts,
         ctas=carousel_ctas,
         story_ctas=story_ctas,

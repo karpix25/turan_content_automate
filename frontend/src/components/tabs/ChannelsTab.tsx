@@ -8,9 +8,7 @@ import { useTelegram } from '../../context/TelegramContext';
 import { EndingClip, PublishAccount } from '../../types';
 import { ChannelAccountCard } from './channels/ChannelAccountCard';
 import { ProjectCarouselCtaSettings } from './channels/ProjectCarouselCtaSettings';
-import { ProjectCarouselImagePrompt } from './channels/ProjectCarouselImagePrompt';
 import { ReferenceChannelLibrary } from './channels/ReferenceChannelLibrary';
-import { DesignReferenceLibrary } from './channels/DesignReferenceLibrary';
 
 export const ChannelsTab: React.FC = () => {
   const { telegramId } = useTelegram();
@@ -28,7 +26,6 @@ export const ChannelsTab: React.FC = () => {
   const [projectOtherFormatsLimit, setProjectOtherFormatsLimit] = useState(3);
   const [carouselCtas, setCarouselCtas] = useState<Record<string, string>>({});
   const [storyCtas, setStoryCtas] = useState<Record<string, string>>({});
-  const [carouselImagePrompt, setCarouselImagePrompt] = useState('');
   const [selectedPlateIdsByAccount, setSelectedPlateIdsByAccount] = useState<Record<number, number[]>>({});
   const [plateStartPercentByAccount, setPlateStartPercentByAccount] = useState<Record<number, number>>({});
   const [collapsedAccounts, setCollapsedAccounts] = useState<Record<number, boolean>>({});
@@ -125,7 +122,6 @@ export const ChannelsTab: React.FC = () => {
     setProjectOtherFormatsLimit(Math.min(selectedProject?.other_formats_limit_per_day ?? total - vizard, total - vizard));
     setCarouselCtas(selectedProject?.carousel_ctas || {});
     setStoryCtas(selectedProject?.story_ctas || {});
-    setCarouselImagePrompt(selectedProject?.carousel_image_prompt || '');
   }, [selectedProjectId, selectedProject]);
 
   const buildChannelSettingsPayload = (
@@ -149,7 +145,6 @@ export const ChannelsTab: React.FC = () => {
       }, {
         carousel_ctas: carouselCtas,
         story_ctas: storyCtas,
-        carousel_image_prompt: carouselImagePrompt,
       });
       const data = await apiClient.updateChannels(telegramId, selectedProjectId, buildChannelSettingsPayload());
       applyChannelsData(data);
@@ -389,12 +384,7 @@ export const ChannelsTab: React.FC = () => {
         />
       )}
 
-      {selectedProjectId && (
-        <ProjectCarouselImagePrompt value={carouselImagePrompt} onChange={setCarouselImagePrompt} />
-      )}
-
       {selectedProjectId && <ReferenceChannelLibrary telegramId={telegramId} projectId={selectedProjectId} />}
-      {selectedProjectId && telegramId && <DesignReferenceLibrary telegramId={telegramId} projectId={selectedProjectId} />}
 
       {channelsLoading && publishAccounts.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-10 gap-3 text-slate-400">
