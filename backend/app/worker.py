@@ -171,7 +171,8 @@ celery_app.conf.update(
         },
         "sync-reference-channels": {
             "task": "sync_reference_channels_task",
-            "schedule": crontab(minute=0, hour=10),
+            # Moscow is UTC+3 year-round: 09:00 MSK = 06:00 UTC.
+            "schedule": crontab(minute=0, hour=6),
         },
     },
     timezone="UTC",
