@@ -39,9 +39,9 @@ def load_template_set(renderer, design_format: str = "carousel") -> dict[str, di
             f"В KARPIX Carousel нет сохранённых шаблонов формата {expected_size[0]}×{expected_size[1]}"
         )
     return {
-        "cover": _find_template(templates, "cover", ("ОБЛОЖКА", "Обложка", "cover")),
-        "content": _find_template(templates, "content", ("Основное", "content")),
-        "cta": _find_template(templates, "cta", ("СТА", "CTA", "cta")),
+        "cover": _find_template(templates, "cover", ("ОБЛОЖКА", "Обложка", "cover", "Stories — Обложка")),
+        "content": _find_template(templates, "content", ("Основное", "content", "Сторис основной")),
+        "cta": _find_template(templates, "cta", ("СТА", "CTA", "cta", "СТОРИС CTA")),
     }
 
 
