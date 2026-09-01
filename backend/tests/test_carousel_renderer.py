@@ -39,7 +39,10 @@ class KarpixCarouselTests(unittest.TestCase):
 
     def test_loads_saved_story_templates_by_existing_names(self):
         templates = [
-            _template("Stories — Обложка", {}, height=1920),
+            _template("Stories — Обложка", {
+                "хук заголовок": {"required": True},
+                "описание": {"required": True},
+            }, height=1920),
             _template("Сторис основной ", {}, height=1920),
             _template("СТОРИС CTA", {}, height=1920),
         ]
@@ -47,6 +50,10 @@ class KarpixCarouselTests(unittest.TestCase):
         self.assertEqual([loaded[key]["id"] for key in ("cover", "content", "cta")], [
             "Stories — Обложка", "Сторис основной ", "СТОРИС CTA",
         ])
+        self.assertEqual(build_template_data(loaded["cover"], "• Сириус: бесплатная смена в Сочи."), {
+            "хук заголовок": "Сириус:",
+            "описание": "бесплатная смена в Сочи.",
+        })
 
     def test_builds_all_required_fields_from_saved_template(self):
         data = build_template_data(

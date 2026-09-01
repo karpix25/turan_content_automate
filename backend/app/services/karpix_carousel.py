@@ -81,6 +81,8 @@ def build_template_data(
     values = {
         "headlineAccent": cover_accent,
         "headlineMain": cover_main,
+        "хук заголовок": heading,
+        "описание": body,
         "Заголовок": heading,
         "подзаголовок": body,
         "CTA": cta,
