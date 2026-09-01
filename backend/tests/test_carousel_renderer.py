@@ -51,6 +51,11 @@ class KarpixCarouselTests(unittest.TestCase):
             "автор": "@turan",
         })
 
+    def test_splits_single_cover_headline_between_accent_and_main(self):
+        data = build_template_data(self.templates[0], "Где бесплатно готовиться к олимпиадам?")
+        self.assertEqual(data["headlineAccent"], "Где бесплатно")
+        self.assertEqual(data["headlineMain"], "готовиться к олимпиадам?")
+
     def test_renders_saved_templates_in_cover_content_cta_order(self):
         class Renderer:
             def __init__(self):

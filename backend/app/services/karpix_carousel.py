@@ -10,6 +10,7 @@ TEMPLATE_NAMES = {
     "content": "основное",
     "cta": "ста",
 }
+TRANSPARENT_AVATAR_DATA_URI = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
 
 
 def _normalized_name(value: Any) -> str:
@@ -55,6 +56,16 @@ def _variable_names(template: dict) -> set[str]:
     }
 
 
+def _cover_headline(heading: str, body: str) -> tuple[str, str]:
+    if body:
+        return heading, body
+    words = heading.split()
+    if len(words) < 2:
+        return "", heading
+    accent_count = max(1, min(len(words) - 1, round(len(words) * 0.4)))
+    return " ".join(words[:accent_count]), " ".join(words[accent_count:])
+
+
 def build_template_data(
     template: dict,
     part: str = "",
@@ -65,15 +76,17 @@ def build_template_data(
     content = split_slide_content(part)
     heading = str(content["heading"])
     body = str(content["body"]) or heading
+    cover_accent, cover_main = _cover_headline(str(content["heading"]), str(content["body"]))
+    avatar_value = avatar_url or TRANSPARENT_AVATAR_DATA_URI
     values = {
-        "headlineAccent": heading,
-        "headlineMain": body,
+        "headlineAccent": cover_accent,
+        "headlineMain": cover_main,
         "Заголовок": heading,
         "подзаголовок": body,
         "CTA": cta,
         "cta": cta,
-        "аватар": avatar_url,
-        "аватара": avatar_url,
+        "аватар": avatar_value,
+        "аватара": avatar_value,
         "author": author,
         "автор": author,
     }
