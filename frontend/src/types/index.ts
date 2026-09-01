@@ -86,6 +86,8 @@ export type PublishAccount = {
   account_id: number;
   account_name: string;
   account_login?: string | null;
+  account_handle?: string | null;
+  account_avatar_url?: string | null;
   channel_id?: number | null;
   channel_code?: string | null;
   channel_name?: string | null;

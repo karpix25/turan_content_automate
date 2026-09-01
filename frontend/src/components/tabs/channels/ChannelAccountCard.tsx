@@ -50,6 +50,19 @@ export const ChannelAccountCard: React.FC<ChannelAccountCardProps> = ({
       <div className="flex items-start justify-between gap-4 mb-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
+            <div className="h-10 w-10 rounded-full overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center shrink-0 relative">
+              <span className="text-sm font-bold text-slate-400 absolute">
+                {account.account_name.trim().slice(0, 1).toUpperCase()}
+              </span>
+              {account.account_avatar_url && (
+                <img
+                  src={account.account_avatar_url}
+                  alt=""
+                  className="h-full w-full object-cover relative"
+                  onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                />
+              )}
+            </div>
             <button
               onClick={() => onToggleCollapse(account.account_id)}
               className="h-8 w-8 -ml-1 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900 flex items-center justify-center transition-colors"

@@ -50,6 +50,8 @@ def build_reference_rewrite_prompt(posts: list[dict], author_style: str | None) 
             " не объединяй несколько несвязанных тем и не перечисляй разные источники в одном тексте;"
             " госзакупки, цифры, причины или выводы, которых нет в источнике; не выдавай"
             " догадки за факты. Если есть транскрипция, опирайся прежде всего на неё."
+            " Если приложены изображения или кадры видео, внимательно прочитай видимый текст на них"
+            " и используй его только как источник фактов и смысла; не игнорируй инфографику и скриншоты."
             " Пиши только на русском языке кириллицей; переводи английские фразы из источника"
             " по смыслу и не оставляй английские предложения, слова или латинские заголовки."
             " Если содержательного текста или транскрипции нет, верни ровно:"
@@ -71,6 +73,60 @@ def build_reference_rewrite_prompt(posts: list[dict], author_style: str | None) 
         },
         {"role": "user", "content": content},
     ]
+
+
+PLATFORM_COPY_RULES = {
+    "instagram": "короткий разговорный ритм, сильная первая фраза и лёгкая эмоциональная подача",
+    "tiktok": "очень быстрый хук, короткие фразы и максимально плотная подача",
+    "vk": "понятная практичная подача с чуть более подробным объяснением",
+    "telegram": "прямой авторский тон, ясная мысль и немного больше контекста",
+}
+
+
+def build_platform_unique_prompt(master_text: str, platform: str) -> list[dict]:
+    style = PLATFORM_COPY_RULES.get(platform, "короткая ясная подача для социальной сети")
+    return [
+        {
+            "role": "system",
+            "content": "Ты редактор социальных сетей. Переформулируй готовый русский текст, не меняя факты.",
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Площадка: {platform}. Стиль подачи: {style}.\n\n"
+                f"Исходный текст:\n{master_text}\n\n"
+                "Сделай отдельную уникальную версию: не копируй фразы и порядок предложений дословно, "
+                "но сохрани одну главную мысль, факты и авторский тон. Пиши только на русском языке. "
+                "Не добавляй CTA, ссылки, handle, название площадки, новые факты или нумерацию. "
+                "20–60 слов. Верни только готовый текст."
+            ),
+        },
+    ]
+
+
+def _copy_key(text: str | None) -> str:
+    return re.sub(r"\s+", " ", str(text or "").strip()).casefold()
+
+
+def uniqueize_platform_text(llm_client, master_text: str, platform: str) -> str:
+    """Create a platform variant; retry once if the model copied the master verbatim."""
+    base = strip_source_cta(master_text)
+    candidate = strip_source_cta(llm_client._complete(build_platform_unique_prompt(base, platform), temperature=0.75))
+    if candidate and is_russian_text(candidate) and _copy_key(candidate) != _copy_key(base):
+        return candidate
+    retry = build_platform_unique_prompt(base, platform)
+    retry[1]["content"] += " Перепиши ещё раз принципиально другими словами."
+    candidate = strip_source_cta(llm_client._complete(retry, temperature=0.85))
+    if candidate and is_russian_text(candidate):
+        return candidate
+    return base
+
+
+def build_platform_texts(llm_client, master_text: str, platforms: list[str]) -> dict[str, str]:
+    return {
+        platform: uniqueize_platform_text(llm_client, master_text, platform)
+        for platform in dict.fromkeys(str(item).strip().lower() for item in platforms if str(item).strip())
+    }
 
 
 def fallback_reference_text(posts: list[dict]) -> str:

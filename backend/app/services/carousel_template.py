@@ -18,11 +18,13 @@ DEFAULT_BOXES = {
         "heading": (108, 170, 864, 270),
         "body": (108, 520, 864, 470),
         "cta": (108, 1165, 864, 100),
+        "author": (108, 1270, 864, 48),
     },
     "story": {
         "heading": (108, 260, 864, 330),
         "body": (108, 730, 864, 700),
         "cta": (108, 1745, 864, 110),
+        "author": (108, 1870, 864, 40),
     },
 }
 
@@ -161,6 +163,7 @@ def build_carousel_render_request(
     contract: str | None,
     design_format: str,
     cta: str = "",
+    author: str = "",
 ) -> tuple[dict[str, Any], dict[str, str]]:
     profile = get_design_profile(design_format)
     width, height = profile["width"], profile["height"]
@@ -170,6 +173,7 @@ def build_carousel_render_request(
     heading_box = _box(_section(data, "heading"), boxes["heading"], width, height)
     body_box = _box(_section(data, "body"), boxes["body"], width, height)
     cta_box = _box(_section(data, "cta"), boxes["cta"], width, height)
+    author_box = _box(_section(data, "author"), boxes["author"], width, height)
     content = build_slide_text_content(part, contract, design_format)
     heading = str(content["heading"])
     if content["is_bullet"] and heading:
@@ -178,6 +182,7 @@ def build_carousel_render_request(
     heading_size = _fit_font_size(heading, heading_box["width"], _font_size(data, "heading", 72))
     body_size = _fit_font_size(str(content["body"]), body_box["width"], _font_size(data, "body", 38))
     cta_size = _fit_font_size(cta, cta_box["width"], _font_size(data, "cta", 28))
+    author_size = _fit_font_size(author, author_box["width"], _font_size(data, "author", 26))
     elements: list[dict[str, Any]] = [{
         "id": "background",
         "type": "shape",
@@ -196,4 +201,6 @@ def build_carousel_render_request(
     if cta:
         elements.append({"id": "cta-background", "type": "shape", **cta_box, "backgroundColor": palette["accent"], "borderRadius": 18})
         elements.append(_text_element("cta", cta_box, cta, font, cta_size, palette["background"], 700, _text_align(_section(data, "cta")), "middle"))
+    if author:
+        elements.append(_text_element("author", author_box, author, font, author_size, palette["muted"], 400, _text_align(_section(data, "author")), "middle"))
     return {"width": width, "height": height, "elements": elements}, {}

@@ -2,7 +2,7 @@ import logging
 import os
 
 from . import models
-from .core.config import llm
+from .core.config import llm, pmp_client
 from .database import SessionLocal
 from .integrations.carousel_renderer import CarouselRendererClient
 from .integrations.cloudinary_storage import CloudinaryStorage
@@ -12,10 +12,11 @@ from .services.carousel_pipeline import (
     output_dir,
     split_master_text,
 )
-from .services.carousel_copy import is_russian_text, strip_source_cta
+from .services.carousel_copy import build_platform_texts, is_russian_text, strip_source_cta
 from .services.carousel_template import build_carousel_render_request
 from .services.project_cta_settings import get_project_image_prompt
 from .services.design_composition import analyze_design_composition
+from .services.reference_sources import resolve_project_account_handles
 from .integrations.telegram_carousel import send_carousel_ready_to_telegram
 from .worker import celery_app
 
@@ -27,6 +28,7 @@ def _render_slide(
     part: str,
     composition_contract: str,
     cta: str,
+    author: str,
     output_path: str,
     design_format: str,
 ) -> str:
@@ -35,6 +37,7 @@ def _render_slide(
         composition_contract,
         design_format,
         cta,
+        author,
     )
     return renderer.render(template, data, output_path)
 
@@ -56,6 +59,17 @@ def generate_carousel_task(draft_id: int) -> None:
         text = strip_source_cta(draft.approved_text or draft.master_text)
         if not is_russian_text(text):
             raise RuntimeError("Текст карусели содержит латинские слова: генерация остановлена")
+        platforms = list(draft.platform_accounts or {})
+        platform_texts = build_platform_texts(llm, text, platforms)
+        user = db.query(models.User).filter(models.User.id == draft.user_id).first()
+        account_handles = resolve_project_account_handles(
+            draft.project_id,
+            pmp_client,
+            draft.platform_accounts or {},
+            fallback_source=user.training_source if user else None,
+            db=db,
+            user_id=draft.user_id,
+        )
         image_instructions = get_project_image_prompt(db, draft.user_id, draft.project_id)
         generated: dict[str, list[str]] = {}
         story_generated: dict[str, list[str]] = {}
@@ -80,35 +94,41 @@ def generate_carousel_task(draft_id: int) -> None:
                 design_format,
                 additional_instructions=image_instructions,
             )
-            platforms = list(draft.platform_accounts or {})
             safe_ctas = {}
             for platform in platforms:
-                safe_cta = limit_words(ctas.get(platform), 8)
+                safe_cta = limit_words((ctas or {}).get(platform), 8)
                 if safe_cta and not is_russian_text(safe_cta):
                     logger.warning("Skipping non-Russian CTA for platform %s", platform)
                     safe_cta = None
                 safe_ctas[platform] = safe_cta or ""
             profile = get_design_profile(design_format)
-            parts = split_master_text(text, min(slide_count, profile["max_slides"]), profile["max_words"])
-            shared_paths = [
-                str(destination / f"{design_format}-shared-{index}.png")
-                for index in range(1, len(parts))
-            ]
-            for part, path in zip(parts[:-1], shared_paths):
-                _render_slide(renderer, part, composition_contract, "", path, design_format)
-
             for platform in platforms:
+                variant_text = platform_texts.get(platform) or text
+                parts = split_master_text(variant_text, min(slide_count, profile["max_slides"]), profile["max_words"])
                 account_ids = [int(account_id) for account_id in (draft.platform_accounts or {}).get(platform, [])]
                 for account_id in account_ids:
                     variant_key = platform if len(account_ids) == 1 else f"{platform}:{account_id}"
-                    final_path = str(destination / f"{design_format}-{platform}-{account_id}-final.png")
-                    _render_slide(renderer, parts[-1], composition_contract, safe_ctas[platform], final_path, design_format)
-                    target[variant_key] = shared_paths + [final_path]
+                    author = account_handles.get(platform, {}).get(account_id, "")
+                    paths = []
+                    for index, part in enumerate(parts, start=1):
+                        path = str(destination / f"{design_format}-{platform}-{account_id}-{index}.png")
+                        _render_slide(
+                            renderer,
+                            part,
+                            composition_contract,
+                            safe_ctas[platform] if index == len(parts) else "",
+                            author,
+                            path,
+                            design_format,
+                        )
+                        paths.append(path)
+                    target[variant_key] = paths
 
         if not generated or not story_generated:
             raise RuntimeError("Нет поддерживаемых социальных сетей для карусели")
         draft.slides = generated
         draft.story_slides = story_generated
+        draft.platform_texts = platform_texts
         draft.status = "ready"
         draft.error = None
         db.commit()

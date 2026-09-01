@@ -252,6 +252,28 @@ class ScrapeCreatorsClient:
             "raw": data,
         }
 
+    def get_instagram_profile(self, handle: str) -> Optional[Dict]:
+        normalized_handle = normalize_instagram_handle(handle)
+        if not normalized_handle:
+            return None
+        return self._get_json("instagram/profile", {"handle": normalized_handle, "trim": "true"})
+
+    def get_tiktok_profile(self, handle: str | None = None, user_id: str | None = None) -> Optional[Dict]:
+        params: dict[str, str] = {}
+        if handle:
+            params["handle"] = handle.lstrip("@").strip()
+        elif user_id:
+            params["user_id"] = str(user_id).strip()
+        if not params:
+            return None
+        return self._get_json("tiktok/profile", params)
+
+    def get_telegram_channel(self, handle: str) -> Optional[Dict]:
+        value = (handle or "").strip()
+        if not value:
+            return None
+        return self._get_json("telegram/channel", {"handle": value})
+
     def get_youtube_transcript(self, video_url: str) -> Optional[Dict]:
         """
         Extracts YouTube transcript directly using the specific transcript endpoint.
@@ -468,3 +490,10 @@ class ScrapeCreatorsClient:
             "error": None,
             "raw": data,
         }
+
+    def get_youtube_channel(self, identifier: str) -> Optional[Dict]:
+        value = (identifier or "").strip()
+        if not value:
+            return None
+        key = "channelId" if value.startswith("UC") else "handle"
+        return self._get_json("youtube/channel", {key: value.lstrip("@")})

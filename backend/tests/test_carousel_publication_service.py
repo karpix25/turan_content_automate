@@ -96,6 +96,7 @@ class CarouselPublicationServiceTests(unittest.TestCase):
             project_id=7,
             master_text="Текст",
             approved_text="Одобренный текст",
+            platform_texts={"instagram": "Текст для Instagram", "tiktok": "Текст для TikTok", "vk": "Текст для VK"},
             status="ready",
             platform_accounts={"instagram": [11], "tiktok": [12], "vk": [13]},
             slides={"instagram": ["ig-1", "ig-final"], "tiktok": ["tt-1", "tt-final"], "vk": ["vk-1"]},
@@ -116,6 +117,10 @@ class CarouselPublicationServiceTests(unittest.TestCase):
         )
         self.assertEqual(draft.status, "scheduled")
         self.assertTrue(all(row.postmypost_id for row in result))
+        self.assertEqual(
+            [request["details"][0]["content"] for request in client.requests],
+            ["Текст для Instagram", "Текст для Instagram", "Текст для TikTok", "Текст для VK", "Текст для VK"],
+        )
         self.assertTrue(all(row.post_at > datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) for row in result))
 
 

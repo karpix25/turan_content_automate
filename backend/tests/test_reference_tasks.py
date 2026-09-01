@@ -1,8 +1,30 @@
 import datetime
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
+from app import models
+from app.services.reference_analysis import analyze_reference_post
 from app.services.reference_selection import pick_latest_unused_posts
+
+
+class _Scraper:
+    def get_instagram_details(self, _url):
+        return {
+            "caption": "Подпись из media",
+            "image_urls": ["https://example.com/actual.png"],
+            "download_url": None,
+        }
+
+    def get_youtube_details(self, _url):
+        return {"caption": "Описание", "transcript_only_text": "Текст из видео", "download_url": None}
+
+    def get_tiktok_details(self, _url):
+        return {
+            "caption": "Описание TikTok",
+            "transcript_only_text": "Текст из парсера",
+            "download_url": "https://example.com/tiktok.mp4",
+        }
 
 
 class ReferenceSelectionTests(unittest.TestCase):
@@ -18,6 +40,46 @@ class ReferenceSelectionTests(unittest.TestCase):
         selected = pick_latest_unused_posts(posts, used_post_ids={2})
 
         self.assertEqual([post.id for post in selected], [5, 4, 3])
+
+    def test_analysis_uses_media_details_and_image_urls(self):
+        post = models.ReferencePost(
+            source_url="https://www.instagram.com/p/ABC123/",
+            title="Старая подпись",
+            body="Старая подпись",
+            raw={"media": {"id": "ABC123", "caption": "Старая подпись"}},
+        )
+        payload = analyze_reference_post(_Scraper(), post)
+        self.assertEqual(payload["caption"], "Подпись из media")
+        self.assertEqual(payload["image_urls"], ["https://example.com/actual.png"])
+
+    def test_analysis_uses_video_transcript_before_description(self):
+        post = models.ReferencePost(
+            source_url="https://www.youtube.com/watch?v=abcdefghijk",
+            title="Описание",
+            body="Описание",
+            raw={"video_versions": [{"url": "https://example.com/video.mp4"}]},
+        )
+        with patch("app.services.reference_analysis._download_transcript") as transcribe:
+            payload = analyze_reference_post(_Scraper(), post)
+        self.assertEqual(payload["transcript"], "Текст из видео")
+        transcribe.assert_not_called()
+
+    @patch("app.services.reference_analysis._download_transcript", return_value="Текст из Deepgram")
+    def test_instagram_and_tiktok_use_deepgram_transcription(self, transcribe):
+        for source_url in (
+            "https://www.instagram.com/reel/ABC123/",
+            "https://www.tiktok.com/@creator/video/123",
+        ):
+            post = models.ReferencePost(
+                source_url=source_url,
+                title="Описание",
+                body="Описание",
+                raw={"video_versions": [{"url": "https://example.com/video.mp4"}]},
+            )
+            payload = analyze_reference_post(_Scraper(), post)
+            self.assertEqual(payload["transcript"], "Текст из Deepgram")
+
+        self.assertEqual(transcribe.call_count, 2)
 
 
 if __name__ == "__main__":

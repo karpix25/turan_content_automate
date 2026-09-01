@@ -438,6 +438,8 @@ def _init_database_unlocked() -> None:
         )
         add_column_if_missing("user_publish_channels", "selected_plate_id", "INTEGER")
         add_column_if_missing("user_publish_channels", "selected_plate_ids", "JSONB")
+        add_column_if_missing("user_publish_channels", "account_handle", "VARCHAR(255)")
+        add_column_if_missing("user_publish_channels", "account_avatar_url", "TEXT")
         add_column_if_missing("user_publish_channels", "plate_start_percent", "INTEGER")
         add_column_if_missing("plates", "postmypost_project_id", "INTEGER")
         add_column_if_missing("plates", "account_id", "INTEGER")
@@ -469,6 +471,7 @@ def _init_database_unlocked() -> None:
         add_column_if_missing("carousel_drafts", "source_post_ids", "JSONB")
         add_column_if_missing("carousel_drafts", "story_slide_count", "INTEGER DEFAULT 1")
         add_column_if_missing("carousel_drafts", "story_reference_paths", "JSONB")
+        add_column_if_missing("carousel_drafts", "platform_texts", "JSONB")
         add_column_if_missing("carousel_drafts", "story_ctas", "JSONB")
         add_column_if_missing("carousel_drafts", "story_slides", "JSONB")
         conn.execute(

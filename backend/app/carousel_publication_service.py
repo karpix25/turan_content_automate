@@ -51,6 +51,11 @@ def _provider_id(payload: dict) -> str | None:
     return str(value) if value else None
 
 
+def _publication_content(draft: models.CarouselDraft, platform: str) -> str:
+    variants = draft.platform_texts if isinstance(draft.platform_texts, dict) else {}
+    return str(variants.get(platform) or draft.approved_text or draft.master_text)
+
+
 def _scheduled_rows(db, draft_id: int) -> dict[tuple[str, int, str], models.CarouselPublication]:
     rows = db.query(models.CarouselPublication).filter(
         models.CarouselPublication.draft_id == draft_id,
@@ -136,7 +141,7 @@ def schedule_carousel_publications(
                 account_ids=[target["account_id"]],
                 post_at=post_at,
                 file_ids=file_ids,
-                content=draft.approved_text or draft.master_text,
+                content=_publication_content(draft, target["platform"]),
                 publication_type=2 if target["format"] == "story" else 1,
             )
             publication_id = _provider_id(response)

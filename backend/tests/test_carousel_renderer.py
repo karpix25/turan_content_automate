@@ -16,12 +16,14 @@ class CarouselRendererTemplateTests(unittest.TestCase):
             contract,
             "carousel",
             "Подпишись",
+            "@turantender",
         )
         self.assertEqual((template["width"], template["height"]), (1080, 1350))
         self.assertEqual(data, {})
         self.assertFalse(any(element["type"] == "image" for element in template["elements"]))
         self.assertIn("• Сириус:", next(element["content"] for element in template["elements"] if element["id"] == "heading"))
         self.assertEqual(next(element["content"] for element in template["elements"] if element["id"] == "cta"), "Подпишись")
+        self.assertEqual(next(element["content"] for element in template["elements"] if element["id"] == "author"), "@turantender")
 
 
 if __name__ == "__main__":

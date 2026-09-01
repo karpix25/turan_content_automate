@@ -201,6 +201,7 @@ class CarouselDraftOut(BaseModel):
     story_slide_count: Optional[int] = 1
     platform_accounts: dict
     ctas: dict
+    platform_texts: Optional[dict] = None
     story_ctas: Optional[dict] = None
     slides: Optional[dict] = None
     story_slides: Optional[dict] = None
@@ -238,6 +239,8 @@ class PostMyPostAccountOut(BaseModel):
     account_id: int
     account_name: str
     account_login: Optional[str]
+    account_handle: Optional[str] = None
+    account_avatar_url: Optional[str] = None
     channel_id: Optional[int]
     channel_code: Optional[str]
     channel_name: Optional[str]

@@ -1,12 +1,96 @@
 import datetime
 from typing import Any
 from collections import defaultdict
+from urllib.parse import urlparse
 
 from .. import models
 from ..utils.platform_utils import _normalize_platform_code
 
 SUPPORTED_REFERENCE_PLATFORMS = {"youtube", "instagram", "tiktok"}
 TARGET_PLATFORMS = {"instagram", "tiktok", "vk", "telegram"}
+
+
+def _as_handle(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith(("http://", "https://")):
+        parts = [part for part in urlparse(raw).path.split("/") if part]
+        raw = parts[0] if parts else ""
+    raw = raw.lstrip("@").strip().rstrip("/")
+    if not raw or any(char.isspace() for char in raw) or "/" in raw:
+        return ""
+    return f"@{raw}"
+
+
+def resolve_project_account_handles(
+    project_id: int,
+    pmp_client,
+    platform_accounts: dict[str, list[int]],
+    fallback_source: str | None = None,
+    db=None,
+    user_id: int | None = None,
+) -> dict[str, dict[int, str]]:
+    """Resolve and persist PostMyPost handles once; use the trained source only as a fallback."""
+    fallback = _as_handle(fallback_source)
+    account_ids = {int(account_id) for ids in platform_accounts.values() for account_id in ids or []}
+    stored_rows = {}
+    if db is not None and user_id is not None and account_ids:
+        stored_rows = {
+            int(row.account_id): row
+            for row in db.query(models.UserPublishChannel).filter(
+                models.UserPublishChannel.user_id == int(user_id),
+                models.UserPublishChannel.postmypost_project_id == int(project_id),
+                models.UserPublishChannel.account_id.in_(account_ids),
+            ).all()
+        }
+    stored_handles = {
+        account_id: _as_handle(row.account_handle)
+        for account_id, row in stored_rows.items()
+        if _as_handle(row.account_handle)
+    }
+    missing_ids = account_ids - set(stored_handles)
+    accounts = []
+    if missing_ids:
+        try:
+            accounts = pmp_client.get_accounts(project_id=project_id)
+        except Exception:
+            accounts = []
+    by_id = {
+        int(item["id"]): item
+        for item in accounts
+        if isinstance(item, dict) and item.get("id") is not None
+    }
+    fetched_handles: dict[int, str] = {}
+    changed = False
+    for account_id in missing_ids:
+        account = by_id.get(account_id, {})
+        handle = next(
+            (
+                _as_handle(account.get(key))
+                for key in ("login", "username", "handle", "screen_name")
+                if _as_handle(account.get(key))
+            ),
+            "",
+        )
+        if not handle:
+            continue
+        fetched_handles[account_id] = handle
+        row = stored_rows.get(account_id)
+        if row is not None and not _as_handle(row.account_handle):
+            row.account_handle = handle
+            changed = True
+    if changed:
+        db.commit()
+    result: dict[str, dict[int, str]] = {}
+    for platform, account_ids in platform_accounts.items():
+        result[platform] = {}
+        for raw_account_id in account_ids or []:
+            account_id = int(raw_account_id)
+            account = by_id.get(account_id, {})
+            handle = stored_handles.get(account_id) or fetched_handles.get(account_id)
+            result[platform][account_id] = handle or fallback or str(account.get("name") or "").strip()
+    return result
 
 
 def normalize_reference_platform(value: str) -> str:

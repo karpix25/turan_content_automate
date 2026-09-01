@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from ... import models, schemas
-from ...core.config import pmp_client
+from ...core.config import pmp_client, scraper
 from ...publish_planner import (
     get_project_format_limits,
     set_project_format_limits,
@@ -24,6 +24,7 @@ from ...services.project_cta_settings import (
     set_project_ctas,
     set_project_image_prompt,
 )
+from ...services.account_avatars import sync_missing_account_avatars
 from ..deps import get_db, ensure_admin_access, get_or_create_user
 from ..utils import normalize_percent
 
@@ -150,6 +151,7 @@ def migrate_legacy_project_assets(
         row.selected_plate_ids = legacy_plate_ids
         row.selected_plate_id = legacy_plate_ids[0] if legacy_plate_ids else None
         row.plate_start_percent = legacy.plate_start_percent
+        row.account_handle = legacy.account_handle
         changed = True
 
         if legacy_plate_ids:
@@ -196,6 +198,7 @@ def build_postmypost_channels_response(
         if isinstance(item, dict) and item.get("id") is not None
     }
     row_map = get_user_channel_row_map(db, user.id, project_id)
+    avatar_map = sync_missing_account_avatars(db, user.id, project_id, accounts, channels_by_id, scraper)
     project_limits = get_project_format_limits(db, user, project_id)
     plate_map = {
         plate.id: plate
@@ -246,6 +249,8 @@ def build_postmypost_channels_response(
                 account_id=account_id,
                 account_name=str(account.get("name", f"Account {account_id}")),
                 account_login=account.get("login"),
+                account_handle=(row.account_handle if row else None) or account.get("login"),
+                account_avatar_url=avatar_map.get(account_id) or (row.account_avatar_url if row else None),
                 channel_id=channel_id,
                 channel_code=channel_info.get("code") if channel_info else None,
                 channel_name=channel_info.get("name") if channel_info else None,

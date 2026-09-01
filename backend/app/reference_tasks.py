@@ -1,9 +1,6 @@
 import datetime
 import logging
 import os
-import tempfile
-
-import httpx
 
 from . import models
 from .core.config import llm, pmp_client
@@ -11,9 +8,9 @@ from .database import SessionLocal
 from .services.carousel_copy import build_reference_rewrite_prompt, fallback_reference_text, is_russian_text, strip_source_cta
 from .services.carousel_pipeline import normalize_master_text, resolve_reference_paths, suggest_package_slide_count
 from .services.project_cta_settings import get_project_ctas
+from .services.reference_analysis import analysis_source_text, analyze_reference_post
 from .services.reference_sources import extract_reference_post, reference_post_content, resolve_project_platform_accounts
 from .services.reference_selection import pick_latest_unused_posts
-from .integrations.deepgram_client import DeepgramClient
 from .integrations.telegram_carousel import resolve_telegram_chat_id, send_carousel_text_review_to_telegram
 from .integrations.scrape_creators import ScrapeCreatorsClient
 from .worker import celery_app
@@ -86,51 +83,10 @@ def _used_reference_post_ids(db, user_id: int, project_id: int) -> set[int]:
     return used_ids
 
 
-def _download_transcript(url: str, deepgram: DeepgramClient) -> str:
-    if not url or not deepgram.is_configured:
-        return ""
-    try:
-        with httpx.Client(timeout=180.0) as client, tempfile.NamedTemporaryFile(suffix=".mp4") as media:
-            response = client.get(url)
-            response.raise_for_status()
-            media.write(response.content)
-            media.flush()
-            return (deepgram.transcribe_media_text(media.name) or "").strip()
-    except Exception as exc:
-        logger.warning("Reference video transcription failed: %s", exc)
-        return ""
-
-
-def _analysis_payload(scraper, post: models.ReferencePost) -> dict:
-    payload = reference_post_content(post)
-    if payload["transcript"] or payload["content_kind"] != "video":
-        return payload
-    details = {}
-    if post.source_url and post.raw:
-        platform = "instagram" if "instagram" in str(post.source_url).lower() else ""
-        if platform:
-            details = scraper.get_instagram_details(post.source_url) or {}
-        elif "tiktok" in str(post.source_url).lower():
-            details = scraper.get_tiktok_details(post.source_url) or {}
-        elif "youtube" in str(post.source_url).lower() or "youtu.be" in str(post.source_url).lower():
-            details = scraper.get_youtube_details(post.source_url) or {}
-    details_caption = details.get("caption") or ""
-    if isinstance(details_caption, dict):
-        details_caption = details_caption.get("text") or ""
-    payload["caption"] = payload["caption"] or str(details_caption).strip()
-    payload["image_urls"] = list(dict.fromkeys(payload["image_urls"] + list(details.get("image_urls") or [])))[:8]
-    payload["transcript"] = str(details.get("transcript_only_text") or details.get("transcript") or "").strip()
-    if not payload["transcript"]:
-        payload["transcript"] = _download_transcript(str(details.get("download_url") or ""), DeepgramClient(os.getenv("DEEPGRAM_API_KEY", "")))
-    return payload
-
-
 def _build_master_text(user: models.User, posts: list[models.ReferencePost], scraper=None) -> str:
-    payload = [_analysis_payload(scraper, post) if scraper else reference_post_content(post) for post in posts]
+    payload = [analyze_reference_post(scraper, post) if scraper else reference_post_content(post) for post in posts]
     for item in payload:
-        source_text = " ".join(
-            str(item.get(field) or "") for field in ("title", "caption", "transcript", "body")
-        ).strip()
+        source_text = strip_source_cta(analysis_source_text(item))
         if item.get("content_kind") == "video" and not item.get("transcript") and len(source_text.split()) < 8:
             raise ValueError("Не удалось извлечь содержательный текст из видео референса")
     generated = llm._complete(build_reference_rewrite_prompt(payload, user.author_style_profile), temperature=0.65)
