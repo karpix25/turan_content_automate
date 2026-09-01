@@ -46,7 +46,7 @@ def _render_slide(
 
 
 @celery_app.task(name="generate_carousel_task", soft_time_limit=3600, time_limit=3900)
-def generate_carousel_task(draft_id: int) -> None:
+def generate_carousel_task(draft_id: int, schedule_after: bool | None = None) -> None:
     db = SessionLocal()
     try:
         draft = db.query(models.CarouselDraft).filter(models.CarouselDraft.id == draft_id).first()
@@ -165,7 +165,7 @@ def generate_carousel_task(draft_id: int) -> None:
         db.commit()
         send_carousel_ready_to_telegram(draft)
         user = db.query(models.User).filter(models.User.id == draft.user_id).first()
-        if user and user.auto_schedule_enabled:
+        if user and (schedule_after if schedule_after is not None else user.auto_schedule_enabled):
             celery_app.send_task("schedule_carousel_publications_task", args=[draft.id])
     except Exception as exc:
         logger.exception("Carousel generation failed for draft %s", draft_id)
