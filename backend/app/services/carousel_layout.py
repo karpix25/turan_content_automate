@@ -110,11 +110,13 @@ def build_layout_instruction(contract: str | None, design_format: str) -> str:
     heading_layout = _layout_values(_slot(data, "heading"))
     body_layout = _layout_values(_slot(data, "body"))
     cta_layout = _layout_values(_slot(data, "cta"))
+    avatar_layout = _layout_values(_slot(data, "avatar"))
     position_rules = " ".join(
         value for value in (
             f"Зона заголовка: {heading_layout}." if heading_layout else "",
             f"Зона описания: {body_layout}." if body_layout else "",
             f"Зона CTA: {cta_layout}." if cta_layout else "",
+            f"Зона аватара: {avatar_layout}." if avatar_layout else "",
         )
     )
     heading_rule = "заголовок отсутствует" if slots["heading_lines"] == 0 else f"заголовок всегда в одной и той же зоне и выравнивании, ровно {slots['heading_lines']} {_line_label(slots['heading_lines'])}"

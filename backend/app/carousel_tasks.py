@@ -2,7 +2,7 @@ import logging
 import os
 
 from . import models
-from .core.config import llm, pmp_client
+from .core.config import llm, pmp_client, scraper
 from .database import SessionLocal
 from .integrations.carousel_renderer import CarouselRendererClient
 from .integrations.cloudinary_storage import CloudinaryStorage
@@ -17,6 +17,7 @@ from .services.carousel_template import build_carousel_render_request
 from .services.project_cta_settings import get_project_image_prompt
 from .services.design_composition import analyze_design_composition
 from .services.reference_sources import resolve_project_account_handles
+from .services.account_avatars import sync_missing_account_avatars
 from .integrations.telegram_carousel import send_carousel_ready_to_telegram
 from .worker import celery_app
 
@@ -29,6 +30,7 @@ def _render_slide(
     composition_contract: str,
     cta: str,
     author: str,
+    avatar_url: str,
     output_path: str,
     design_format: str,
 ) -> str:
@@ -38,6 +40,7 @@ def _render_slide(
         design_format,
         cta,
         author,
+        avatar_url,
     )
     return renderer.render(template, data, output_path)
 
@@ -70,6 +73,32 @@ def generate_carousel_task(draft_id: int) -> None:
             db=db,
             user_id=draft.user_id,
         )
+        account_avatars = {
+            int(row.account_id): row.account_avatar_url
+            for row in db.query(models.UserPublishChannel).filter(
+                models.UserPublishChannel.user_id == draft.user_id,
+                models.UserPublishChannel.postmypost_project_id == draft.project_id,
+            ).all()
+            if row.account_avatar_url
+        }
+        try:
+            pmp_accounts = pmp_client.get_accounts(project_id=draft.project_id)
+            pmp_channels = pmp_client.get_channels()
+            channels_by_id = {
+                int(channel["id"]): channel
+                for channel in pmp_channels
+                if isinstance(channel, dict) and channel.get("id") is not None
+            }
+            account_avatars.update(sync_missing_account_avatars(
+                db,
+                draft.user_id,
+                draft.project_id,
+                pmp_accounts,
+                channels_by_id,
+                scraper,
+            ))
+        except Exception:
+            logger.exception("Failed to resolve account avatars for draft %s", draft.id)
         image_instructions = get_project_image_prompt(db, draft.user_id, draft.project_id)
         generated: dict[str, list[str]] = {}
         story_generated: dict[str, list[str]] = {}
@@ -109,6 +138,7 @@ def generate_carousel_task(draft_id: int) -> None:
                 for account_id in account_ids:
                     variant_key = platform if len(account_ids) == 1 else f"{platform}:{account_id}"
                     author = account_handles.get(platform, {}).get(account_id, "")
+                    avatar_url = account_avatars.get(account_id, "")
                     paths = []
                     for index, part in enumerate(parts, start=1):
                         path = str(destination / f"{design_format}-{platform}-{account_id}-{index}.png")
@@ -118,6 +148,7 @@ def generate_carousel_task(draft_id: int) -> None:
                             composition_contract,
                             safe_ctas[platform] if index == len(parts) else "",
                             author,
+                            avatar_url,
                             path,
                             design_format,
                         )

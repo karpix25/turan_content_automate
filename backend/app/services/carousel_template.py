@@ -158,12 +158,25 @@ def _text_element(
     }
 
 
+def _image_element(element_id: str, box: dict[str, int], variable_name: str) -> dict[str, Any]:
+    return {
+        "id": element_id,
+        "type": "image",
+        **box,
+        "content": "{{" + variable_name + "}}",
+        "variableName": variable_name,
+        "fit": "cover",
+        "borderRadius": min(box["width"], box["height"]) // 2,
+    }
+
+
 def build_carousel_render_request(
     part: str,
     contract: str | None,
     design_format: str,
     cta: str = "",
     author: str = "",
+    avatar_url: str = "",
 ) -> tuple[dict[str, Any], dict[str, str]]:
     profile = get_design_profile(design_format)
     width, height = profile["width"], profile["height"]
@@ -174,6 +187,18 @@ def build_carousel_render_request(
     body_box = _box(_section(data, "body"), boxes["body"], width, height)
     cta_box = _box(_section(data, "cta"), boxes["cta"], width, height)
     author_box = _box(_section(data, "author"), boxes["author"], width, height)
+    avatar_size = max(48, min(72, author_box["height"] + 16))
+    avatar_box = _box(
+        _section(data, "avatar"),
+        (
+            max(24, author_box["x"] - avatar_size - 18),
+            max(0, author_box["y"] + (author_box["height"] - avatar_size) // 2),
+            avatar_size,
+            avatar_size,
+        ),
+        width,
+        height,
+    )
     content = build_slide_text_content(part, contract, design_format)
     heading = str(content["heading"])
     if content["is_bullet"] and heading:
@@ -201,6 +226,9 @@ def build_carousel_render_request(
     if cta:
         elements.append({"id": "cta-background", "type": "shape", **cta_box, "backgroundColor": palette["accent"], "borderRadius": 18})
         elements.append(_text_element("cta", cta_box, cta, font, cta_size, palette["background"], 700, _text_align(_section(data, "cta")), "middle"))
+    if avatar_url:
+        elements.append(_image_element("avatar", avatar_box, "аватар"))
     if author:
         elements.append(_text_element("author", author_box, author, font, author_size, palette["muted"], 400, _text_align(_section(data, "author")), "middle"))
-    return {"width": width, "height": height, "elements": elements}, {}
+    render_data = {"аватар": avatar_url} if avatar_url else {}
+    return {"width": width, "height": height, "elements": elements}, render_data

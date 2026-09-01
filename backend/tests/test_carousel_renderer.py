@@ -25,6 +25,21 @@ class CarouselRendererTemplateTests(unittest.TestCase):
         self.assertEqual(next(element["content"] for element in template["elements"] if element["id"] == "cta"), "Подпишись")
         self.assertEqual(next(element["content"] for element in template["elements"] if element["id"] == "author"), "@turantender")
 
+    def test_template_passes_social_avatar_to_dynamic_image_field(self):
+        template, data = build_carousel_render_request(
+            "Одна мысль.",
+            '{"avatar":{"left":"8%","top":"92%","width":64,"height":64}}',
+            "carousel",
+            author="@turantender",
+            avatar_url="https://cdn.test/turan.jpg",
+        )
+        avatar = next(element for element in template["elements"] if element["id"] == "avatar")
+        self.assertEqual(data, {"аватар": "https://cdn.test/turan.jpg"})
+        self.assertEqual(avatar["variableName"], "аватар")
+        self.assertEqual(avatar["content"], "{{аватар}}")
+        self.assertEqual((avatar["x"], avatar["y"], avatar["width"], avatar["height"]), (86, 1242, 64, 64))
+        self.assertEqual(avatar["borderRadius"], 32)
+
 
 if __name__ == "__main__":
     unittest.main()
