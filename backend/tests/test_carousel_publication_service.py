@@ -3,7 +3,7 @@ import unittest
 from types import SimpleNamespace
 
 from app import models
-from app.carousel_publication_service import _targets, schedule_carousel_publications
+from app.carousel_publication_service import _publication_content, _targets, schedule_carousel_publications
 
 
 class FakeQuery:
@@ -70,6 +70,31 @@ class FakeClient:
 
 
 class CarouselPublicationServiceTests(unittest.TestCase):
+    def test_uses_format_json_as_publication_text(self):
+        draft = SimpleNamespace(
+            master_text="Запасной текст",
+            approved_text=None,
+            platform_texts={
+                "vk": {
+                    "carousel": {
+                        "cover": {"headlineAccent": "Главный хук", "headlineMain": "Про дыхание"},
+                        "main": [{"Заголовок": "Длинный выдох", "подзаголовок": "Помогает успокоиться"}],
+                        "cta": {"CTA": "Подпишись"},
+                    },
+                    "story": {
+                        "cover": {"хук заголовок": "Дышите медленнее", "описание": "Верните контроль"},
+                        "main": [],
+                        "cta": {"CTA": "Подпишись"},
+                    },
+                },
+            },
+        )
+        self.assertEqual(
+            _publication_content(draft, "vk", "carousel"),
+            "Главный хук Про дыхание\n\nДлинный выдох Помогает успокоиться",
+        )
+        self.assertEqual(_publication_content(draft, "vk", "story"), "Дышите медленнее Верните контроль")
+
     def test_duplicate_platform_accounts_use_account_specific_variants(self):
         draft = models.CarouselDraft(
             id=2,

@@ -6,6 +6,7 @@ from .integrations.postmypost_carousel import create_media_publication
 from .publication_guard import verify_publication_payload
 from .publication_reconciler import reconcile_scheduled_publications
 from .publish_planner import get_min_publish_lead_delta, plan_next_publish_times_for_account_outputs
+from .services.carousel_copy import template_package_text
 
 logger = logging.getLogger(__name__)
 UTC = datetime.timezone.utc
@@ -51,9 +52,16 @@ def _provider_id(payload: dict) -> str | None:
     return str(value) if value else None
 
 
-def _publication_content(draft: models.CarouselDraft, platform: str) -> str:
+def _publication_content(draft: models.CarouselDraft, platform: str, media_format: str) -> str:
     variants = draft.platform_texts if isinstance(draft.platform_texts, dict) else {}
-    return str(variants.get(platform) or draft.approved_text or draft.master_text)
+    variant = variants.get(platform)
+    if isinstance(variant, str):
+        return variant
+    if isinstance(variant, dict):
+        package = variant.get(media_format)
+        if isinstance(package, dict) and (text := template_package_text(package)):
+            return text
+    return str(draft.approved_text or draft.master_text)
 
 
 def _scheduled_rows(db, draft_id: int) -> dict[tuple[str, int, str], models.CarouselPublication]:
@@ -141,7 +149,7 @@ def schedule_carousel_publications(
                 account_ids=[target["account_id"]],
                 post_at=post_at,
                 file_ids=file_ids,
-                content=_publication_content(draft, target["platform"]),
+                content=_publication_content(draft, target["platform"], target["format"]),
                 publication_type=2 if target["format"] == "story" else 1,
             )
             publication_id = _provider_id(response)

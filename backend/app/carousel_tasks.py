@@ -8,7 +8,7 @@ from .services.carousel_pipeline import (
     limit_words,
     output_dir,
 )
-from .services.carousel_copy import build_platform_texts, is_russian_text, strip_source_cta
+from .services.carousel_copy import build_template_package, is_russian_text, strip_source_cta
 from .services.karpix_carousel import load_template_set, render_account_carousel
 from .services.reference_sources import resolve_project_account_handles
 from .services.account_avatars import sync_missing_account_avatars
@@ -32,7 +32,6 @@ def generate_carousel_task(draft_id: int, schedule_after: bool | None = None) ->
         if not is_russian_text(text):
             raise RuntimeError("Текст карусели содержит латинские слова: генерация остановлена")
         platforms = list(draft.platform_accounts or {})
-        platform_texts = build_platform_texts(llm, text, platforms)
         user = db.query(models.User).filter(models.User.id == draft.user_id).first()
         account_handles = resolve_project_account_handles(
             draft.project_id,
@@ -73,24 +72,51 @@ def generate_carousel_task(draft_id: int, schedule_after: bool | None = None) ->
             template_sets["story"] = load_template_set(renderer, "story")
         except ValueError as exc:
             logger.info("KARPIX Stories templates are not configured: %s", exc)
-        generated: dict[str, list[str]] = {}
-        story_generated: dict[str, list[str]] = {}
-        for design_format, slide_count, target in (
-            ("carousel", draft.slide_count, generated),
-            ("story", draft.story_slide_count, story_generated),
+        format_packages: dict[str, dict[str, dict]] = {}
+        format_ctas: dict[str, dict[str, str]] = {}
+        for design_format, slide_count in (
+            ("carousel", draft.slide_count),
+            ("story", draft.story_slide_count),
         ):
             if design_format not in template_sets:
                 continue
-            safe_ctas = {}
             ctas = draft.ctas if design_format == "carousel" else (draft.story_ctas or {})
+            safe_ctas = {}
+            packages = {}
             for platform in platforms:
                 safe_cta = limit_words((ctas or {}).get(platform), 8)
                 if safe_cta and not is_russian_text(safe_cta):
                     logger.warning("Skipping non-Russian CTA for platform %s", platform)
-                    safe_cta = None
-                safe_ctas[platform] = safe_cta or ""
+                    safe_cta = ""
+                safe_ctas[platform] = safe_cta
+                packages[platform] = build_template_package(
+                    llm,
+                    text,
+                    platform,
+                    template_sets[design_format],
+                    slide_count,
+                    safe_cta,
+                )
+            format_ctas[design_format] = safe_ctas
+            format_packages[design_format] = packages
+
+        platform_packages = {
+            platform: {
+                design_format: packages[platform]
+                for design_format, packages in format_packages.items()
+                if platform in packages
+            }
+            for platform in platforms
+        }
+        generated: dict[str, list[str]] = {}
+        story_generated: dict[str, list[str]] = {}
+        for design_format, target in (
+            ("carousel", generated),
+            ("story", story_generated),
+        ):
+            if design_format not in template_sets:
+                continue
             for platform in platforms:
-                variant_text = platform_texts.get(platform) or text
                 account_ids = [int(account_id) for account_id in (draft.platform_accounts or {}).get(platform, [])]
                 for account_id in account_ids:
                     variant_key = platform if len(account_ids) == 1 else f"{platform}:{account_id}"
@@ -99,9 +125,8 @@ def generate_carousel_task(draft_id: int, schedule_after: bool | None = None) ->
                     target[variant_key] = render_account_carousel(
                         renderer,
                         template_sets[design_format],
-                        variant_text,
-                        slide_count,
-                        safe_ctas[platform],
+                        format_packages[design_format][platform],
+                        format_ctas[design_format][platform],
                         author,
                         avatar_url,
                         destination,
@@ -114,8 +139,9 @@ def generate_carousel_task(draft_id: int, schedule_after: bool | None = None) ->
             raise RuntimeError("Нет поддерживаемых социальных сетей для карусели")
         draft.slides = generated
         draft.story_slides = story_generated
+        draft.slide_count = max((len(paths) for paths in generated.values()), default=0)
         draft.story_slide_count = max((len(paths) for paths in story_generated.values()), default=0)
-        draft.platform_texts = platform_texts
+        draft.platform_texts = platform_packages
         draft.status = "ready"
         draft.error = None
         db.commit()

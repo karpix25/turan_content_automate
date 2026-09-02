@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.services.karpix_carousel import build_template_data, load_template_set, render_account_carousel
+from app.services.karpix_carousel import build_render_data, load_template_set, render_account_carousel
 
 
 def _template(name, variables, width=1080, height=1350):
@@ -50,15 +50,23 @@ class KarpixCarouselTests(unittest.TestCase):
         self.assertEqual([loaded[key]["id"] for key in ("cover", "content", "cta")], [
             "Stories — Обложка", "Сторис основной ", "СТОРИС CTA",
         ])
-        self.assertEqual(build_template_data(loaded["cover"], "• Сириус: бесплатная смена в Сочи."), {
+        self.assertEqual(build_render_data(loaded["cover"], {
+            "хук заголовок": "Сириус:",
+            "описание": "бесплатная смена в Сочи.",
+        }), {
             "хук заголовок": "Сириус:",
             "описание": "бесплатная смена в Сочи.",
         })
 
     def test_builds_all_required_fields_from_saved_template(self):
-        data = build_template_data(
+        data = build_render_data(
             self.templates[1],
-            "• Сириус: бесплатная смена в Сочи.",
+            {
+                "Заголовок": "Сириус:",
+                "подзаголовок": "бесплатная смена в Сочи.",
+                "аватара": "",
+                "автор": "",
+            },
             author="@turan",
             avatar_url="https://cdn.test/avatar.jpg",
         )
@@ -69,8 +77,13 @@ class KarpixCarouselTests(unittest.TestCase):
             "автор": "@turan",
         })
 
-    def test_splits_single_cover_headline_between_accent_and_main(self):
-        data = build_template_data(self.templates[0], "Где бесплатно готовиться к олимпиадам?")
+    def test_uses_json_fields_without_renaming_them(self):
+        data = build_render_data(self.templates[0], {
+            "headlineAccent": "Где бесплатно",
+            "headlineMain": "готовиться к олимпиадам?",
+            "аватар": "",
+            "author": "",
+        })
         self.assertEqual(data["headlineAccent"], "Где бесплатно")
         self.assertEqual(data["headlineMain"], "готовиться к олимпиадам?")
 
@@ -84,12 +97,35 @@ class KarpixCarouselTests(unittest.TestCase):
                 Path(output_path).touch()
 
         renderer = Renderer()
+        package = {
+            "slide_count": 4,
+            "cover": {
+                "headlineAccent": "Главный хук",
+                "headlineMain": "Одна связная тема",
+                "аватар": "",
+                "author": "",
+            },
+            "main": [
+                {
+                    "Заголовок": "Первый тезис",
+                    "подзаголовок": "Короткое объяснение",
+                    "аватара": "",
+                    "автор": "",
+                },
+                {
+                    "Заголовок": "Второй тезис",
+                    "подзаголовок": "Ещё одно объяснение",
+                    "аватара": "",
+                    "автор": "",
+                },
+            ],
+            "cta": {"CTA": "Подпишись", "аватар": "", "author": ""},
+        }
         with tempfile.TemporaryDirectory() as directory:
             paths = render_account_carousel(
                 renderer,
                 {"cover": self.templates[0], "content": self.templates[1], "cta": self.templates[2]},
-                "Хук. Первый тезис. Второй тезис.",
-                4,
+                package,
                 "Подпишись",
                 "@turan",
                 "https://cdn.test/avatar.jpg",
