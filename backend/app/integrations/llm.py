@@ -68,7 +68,12 @@ class LLMClient:
             "Content-Type": "application/json"
         }
 
-    def _complete(self, messages: List[Dict[str, Any]], temperature: float = 0.7) -> Optional[str]:
+    def _complete(
+        self,
+        messages: List[Dict[str, Any]],
+        temperature: float = 0.7,
+        response_format: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
         if not self.api_key:
             logger.error("OpenRouter API key is missing")
             return None
@@ -77,6 +82,8 @@ class LLMClient:
             "messages": messages,
             "temperature": temperature
         }
+        if response_format:
+            base_payload["response_format"] = response_format
         is_gemini = "gemini" in (self.model_id or "").lower()
         request_attempts: list[tuple[str, str | None]] = [(self.model_id, None)]
         if is_gemini:

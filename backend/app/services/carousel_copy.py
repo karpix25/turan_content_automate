@@ -168,6 +168,44 @@ def build_template_package_prompt(
     ]
 
 
+def _template_package_response_format(template_set: dict[str, dict], slide_count: int) -> dict:
+    count = _slide_count(slide_count)
+    contract = _template_contract(template_set)
+
+    def section_schema(kind: str) -> dict:
+        names = contract[kind]
+        return {
+            "type": "object",
+            "properties": {name: {"type": "string"} for name in names},
+            "required": names,
+            "additionalProperties": False,
+        }
+
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "karpix_carousel",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "slide_count": {"type": "integer", "const": count},
+                    "cover": section_schema("cover"),
+                    "main": {
+                        "type": "array",
+                        "items": section_schema("content"),
+                        "minItems": count - 2,
+                        "maxItems": count - 2,
+                    },
+                    "cta": section_schema("cta"),
+                },
+                "required": ["slide_count", "cover", "main", "cta"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
 def parse_template_package(
     raw: str | None,
     template_set: dict[str, dict],
@@ -238,11 +276,12 @@ def build_template_package(
     cta: str,
 ) -> dict:
     prompt = build_template_package_prompt(master_text, platform, template_set, slide_count, cta)
+    response_format = _template_package_response_format(template_set, slide_count)
     last_error = None
     for temperature in (0.45, 0.2):
         try:
             return parse_template_package(
-                llm_client._complete(prompt, temperature=temperature),
+                llm_client._complete(prompt, temperature=temperature, response_format=response_format),
                 template_set,
                 slide_count,
                 cta,

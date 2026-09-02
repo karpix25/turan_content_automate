@@ -54,8 +54,8 @@ class _Llm:
         self.responses = iter(responses)
         self.calls = []
 
-    def _complete(self, messages, temperature):
-        self.calls.append((messages, temperature))
+    def _complete(self, messages, temperature, response_format=None):
+        self.calls.append((messages, temperature, response_format))
         return next(self.responses)
 
 
@@ -93,6 +93,8 @@ class CarouselCopyTests(unittest.TestCase):
         result = build_template_package(llm, "Исходный текст.", "vk", TEMPLATES, 4, "Подпишись")
         self.assertEqual(result["slide_count"], 4)
         self.assertEqual(len(llm.calls), 2)
+        self.assertEqual(llm.calls[0][2]["type"], "json_schema")
+        self.assertEqual(llm.calls[0][2]["json_schema"]["schema"]["properties"]["main"]["minItems"], 2)
 
     def test_invalid_json_fails_before_rendering(self):
         llm = _Llm(["не JSON", "снова не JSON"])
