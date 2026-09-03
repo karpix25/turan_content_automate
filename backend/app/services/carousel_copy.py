@@ -94,6 +94,12 @@ TEXT_VARIABLE_ORDER = (
     "headlineAccent", "headlineMain", "хук заголовок", "описание",
     "Заголовок", "подзаголовок",
 )
+STORY_VARIABLE_WORD_LIMITS = {
+    "хук заголовок": 3,
+    "описание": 6,
+    "Заголовок": 3,
+    "подзаголовок": 8,
+}
 
 
 def _slide_count(value: int) -> int:
@@ -145,6 +151,11 @@ def build_template_package_prompt(
         "cta": _example_section(contract["cta"], cta),
     }
     max_words = 12 if int(template_set["cover"].get("height", 0)) == 1920 else 20
+    story_limits = (
+        ", ".join(f"{name} — до {limit} слов" for name, limit in STORY_VARIABLE_WORD_LIMITS.items())
+        if max_words == 12 else ""
+    )
+    story_rule = f"Для Stories соблюдай лимиты полей: {story_limits}. " if story_limits else ""
     return [
         {
             "role": "system",
@@ -158,6 +169,7 @@ def build_template_package_prompt(
                 "Выбери только одну связную тему. Не смешивай разные источники. "
                 f"Количество слайдов — ровно {count}: одна обложка, {count - 2} основных и один CTA. "
                 f"В каждом объекте слайда должно быть не больше {max_words} слов. "
+                f"{story_rule}"
                 "Все текстовые поля заполни по-русски, без Markdown, заголовков «Версия», ссылок и новых фактов. "
                 "Поля author, автор, аватар и аватара оставь пустыми: их заполнит бэкенд. "
                 "Значение CTA/cta скопируй точно из примера. Ключи не добавляй и не удаляй. "
@@ -247,6 +259,9 @@ def parse_template_package(
             else:
                 if not value or not is_russian_text(value):
                     raise ValueError(f"Переменная {name} должна содержать русский текст")
+                variable_limit = STORY_VARIABLE_WORD_LIMITS.get(name) if max_words == 12 else None
+                if variable_limit and len(value.split()) > variable_limit:
+                    raise ValueError(f"Переменная {name} превышает лимит {variable_limit} слов")
                 editorial_values.append(value)
             cleaned[name] = value
         if len(" ".join(editorial_values).split()) > max_words:

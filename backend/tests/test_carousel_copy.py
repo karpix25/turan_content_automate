@@ -101,6 +101,21 @@ class CarouselCopyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Не удалось получить JSON"):
             build_template_package(llm, "Исходный текст.", "vk", TEMPLATES, 4, "Подпишись")
 
+    def test_story_field_limits_prevent_template_overflow(self):
+        templates = {
+            "cover": {"height": 1920, "variables": {"хук заголовок": {}, "описание": {}}},
+            "content": {"variables": {"Заголовок": {}, "подзаголовок": {}}},
+            "cta": {"variables": {"CTA": {}}},
+        }
+        package = {
+            "slide_count": 3,
+            "cover": {"хук заголовок": "Как быстро успокоиться при тревоге", "описание": "Верните контроль над эмоциями"},
+            "main": [{"Заголовок": "Замедлите дыхание", "подзаголовок": "Сделайте выдох длиннее вдоха"}],
+            "cta": {"CTA": "Ставь реакцию!"},
+        }
+        with self.assertRaisesRegex(ValueError, "хук заголовок превышает лимит 3 слов"):
+            parse_template_package(json.dumps(package, ensure_ascii=False), templates, 3, "Ставь реакцию!")
+
     def test_builds_publication_text_from_slide_variables(self):
         text = template_package_text(_package())
         self.assertIn("Верните себе контроль Начните с медленного дыхания", text)
