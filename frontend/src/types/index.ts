@@ -1,5 +1,6 @@
 export type UserSettings = {
   auto_schedule_enabled: boolean;
+  thumbnail_auto_approve_enabled?: boolean;
   publish_limit_per_day: number;
   publish_window_start_msk: string;
   publish_window_end_msk: string;

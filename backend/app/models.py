@@ -17,6 +17,7 @@ class User(Base):
     font_color = Column(String, default="FFFFFF")  # Hex
     subtitles_enabled = Column(Boolean, default=True, nullable=False)
     auto_schedule_enabled = Column(Boolean, default=False, nullable=False)
+    thumbnail_auto_approve_enabled = Column(Boolean, default=False, nullable=False)
     publish_limit_per_day = Column(Integer, default=3, nullable=False)
     publish_window_start_msk = Column(String, default="10:00:00", nullable=False)
     publish_window_end_msk = Column(String, default="22:00:00", nullable=False)

@@ -41,6 +41,7 @@ export const SettingsTab: React.FC = () => {
   const [trainingStatus, setTrainingStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [trainingError, setTrainingError] = useState('');
   const [loadingStyle, setLoadingStyle] = useState(false);
+  const [thumbnailAutoApprove, setThumbnailAutoApprove] = useState(false);
   
   const [clonedVoices, setClonedVoices] = useState<ElevenLabsVoice[]>([]);
   const [loadingVoices, setLoadingVoices] = useState(false);
@@ -110,6 +111,7 @@ export const SettingsTab: React.FC = () => {
         setStyleProfile(data.author_style_profile || '');
         setTrainingSource(data.training_source || '');
         setTrainingError(data.style_training_error || '');
+        setThumbnailAutoApprove(data.thumbnail_auto_approve_enabled ?? false);
         if (data.style_training_status === 'queued' || data.style_training_status === 'processing') {
           setTrainingStatus('loading');
         } else if (data.style_training_status === 'failed') {
@@ -283,6 +285,7 @@ export const SettingsTab: React.FC = () => {
     try {
       await apiClient.updateSettings(telegramId, {
         author_style_profile: styleProfile,
+        thumbnail_auto_approve_enabled: thumbnailAutoApprove,
         heygen_avatar_id: selectedAvatar,
         heygen_vertical_avatar_id: selectedVerticalAvatar || selectedAvatar,
         heygen_video_api_version: selectedHeyGenApiVersion,
@@ -885,6 +888,25 @@ export const SettingsTab: React.FC = () => {
           <h3 className="text-[15px] font-bold text-slate-900">Обложки: лицо и референсы</h3>
         </div>
         </summary>
+
+        <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-800">Автоодобрение обложек</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+              Не отправлять prompt обложки в Telegram на подтверждение.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={thumbnailAutoApprove}
+            aria-label="Автоодобрение обложек"
+            onClick={() => setThumbnailAutoApprove((value) => !value)}
+            className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${thumbnailAutoApprove ? 'bg-[#34c759]' : 'bg-[#e9e9eb]'}`}
+          >
+            <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${thumbnailAutoApprove ? 'translate-x-6' : 'translate-x-1'}`} />
+          </button>
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-3 mt-3">
           <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">

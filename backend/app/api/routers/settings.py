@@ -186,6 +186,7 @@ async def get_style_settings(telegram_id: str, db: Session = Depends(get_db)):
     user = get_or_create_user(db, telegram_id)
     return {
         "author_style_profile": user.author_style_profile,
+        "thumbnail_auto_approve_enabled": bool(getattr(user, "thumbnail_auto_approve_enabled", False)),
         "training_source": user.training_source,
         "style_training_status": user.style_training_status,
         "style_training_error": user.style_training_error,

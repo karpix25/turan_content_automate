@@ -62,6 +62,7 @@ from .services.video_uniqueization import (
     uniqueization_variations_enabled,
 )
 from .services.broll_pipeline import apply_project_broll
+from .services.thumbnail_review import should_request_thumbnail_review
 from .services.subtitle_generator import build_ass, write_ass_file
 from .utils.youtube_utils import (
     _validate_youtube_url_or_raise,
@@ -2993,7 +2994,11 @@ def process_content_task(self, task_id: int):
             return None, thumbnail_meta
 
         if thumbnail_prompt:
-            if THUMBNAIL_PROMPT_REVIEW_ENABLED and getattr(task, "telegram_chat_id", None):
+            if should_request_thumbnail_review(
+                review_enabled=THUMBNAIL_PROMPT_REVIEW_ENABLED,
+                auto_approve_enabled=bool(getattr(user, "thumbnail_auto_approve_enabled", False)),
+                telegram_chat_id=getattr(task, "telegram_chat_id", None),
+            ):
                 meta = dict(task.script_meta or {})
                 review = dict(meta.get("thumbnail_prompt_review") or {})
                 review_status = (review.get("status") or "").strip().lower()

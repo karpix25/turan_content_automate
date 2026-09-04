@@ -41,6 +41,7 @@ export const apiClient = {
         demo_char_count?: number;
         demo_duration_seconds?: number;
       }> | null;
+      thumbnail_auto_approve_enabled: boolean;
       thumbnail_face_path: string | null;
       vertical_thumbnail_face_path: string | null;
       avatar_script_duration_minutes: number;

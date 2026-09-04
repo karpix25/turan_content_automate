@@ -68,6 +68,7 @@ def _init_database_unlocked() -> None:
             text("UPDATE users SET subtitles_enabled = TRUE WHERE subtitles_enabled IS NULL")
         )
         add_column_if_missing("users", "auto_schedule_enabled", "BOOLEAN DEFAULT FALSE")
+        add_column_if_missing("users", "thumbnail_auto_approve_enabled", "BOOLEAN DEFAULT FALSE")
         add_column_if_missing("users", "publish_limit_per_day", "INTEGER DEFAULT 3")
         add_column_if_missing("users", "publish_window_start_msk", "VARCHAR(16) DEFAULT '10:00:00'")
         add_column_if_missing("users", "publish_window_end_msk", "VARCHAR(16) DEFAULT '22:00:00'")
@@ -110,6 +111,9 @@ def _init_database_unlocked() -> None:
         add_column_if_missing("users", "instagram_post_5s_image_prompt", "TEXT")
         conn.execute(
             text("UPDATE users SET auto_schedule_enabled = FALSE WHERE auto_schedule_enabled IS NULL")
+        )
+        conn.execute(
+            text("UPDATE users SET thumbnail_auto_approve_enabled = FALSE WHERE thumbnail_auto_approve_enabled IS NULL")
         )
         conn.execute(
             text("UPDATE users SET publish_limit_per_day = 3 WHERE publish_limit_per_day IS NULL OR publish_limit_per_day < 1")

@@ -8,6 +8,7 @@ class UserSettingsUpdate(BaseModel):
     font_color: Optional[str] = None
     subtitles_enabled: Optional[bool] = None
     auto_schedule_enabled: Optional[bool] = None
+    thumbnail_auto_approve_enabled: Optional[bool] = None
     publish_limit_per_day: Optional[int] = None
     publish_window_start_msk: Optional[str] = None
     publish_window_end_msk: Optional[str] = None
