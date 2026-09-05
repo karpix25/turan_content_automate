@@ -8,6 +8,7 @@ import ffmpeg
 from typing import List, Dict, Optional, Tuple
 
 from .services.video_uniqueization_profiles import build_uniqueization_profile
+from .services.vizard_audio import restore_vizard_audio
 from .utils.plate_media import is_plate_video
 
 logger = logging.getLogger(__name__)
@@ -606,7 +607,8 @@ class VideoProcessor:
                       subtitles_enabled: bool = False,
                       unique_seed: Optional[int] = None,
                       force_unique_variations: bool = False,
-                      uniqueization_mode: Optional[str] = "auto"):
+                      uniqueization_mode: Optional[str] = "auto",
+                      original_audio_path: Optional[str] = None):
         """
         The final rendering pipeline using FFmpeg.
         1. Burn subtitles.
@@ -641,6 +643,9 @@ class VideoProcessor:
             force_enabled=force_unique_variations,
             uniqueization_mode=uniqueization_mode,
         )
+        if original_audio_path:
+            # Original speech must keep the same timeline as the rendered picture.
+            profile.update(speed=1.0, trim_start_seconds=0.0, trim_end_seconds=0.0)
         active_main_duration = main_duration
         if profile["unique_variations_enabled"]:
             trim_start = float(profile.get("trim_start_seconds") or 0.0)
@@ -777,6 +782,14 @@ class VideoProcessor:
             if stderr:
                 logger.error("FFmpeg render failed for %s: %s", output_path, stderr)
             raise
+
+        if original_audio_path:
+            restore_vizard_audio(
+                output_path=output_path,
+                source_path=original_audio_path,
+                prepared_path=input_path,
+                cta_path=cta_path,
+            )
 
     def render_unique_variants(
         self,
