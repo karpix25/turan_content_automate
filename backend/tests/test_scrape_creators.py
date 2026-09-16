@@ -1,9 +1,24 @@
 import unittest
 
-from app.integrations.scrape_creators import ScrapeCreatorsClient
+from app.integrations.scrape_creators import ScrapeCreatorsClient, normalize_tiktok_handle
 
 
 class ScrapeCreatorsTikTokTests(unittest.TestCase):
+    def test_normalize_tiktok_profile_handle(self):
+        self.assertEqual(normalize_tiktok_handle("https://www.tiktok.com/@creator"), "creator")
+        self.assertEqual(normalize_tiktok_handle("@creator"), "creator")
+
+    def test_get_tiktok_profile_videos_uses_latest_feed_endpoint(self):
+        client = ScrapeCreatorsClient("key")
+        client._get_json = lambda path, params: {
+            "success": True,
+            "aweme_list": [{"aweme_id": "1"}, {"aweme_id": "2"}],
+        }
+
+        payload = client.get_tiktok_profile_videos("https://www.tiktok.com/@creator")
+
+        self.assertEqual([item["aweme_id"] for item in payload["aweme_list"]], ["1", "2"])
+
     def test_extracts_no_watermark_url_and_transcript(self):
         client = ScrapeCreatorsClient("test")
         client._get_json = lambda path, params: {

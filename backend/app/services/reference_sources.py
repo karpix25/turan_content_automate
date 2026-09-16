@@ -131,22 +131,185 @@ def resolve_project_platform_accounts(
     return {platform: sorted(set(ids)) for platform, ids in result.items()}
 
 
+def _nested_item_dicts(item: dict) -> list[dict]:
+    """Return common scraper envelopes without losing the item-level payload."""
+    result: list[dict] = []
+    queue: list[tuple[dict, int]] = [(item, 0)]
+    seen: set[int] = set()
+    nested_keys = (
+        "media", "video", "post", "item", "node", "data", "aweme_detail", "content", "statistics",
+    )
+    while queue:
+        current, depth = queue.pop(0)
+        marker = id(current)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        result.append(current)
+        if depth >= 2:
+            continue
+        for key in nested_keys:
+            nested = current.get(key)
+            if isinstance(nested, dict):
+                queue.append((nested, depth + 1))
+    return result
+
+
+def _first_item_value(item: dict, keys: tuple[str, ...]):
+    payloads = _nested_item_dicts(item)
+    for key in keys:
+        for payload in payloads:
+            value = payload.get(key)
+            if value not in (None, "", [], {}):
+                return value
+    return None
+
+
+def _is_specific_tiktok_url(value: str | None) -> bool:
+    lowered = str(value or "").lower()
+    return "/video/" in lowered or "/v/" in lowered
+
+
+def _is_specific_youtube_url(value: str | None) -> bool:
+    lowered = str(value or "").lower()
+    return "/watch" in lowered or "/shorts/" in lowered or "youtu.be/" in lowered
+
+
+def _is_specific_instagram_url(value: str | None) -> bool:
+    lowered = str(value or "").lower()
+    return any(marker in lowered for marker in ("/p/", "/reel/", "/reels/", "/tv/"))
+
+
+def prepare_reference_item(channel: models.ReferenceChannel, item: dict) -> dict | None:
+    """Canonicalize scraper output before it is persisted as a reference post."""
+    if not isinstance(item, dict):
+        return None
+    prepared = dict(item)
+    if channel.platform == "youtube":
+        video_id = _first_item_value(
+            prepared,
+            ("videoId", "video_id", "yt_video_id", "youtube_video_id", "id"),
+        )
+        video_url = _first_item_value(
+            prepared,
+            ("permalink", "video_url", "videoUrl", "watch_url", "link", "url"),
+        )
+        if video_url and not prepared.get("url"):
+            prepared["url"] = str(video_url)
+        if video_id and not _is_specific_youtube_url(prepared.get("url")):
+            prepared["url"] = f"https://www.youtube.com/watch?v={video_id}"
+        if video_id and not prepared.get("external_id"):
+            prepared["external_id"] = str(video_id)
+    elif channel.platform == "instagram":
+        code = _first_item_value(prepared, ("shortcode", "short_code", "code"))
+        post_url = _first_item_value(prepared, ("permalink", "post_url", "link", "url"))
+        if post_url and not prepared.get("url"):
+            prepared["url"] = str(post_url)
+        if code and not _is_specific_instagram_url(prepared.get("url")):
+            prepared["url"] = f"https://www.instagram.com/p/{code}/"
+        if code and not prepared.get("external_id"):
+            prepared["external_id"] = str(code)
+    elif channel.platform == "tiktok":
+        item_url = _first_item_value(
+            prepared,
+            ("permalink", "video_url", "videoUrl", "link", "url"),
+        )
+        item_id = _first_item_value(
+            prepared,
+            ("aweme_id", "awemeId", "item_id", "video_id", "videoId", "id"),
+        )
+        if item_url and not prepared.get("url"):
+            prepared["url"] = str(item_url)
+        if item_id and not prepared.get("id"):
+            prepared["id"] = str(item_id)
+        if item_id and not prepared.get("external_id"):
+            prepared["external_id"] = str(item_id)
+        if item_id and not _is_specific_tiktok_url(prepared.get("url")):
+            prepared["url"] = f"https://www.tiktok.com/video/{item_id}"
+        if not prepared.get("url") and _is_specific_tiktok_url(channel.source_url):
+            prepared["url"] = channel.source_url
+        if not prepared.get("id") and prepared.get("url") and _is_specific_tiktok_url(prepared["url"]):
+            prepared["id"] = prepared["url"]
+        prepared["description"] = prepared.get("caption") or prepared.get("transcript_only_text")
+    nested_title = _first_item_value(prepared, ("title", "name"))
+    nested_caption = _first_item_value(
+        prepared,
+        ("caption", "desc", "description", "transcript_only_text", "transcript"),
+    )
+    if nested_title and not prepared.get("title"):
+        prepared["title"] = str(nested_title)
+    if nested_caption and not prepared.get("caption"):
+        prepared["caption"] = nested_caption
+    if not _first_item_value(prepared, ("id", "videoId", "video_id", "shortcode", "code", "external_id")) and not prepared.get("url"):
+        return None
+    return prepared
+
+
 def extract_reference_post(channel: models.ReferenceChannel, item: dict) -> dict | None:
     if not isinstance(item, dict):
         return None
     source = item.get("media") if isinstance(item.get("media"), dict) else item
-    caption = source.get("caption") or source.get("desc") or source.get("description") or ""
+    caption = (
+        source.get("caption")
+        or source.get("desc")
+        or source.get("description")
+        or item.get("caption")
+        or item.get("desc")
+        or item.get("description")
+        or ""
+    )
     if isinstance(caption, dict):
         caption = caption.get("text") or ""
-    raw_id = source.get("id") or source.get("videoId") or source.get("video_id") or source.get("shortcode") or source.get("code")
-    source_url = source.get("url") or source.get("video_url") or source.get("link") or source.get("permalink")
+    raw_id = (
+        item.get("external_id")
+        or item.get("videoId")
+        or item.get("video_id")
+        or item.get("shortcode")
+        or item.get("code")
+        or item.get("id")
+        or source.get("external_id")
+        or source.get("videoId")
+        or source.get("video_id")
+        or source.get("shortcode")
+        or source.get("code")
+        or source.get("id")
+    )
+    source_url = (
+        item.get("source_url")
+        or item.get("permalink")
+        or item.get("video_url")
+        or item.get("videoUrl")
+        or item.get("link")
+        or item.get("url")
+        or source.get("source_url")
+        or source.get("permalink")
+        or source.get("video_url")
+        or source.get("videoUrl")
+        or source.get("link")
+        or source.get("url")
+    )
     if not raw_id and source_url:
         raw_id = source_url
     if not raw_id:
         return None
     title = source.get("title") or caption
-    published_at = _parse_datetime(source.get("published_at") or source.get("publishedAt") or source.get("created_at") or source.get("timestamp") or source.get("taken_at"))
-    view_count = _as_int(source.get("view_count") or source.get("viewCount") or source.get("viewCountInt") or source.get("play_count"))
+    published_at = _parse_datetime(
+        source.get("published_at")
+        or source.get("publishedAt")
+        or source.get("created_at")
+        or source.get("create_time_utc")
+        or source.get("create_time")
+        or source.get("timestamp")
+        or source.get("taken_at")
+    )
+    statistics = source.get("statistics") if isinstance(source.get("statistics"), dict) else {}
+    view_count = _as_int(
+        source.get("view_count")
+        or source.get("viewCount")
+        or source.get("viewCountInt")
+        or source.get("play_count")
+        or statistics.get("play_count")
+    )
     return {
         "external_id": str(raw_id)[:255],
         "source_url": str(source_url).strip() if source_url else channel.source_url,

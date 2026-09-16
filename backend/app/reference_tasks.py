@@ -9,7 +9,12 @@ from .services.carousel_copy import build_reference_rewrite_prompt, fallback_ref
 from .services.carousel_pipeline import normalize_master_text, suggest_package_slide_count
 from .services.project_cta_settings import get_project_ctas
 from .services.reference_analysis import analysis_source_text, analyze_reference_post
-from .services.reference_sources import extract_reference_post, reference_post_content, resolve_project_platform_accounts
+from .services.reference_sources import (
+    extract_reference_post,
+    prepare_reference_item,
+    reference_post_content,
+    resolve_project_platform_accounts,
+)
 from .services.reference_selection import pick_latest_unused_posts
 from .integrations.telegram_carousel import resolve_telegram_chat_id, send_carousel_text_review_to_telegram
 from .integrations.scrape_creators import ScrapeCreatorsClient
@@ -25,25 +30,15 @@ def _fetch_items(scraper, channel: models.ReferenceChannel) -> list[dict]:
         return _get_channel_videos_list(payload)[:20]
     if channel.platform == "instagram":
         return (scraper.get_instagram_user_reels(channel.source_url, max_items=20) or {}).get("items") or []
-    details = scraper.get_tiktok_details(channel.source_url) or {}
-    return [details] if details.get("caption") or details.get("transcript_only_text") else []
+    payload = scraper.get_tiktok_profile_videos(channel.source_url, max_items=20, sort_by="latest") or {}
+    items = payload.get("aweme_list") or payload.get("items") or payload.get("videos") or []
+    return items if isinstance(items, list) else []
 
 
 def _prepare_item(channel: models.ReferenceChannel, item: dict) -> dict | None:
     prepared = dict(item)
-    if channel.platform == "youtube":
-        video_id = prepared.get("videoId") or prepared.get("video_id") or prepared.get("id")
-        if video_id and not prepared.get("url"):
-            prepared["url"] = f"https://www.youtube.com/watch?v={video_id}"
-    if channel.platform == "instagram":
-        code = prepared.get("shortcode") or prepared.get("code")
-        if code and not prepared.get("url"):
-            prepared["url"] = f"https://www.instagram.com/p/{code}/"
-    if channel.platform == "tiktok":
-        prepared["url"] = channel.source_url
-        prepared["id"] = channel.source_url
-        prepared["description"] = prepared.get("caption") or prepared.get("transcript_only_text")
-    return extract_reference_post(channel, prepared)
+    prepared = prepare_reference_item(channel, prepared)
+    return extract_reference_post(channel, prepared) if prepared else None
 
 
 def _upsert_posts(db, channel: models.ReferenceChannel, items: list[dict]) -> list[models.ReferencePost]:

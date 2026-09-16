@@ -132,6 +132,22 @@ def normalize_instagram_handle(value: str | None) -> str:
             return parts[0].lstrip("@")
     return raw.lstrip("@").strip("/")
 
+
+def normalize_tiktok_handle(value: str | None) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("@"):
+        return raw[1:].strip().rstrip("/")
+    parse_target = raw if "://" in raw else f"https://{raw}"
+    parsed = urlparse(parse_target)
+    parts = [part for part in parsed.path.split("/") if part]
+    if parts and parts[0].startswith("@"):
+        return parts[0][1:].strip()
+    if parts and parts[0] not in {"video", "v"}:
+        return parts[0].lstrip("@").strip()
+    return raw.lstrip("@").strip().rstrip("/")
+
 class ScrapeCreatorsClient:
     BASE_URL = "https://api.scrapecreators.com/v1"
 
@@ -267,6 +283,39 @@ class ScrapeCreatorsClient:
         if not params:
             return None
         return self._get_json("tiktok/profile", params)
+
+    def get_tiktok_profile_videos(
+        self,
+        handle: str,
+        *,
+        max_items: int = 20,
+        sort_by: str = "latest",
+        region: str | None = None,
+    ) -> Optional[Dict]:
+        """Fetch recent publications from a TikTok profile, not one video URL."""
+        normalized_handle = normalize_tiktok_handle(handle)
+        if not normalized_handle:
+            return {"aweme_list": [], "error": "TikTok handle is empty"}
+        params: dict[str, str] = {
+            "handle": normalized_handle,
+            "sort_by": sort_by,
+            "trim": "false",
+        }
+        if region:
+            params["region"] = region.strip().upper()
+        data = self._get_json("https://api.scrapecreators.com/v3/tiktok/profile/videos", params)
+        if not data:
+            return {"aweme_list": [], "error": "ScrapeCreators request failed"}
+        if data.get("success") is False:
+            return {"aweme_list": [], "error": data.get("message") or "ScrapeCreators returned success=false"}
+        items = data.get("aweme_list") or data.get("items") or data.get("videos") or []
+        if not isinstance(items, list):
+            items = []
+        return {
+            **data,
+            "aweme_list": items[:max(1, max_items)],
+            "error": None,
+        }
 
     def get_telegram_channel(self, handle: str) -> Optional[Dict]:
         value = (handle or "").strip()

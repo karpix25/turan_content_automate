@@ -6,6 +6,7 @@ from unittest.mock import patch
 from app import models
 from app.services.reference_analysis import analyze_reference_post
 from app.services.reference_selection import pick_latest_unused_posts
+from app.services.reference_sources import extract_reference_post, prepare_reference_item
 
 
 class _Scraper:
@@ -28,6 +29,45 @@ class _Scraper:
 
 
 class ReferenceSelectionTests(unittest.TestCase):
+    def test_prepare_item_uses_nested_publication_identity(self):
+        channel = models.ReferenceChannel(id=10, platform="youtube", source_url="https://youtube.com/@channel")
+        post = prepare_reference_item(channel, {
+            "id": "channel-id",
+            "video": {"videoId": "abcdefghijk", "title": "Новая тема"},
+        })
+
+        self.assertEqual(post["external_id"], "abcdefghijk")
+        self.assertEqual(post["url"], "https://www.youtube.com/watch?v=abcdefghijk")
+
+        profile_url_item = prepare_reference_item(channel, {
+            "url": "https://youtube.com/@channel",
+            "videoId": "lmnopqrstuv",
+        })
+        self.assertEqual(profile_url_item["url"], "https://www.youtube.com/watch?v=lmnopqrstuv")
+
+    def test_tiktok_does_not_use_profile_url_as_publication_id(self):
+        channel = models.ReferenceChannel(id=11, platform="tiktok", source_url="https://www.tiktok.com/@creator")
+        first = prepare_reference_item(channel, {"id": "video-1", "caption": "Первая тема"})
+        second = prepare_reference_item(channel, {"id": "video-2", "caption": "Вторая тема"})
+
+        self.assertEqual(first["external_id"], "video-1")
+        self.assertEqual(second["external_id"], "video-2")
+        self.assertNotEqual(first["external_id"], second["external_id"])
+
+    def test_tiktok_profile_item_keeps_create_time_and_views(self):
+        channel = models.ReferenceChannel(id=12, platform="tiktok", source_url="https://www.tiktok.com/@creator")
+        post = extract_reference_post(channel, prepare_reference_item(channel, {
+            "aweme_id": "video-3",
+            "desc": "Свежая тема",
+            "create_time": 1739470683,
+            "statistics": {"play_count": 42},
+            "url": "https://www.tiktok.com/@creator/video/video-3",
+        }))
+
+        self.assertEqual(post["external_id"], "video-3")
+        self.assertEqual(post["view_count"], 42)
+        self.assertIsNotNone(post["published_at"])
+
     def test_picks_latest_unused_post_per_profile_and_limits_to_three(self):
         posts = [
             SimpleNamespace(id=1, channel_id=10, published_at=datetime.datetime(2026, 8, 1), created_at=None, view_count=999),
