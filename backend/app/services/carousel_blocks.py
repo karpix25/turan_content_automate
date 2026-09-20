@@ -64,7 +64,6 @@ def polish_text(value: str) -> str:
     text = re.sub(r"[*#_`]+", "", text)
     text = re.sub(r"\.{3}|…", "…", text)
     text = re.sub(r"(?<=\s)-(?=\s)", "— ", text)
-    text = re.sub(r"(?<=\S)-(?=\S)", " — ", text)
     text = re.sub(r'"([^"]*)"', "«\\1»", text)
     return re.sub(r"\s+", " ", text).strip()
 

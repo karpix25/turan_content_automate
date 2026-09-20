@@ -101,6 +101,7 @@ class CarouselBlocksTests(unittest.TestCase):
         self.assertEqual(polish_text("цифра - это факт"), "цифра — это факт")
         self.assertEqual(polish_text("ждал... и дождался"), "ждал… и дождался")
         self.assertEqual(polish_text("**жирный** текст"), "жирный текст")
+        self.assertEqual(polish_text("Чек-лист из-за плана"), "Чек-лист из-за плана")
 
     def test_fallback_deck_is_structurally_sound(self):
         master = (
