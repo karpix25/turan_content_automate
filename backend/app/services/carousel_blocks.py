@@ -95,6 +95,8 @@ def _require_items(slide_type: str, field: str, value, word_limit: int, low: int
         if not isinstance(item, str):
             raise ValueError(f"Слайд «{slide_type}»: пункты поля {field} должны быть строками")
         text = polish_text(item)
+        # списки рисуются с бейджами/маркерами — ручная нумерация пунктов задваивается
+        text = re.sub(r"^\s*\d+\s*[.)]\s*", "", text)
         if not text or re.search(r"[A-Za-z]", text) or not is_russian_text(text):
             raise ValueError(f"Слайд «{slide_type}»: пункт поля {field} не русский текст")
         if _words(text) > word_limit:
@@ -273,6 +275,7 @@ def build_deck_prompt(master_text: str, platform: str, slide_count: int, cta: st
         f"- Ячейки таблицы до {limits['table_cell_words']} слов; пункты сравнения до {limits['comparison_item_words']} слов.\n"
         "- НАПОЛНЯЙ слайды плотно: в subtitle, body и caption — конкретика из источника (цифры, причины, примеры, следствия),"
         " а не общие фразы. stat поддерживает поле body — раскрой цифру абзацем.\n"
+        "- Не нумеруй пункты в checklist и steps — бейджи с цифрами рисует дизайн.\n"
         "- Каждый пункт — законченная фраза без обрывов и без висячих слов; не дели одну мысль на два пункта.\n"
         "- Не повторяй одну и ту же мысль на разных слайдах. Пиши только по-русски, без Markdown, без латиницы и ссылок.\n"
         "- Не выдумывай фактов и цифр, которых нет в исходном тексте.\n"
