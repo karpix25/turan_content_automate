@@ -119,6 +119,16 @@ body { font-family: var(--font); color: var(--ink);
 .compare .card.good li::before { content: "✓"; color: var(--accent); font-weight: 800; flex: none; }
 .compare .card.bad li::before { content: "—"; color: var(--muted); font-weight: 800; flex: none; }
 
+.qa { display: flex; flex-direction: column; gap: calc(24px * var(--fit)); }
+.qa .q { font-size: calc(27px * var(--fit)); line-height: 1.35; font-weight: 800; }
+.qa .q::before { content: "? "; color: var(--accent); font-weight: 800; }
+.qa .a { font-size: calc(25px * var(--fit)); line-height: 1.45; color: var(--muted); }
+
+.type-text.variant-b .body { background: var(--surface); border-left: 6px solid var(--accent);
+                             border-radius: 22px; padding: calc(26px * var(--fit)) calc(30px * var(--fit)); }
+.type-checklist.variant-b .item { background: var(--surface); border: 1px solid var(--line);
+                                  border-radius: 20px; padding: calc(16px * var(--fit)) calc(20px * var(--fit)); }
+
 .type-stat .value { font-size: calc(140px * var(--fit)); line-height: 1.05; font-weight: 800;
                     color: var(--accent); letter-spacing: -0.02em; text-wrap: balance;
                     text-shadow: 0 12px 48px rgba(216, 175, 95, 0.25); }
@@ -201,6 +211,12 @@ def _slide_body(slide: dict) -> str:
         if slide.get("body"):
             parts.append(f'<p class="body">{_esc(slide["body"])}</p>')
         return "".join(parts)
+    if slide_type == "qa":
+        pairs = "".join(
+            f'<div class="pair"><p class="q">{_esc(pair["q"])}</p><p class="a">{_esc(pair["a"])}</p></div>'
+            for pair in slide["pairs"]
+        )
+        return _title_block(slide) + f'<div class="qa">{pairs}</div>'
     if slide_type == "quote":
         author = f'<div class="qauthor">— {_esc(slide["author"])}</div>' if slide.get("author") else ""
         return (f'<div class="mark">«</div>'
@@ -248,7 +264,7 @@ def build_slide_html(
     return (
         "<!DOCTYPE html><html lang=\"ru\"><head><meta charset=\"utf-8\">"
         f"<style>:root {{{css_vars}}}{css}</style></head><body>"
-        f"<section class=\"slide type-{_esc(slide['type'])}\" data-index=\"{index}\">"
+        f"<section class=\"slide type-{_esc(slide['type'])} variant-{'b' if index % 2 else 'a'}\" data-index=\"{index}\">"
         f'<div class="inner"><div class="fit">{_slide_body(slide)}</div>'
         f"<footer class=\"foot\">{author_html}{page}</footer></div></section>"
         f"<script>{_FIT_SCRIPT}</script></body></html>"

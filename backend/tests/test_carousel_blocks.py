@@ -1,3 +1,4 @@
+import json
 import unittest
 
 from app.services.carousel_blocks import (
@@ -15,6 +16,7 @@ CTA = "Подпишись"
 
 def _deck() -> dict:
     return {
+        "frame": "insight",
         "slides": [
             {"type": "cover", "kicker": "Разбор", "title": "Три ошибки в закупках",
              "subtitle": "Почему заявки отклоняют на первом этапе"},
@@ -30,10 +32,74 @@ def _deck() -> dict:
 
 class CarouselBlocksTests(unittest.TestCase):
     def test_valid_deck_passes_and_cta_is_forced(self):
-        slides = validate_deck(_deck(), CTA)
+        slides, frame = validate_deck(_deck(), CTA)
+        self.assertEqual(frame["id"], "insight")
         self.assertEqual(slides[0]["type"], "cover")
         self.assertEqual(slides[-1]["type"], "cta")
         self.assertEqual(slides[-1]["cta"], CTA)
+
+    def test_missing_frame_is_rejected(self):
+        deck = _deck()
+        deck.pop("frame")
+        with self.assertRaisesRegex(ValueError, "frame"):
+            validate_deck(deck, CTA)
+
+    def test_unknown_frame_is_rejected(self):
+        deck = _deck()
+        deck["frame"] = "hype"
+        with self.assertRaisesRegex(ValueError, "frame"):
+            validate_deck(deck, CTA)
+
+    def test_role_order_is_enforced(self):
+        deck = _deck()
+        deck["slides"] = [
+            {"type": "cover", "title": "Мысль"},
+            {"type": "quote", "text": "Ключевая формулировка из источника"},
+            {"type": "stat", "title": "Цифра", "value": "72%", "caption": "пояснение к цифре"},
+            {"type": "cta", "cta": ""},
+        ]
+        with self.assertRaisesRegex(ValueError, "порядок ролей"):
+            validate_deck(deck, CTA)
+
+    def test_three_same_blocks_in_a_row_rejected(self):
+        deck = {
+            "frame": "mistakes",
+            "slides": [
+                {"type": "cover", "title": "Мысль"},
+                {"type": "text", "title": "Раз", "body": "Первый тезис"},
+                {"type": "text", "title": "Два", "body": "Второй тезис"},
+                {"type": "text", "title": "Три", "body": "Третий тезис"},
+                {"type": "cta", "cta": ""},
+            ],
+        }
+        with self.assertRaisesRegex(ValueError, "подряд"):
+            validate_deck(deck, CTA)
+
+    def test_dangling_ending_is_rejected(self):
+        deck = _deck()
+        deck["slides"][2]["items"][0] = "Проверь заявку перед"
+        with self.assertRaisesRegex(ValueError, "оборван"):
+            validate_deck(deck, CTA)
+
+    def test_qa_block_validates(self):
+        deck = _deck()
+        deck["slides"][2] = {
+            "type": "qa",
+            "title": "Частые вопросы",
+            "pairs": [
+                {"q": "Когда подавать заявку?", "a": "Минимум за день до дедлайна приёма"},
+                {"q": "Что проверяют первым?", "a": "Описание объекта закупки и сроки"},
+            ],
+        }
+        slides, _ = validate_deck(deck, CTA)
+        self.assertEqual(slides[2]["type"], "qa")
+
+    def test_fallback_keeps_sentences_whole(self):
+        long_sentence = "Это очень длинное предложение, которое не должно обрываться посреди мысли ни при каких лимитах"
+        master = long_sentence + ". Второе предложение совсем короткое. Третье тоже краткое."
+        slides = build_fallback_deck(master, 4, CTA)
+        all_text = json.dumps(slides, ensure_ascii=False)
+        self.assertIn(long_sentence, all_text)
 
     def test_rejects_missing_cover_first(self):
         deck = _deck()
@@ -67,6 +133,7 @@ class CarouselBlocksTests(unittest.TestCase):
 
     def test_rejects_table_row_width_mismatch(self):
         deck = {
+            "frame": "insight",
             "slides": [
                 {"type": "cover", "title": "Сравнение форматов"},
                 {"type": "table", "title": "Форматы", "columns": ["Карусель", "Сторис"],
@@ -79,6 +146,7 @@ class CarouselBlocksTests(unittest.TestCase):
 
     def test_requires_two_different_content_blocks(self):
         deck = {
+            "frame": "mistakes",
             "slides": [
                 {"type": "cover", "title": "Мысль"},
                 {"type": "text", "title": "Раз", "body": "Первый тезис"},
@@ -90,11 +158,10 @@ class CarouselBlocksTests(unittest.TestCase):
             validate_deck(deck, CTA)
 
     def test_parse_deck_strips_code_fence(self):
-        import json
-
         raw = "```json\n" + json.dumps(_deck(), ensure_ascii=False) + "\n```"
-        slides = parse_deck(raw, CTA)
+        slides, frame = parse_deck(raw, CTA)
         self.assertEqual(len(slides), 4)
+        self.assertEqual(frame["id"], "insight")
 
     def test_polish_text_typography(self):
         self.assertEqual(polish_text('он сказал "привет"  миру'), "он сказал «привет» миру")

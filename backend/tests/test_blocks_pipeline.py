@@ -12,6 +12,7 @@ def _deck_json() -> str:
     import json
 
     return json.dumps({
+        "frame": "insight",
         "slides": [
             {"type": "cover", "kicker": "Разбор", "title": "Три ошибки в закупках",
              "subtitle": "Почему заявки отклоняют"},

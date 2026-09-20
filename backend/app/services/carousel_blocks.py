@@ -11,6 +11,7 @@ import re
 
 from .carousel_copy import PLATFORM_COPY_RULES, is_russian_text
 from .carousel_pipeline import normalize_master_text
+from .copy_frames import FRAME_BY_ID, frames_catalog_text
 
 DECK_LIMITS = {
     "min_slides": 3,
@@ -40,12 +41,17 @@ DECK_LIMITS = {
     "stat_body_words": 36,
     "quote_words": 28,
     "quote_author_words": 3,
+    "qa_min_pairs": 2,
+    "qa_max_pairs": 3,
+    "qa_q_words": 10,
+    "qa_a_words": 20,
     "cta_words": 8,
 }
-BLOCK_TYPES = ("cover", "text", "checklist", "table", "steps", "comparison", "stat", "quote", "cta")
-CONTENT_TYPES = ("text", "checklist", "table", "steps", "comparison", "stat", "quote")
+BLOCK_TYPES = ("cover", "text", "checklist", "table", "steps", "comparison", "stat", "quote", "qa", "cta")
+CONTENT_TYPES = ("text", "checklist", "table", "steps", "comparison", "stat", "quote", "qa")
 STRING_FIELDS = ("kicker", "title", "subtitle", "body", "value", "caption", "text", "author",
                  "left_title", "right_title", "cta")
+# qa-пары обрабатываются отдельной веткой валидации
 LIST_FIELDS = ("items", "left_items", "right_items")
 ITEM_LIMITS = {
     "items": ("checklist_item_words", "checklist_min_items", "checklist_max_items", "checklist"),
@@ -58,7 +64,8 @@ SIDE_TITLE_LIMIT = "comparison_side_words"
 DANGLING_ENDINGS = {
     "и", "а", "но", "или", "что", "чтобы", "который", "которая", "которые", "которое",
     "в", "на", "с", "со", "к", "по", "за", "из", "у", "о", "об", "от", "до", "для",
-    "при", "под", "над", "без", "это", "как", "же", "бы", "ли", "то", "не", "по-",
+    "при", "под", "над", "без", "это", "как", "же", "бы", "ли", "то", "не",
+    "перед", "про", "через", "между", "после", "около", "среди", "внутри", "вокруг",
 }
 
 
@@ -204,6 +211,24 @@ def _validate_content(slide_type: str, slide: dict) -> dict:
         body = slide.get("body")
         if body not in (None, ""):
             clean["body"] = _require_string("stat", "body", body, "stat_body_words")
+    elif slide_type == "qa":
+        if "title" not in clean:
+            raise ValueError("Слайд «qa»: нужен заголовок")
+        pairs = slide.get("pairs")
+        if not isinstance(pairs, list) or not (
+            DECK_LIMITS["qa_min_pairs"] <= len(pairs) <= DECK_LIMITS["qa_max_pairs"]
+        ):
+            raise ValueError(
+                f"Слайд «qa»: пар должно быть {DECK_LIMITS['qa_min_pairs']}–{DECK_LIMITS['qa_max_pairs']}"
+            )
+        clean_pairs = []
+        for pair in pairs:
+            if not isinstance(pair, dict):
+                raise ValueError("Слайд «qa»: каждая пара должна быть объектом {q, a}")
+            q = _require_string("qa", "q", pair.get("q"), "qa_q_words")
+            a = _require_string("qa", "a", pair.get("a"), "qa_a_words")
+            clean_pairs.append({"q": q, "a": a})
+        clean["pairs"] = clean_pairs
     elif slide_type == "quote":
         clean["text"] = _require_string("quote", "text", slide.get("text"), "quote_words")
         author = slide.get("author")
@@ -212,10 +237,14 @@ def _validate_content(slide_type: str, slide: dict) -> dict:
     return clean
 
 
-def validate_deck(raw: object, cta: str) -> list[dict]:
-    """Validate an LLM deck against block limits; returns cleaned slides."""
+def validate_deck(raw: object, cta: str) -> tuple[list[dict], dict]:
+    """Validate an LLM deck against block limits; returns cleaned slides and frame."""
     if not isinstance(raw, dict) or not isinstance(raw.get("slides"), list):
         raise ValueError("Дека должна быть объектом со списком slides")
+    frame_id = raw.get("frame")
+    if not frame_id or frame_id not in FRAME_BY_ID:
+        raise ValueError("Укажи поле frame — id подходящего фрейма из библиотеки")
+    frame = FRAME_BY_ID[frame_id]
     slides = raw["slides"]
     limits = DECK_LIMITS
     if not (limits["min_slides"] <= len(slides) <= limits["max_slides"]):
@@ -241,16 +270,35 @@ def validate_deck(raw: object, cta: str) -> list[dict]:
             cleaned.append({"type": "cta", "cta": cta})
         else:
             cleaned.append(_validate_content(slide_type, slide))
-    body_types = [slide["type"] for slide in cleaned[1:-1]]
+    body_slides = cleaned[1:-1]
+    body_types = [slide["type"] for slide in body_slides]
+    for index in range(len(body_types) - 2):
+        if body_types[index] == body_types[index + 1] == body_types[index + 2]:
+            raise ValueError("Не ставь три одинаковых блока подряд — чередуй типы")
     if len(set(body_types)) < min(2, len(body_types)):
         raise ValueError("Содержательные слайды должны использовать минимум два разных блока")
+    _check_frame_roles(body_slides, frame)
     titles = [slide.get("title", "").casefold() for slide in cleaned if slide.get("title")]
     if len(titles) != len(set(titles)):
         raise ValueError("Заголовки слайдов не должны повторяться")
-    return cleaned
+    return cleaned, frame
 
 
-def parse_deck(raw: str | None, cta: str) -> list[dict]:
+def _check_frame_roles(content_slides: list[dict], frame: dict) -> None:
+    """Content slides must follow the frame's role order (skips allowed)."""
+    roles = frame.get("roles") or []
+    pointer = 0
+    for slide in content_slides:
+        slide_type = slide["type"]
+        while pointer < len(roles) and slide_type not in roles[pointer]["blocks"]:
+            pointer += 1
+        if pointer >= len(roles):
+            raise ValueError(
+                f"Фрейм «{frame['name']}»: блок «{slide_type}» нарушает порядок ролей фрейма"
+            )
+
+
+def parse_deck(raw: str | None, cta: str) -> tuple[list[dict], dict]:
     text = str(raw or "").strip()
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE)
     try:
@@ -265,6 +313,7 @@ def build_deck_prompt(master_text: str, platform: str, slide_count: int, cta: st
     limits = DECK_LIMITS
     content_count = max(1, int(slide_count) - 2)
     example = {
+        "frame": "mistakes",
         "slides": [
             {"type": "cover", "kicker": "Разбор", "title": "Главная мысль обложки", "subtitle": "Одно предложение с конкретикой"},
             {"type": "stat", "title": "Заголовок слайда", "value": "72%", "caption": "Пояснение к цифре из источника", "body": "Развёрнутое пояснение с конкретикой"},
@@ -272,13 +321,16 @@ def build_deck_prompt(master_text: str, platform: str, slide_count: int, cta: st
             {"type": "cta", "cta": ""},
         ]
     }
-    frame_block = ""
+    catalog = frames_catalog_text()
+    forced_frame = ""
     if frame:
-        roles = "\n".join(f"  {index}. {role}" for index, role in enumerate(frame["roles"], start=1))
-        frame_block = (
-            f"\nКОПИРАЙТ-ФРЕЙМ: «{frame['name']}» — {frame['description']}\n"
-            f"Драматургия слайдов по фрейму (адаптируй под {max(3, min(7, int(slide_count)))} слайдов, порядок сохраняй):\n{roles}\n"
-        )
+        forced_frame = f" Фрейм выбран заранее: \"{frame['id']}\" — используй именно его."
+    frame_block = (
+        f"\nБИБЛИОТЕКА КОПИРАЙТ-ФРЕЙМОВ (выбери ОДИН, лучше всего подходящий тексту):\n{catalog}\n"
+        "Поле frame в ответе — id выбранного фрейма. Содержательные слайды должны идти в порядке"
+        " ролей фрейма: роли можно пропускать, нельзя менять порядок и вставлять чужие блоки."
+        + forced_frame + "\n"
+    )
     rules = (
         f"Площадка: {platform}. Стиль подачи: {style}.\n\n"
         f"Исходный текст:\n{master_text}\n\n"
@@ -290,7 +342,8 @@ def build_deck_prompt(master_text: str, platform: str, slide_count: int, cta: st
         "- table: {type, title, columns, rows} — сравнение по параметрам, колонок 2–3, ячейки очень короткие;\n"
         "- steps: {type, title, items} — порядок действий по шагам;\n"
         "- comparison: {type, title, left_title, right_title, left_items, right_items} — «до/после», «так/не так»;\n"
-        "- stat: {type, title, value, caption} — одна яркая цифра или факт из источника;\n"
+        "- stat: {type, title, value, caption, body?} — одна яркая цифра или факт из источника;\n"
+        "- qa: {type, title, pairs} — 2–3 пары {q: вопрос до 10 слов, a: ответ до 20 слов};\n"
         "- quote: {type, text, author?} — цитата из исходного текста;\n"
         "- cta: {type, cta: \"\"} — последний слайд, текст CTA подставит бэкенд.\n\n"
         "Жесткие требования:\n"
@@ -316,7 +369,7 @@ def build_deck_prompt(master_text: str, platform: str, slide_count: int, cta: st
     ]
 
 
-def build_deck(llm_client, master_text: str, platform: str, slide_count: int, cta: str, frame: dict | None = None) -> list[dict]:
+def build_deck(llm_client, master_text: str, platform: str, slide_count: int, cta: str, frame: dict | None = None) -> tuple[list[dict], dict]:
     """LLM deck with retries; raises ValueError if every attempt fails."""
     prompt = build_deck_prompt(master_text, platform, slide_count, cta, frame)
     last_error: ValueError | None = None
@@ -353,8 +406,8 @@ def build_fallback_deck(master_text: str, slide_count: int, cta: str) -> list[di
         if block.startswith("• "):
             continue
         sentences.extend(part.strip() for part in re.split(r"(?<=[.!?…])\s+", block) if part.strip())
-    cover_title = _first_sentence(sentences[0] if sentences else text, limits["title_words"])
-    cover_subtitle = " ".join(sentences[1].split()[:limits["subtitle_words"]]) if len(sentences) > 1 else ""
+    cover_title = sentences[0] if sentences else " ".join(text.split()[:limits["title_words"]])
+    cover_subtitle = sentences[1] if len(sentences) > 1 else ""
     body_sentences = sentences[2:] if len(sentences) > 2 else sentences
     count = max(limits["min_slides"], min(limits["max_slides"], int(slide_count or limits["min_slides"])))
     deck: list[dict] = [{"type": "cover", "title": cover_title}]
@@ -382,14 +435,14 @@ def build_fallback_deck(master_text: str, slide_count: int, cta: str) -> list[di
     return deck
 
 
-def build_platform_deck(llm_client, master_text: str, platform: str, slide_count: int, cta: str, frame: dict | None = None) -> list[dict]:
+def build_platform_deck(llm_client, master_text: str, platform: str, slide_count: int, cta: str, frame: dict | None = None) -> tuple[list[dict], dict | None]:
     try:
         return build_deck(llm_client, master_text, platform, slide_count, cta, frame)
     except ValueError as exc:
         import logging
 
         logging.getLogger(__name__).warning("Deck generation failed for %s, using fallback: %s", platform, exc)
-        return build_fallback_deck(master_text, slide_count, cta)
+        return build_fallback_deck(master_text, slide_count, cta), None
 
 
 def deck_to_text(deck: object) -> str:
@@ -417,6 +470,10 @@ def deck_to_text(deck: object) -> str:
         for field in ("items", "left_items", "right_items"):
             for item in slide.get(field) or []:
                 add(item)
+        for pair in slide.get("pairs") or []:
+            if isinstance(pair, dict):
+                add(pair.get("q", ""))
+                add(pair.get("a", ""))
         for field in ("left_title", "right_title", "author"):
             add(slide.get(field, ""))
     return "\n".join(parts)
