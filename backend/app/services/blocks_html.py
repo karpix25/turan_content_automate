@@ -29,13 +29,14 @@ def logo_data_uri() -> str:
     return _LOGO_CACHE
 
 DEFAULT_THEME = {
-    "bg": "#FBF9F5",
-    "surface": "#FFFFFF",
-    "ink": "#17130C",
-    "muted": "#6F675B",
-    "accent": "#C6431D",
-    "accent-ink": "#FFFFFF",
-    "line": "#E7E0D4",
+    "bg": "#17110B",
+    "surface": "#251C12",
+    "ink": "#F4EBD9",
+    "muted": "#B4A488",
+    "accent": "#D8AF5F",
+    "accent-ink": "#1B140A",
+    "accent-grad": "linear-gradient(135deg, #F0D28A 0%, #C69A4B 100%)",
+    "line": "#3D3326",
     "font": 'Inter, "Liberation Sans", "DejaVu Sans", -apple-system, "Segoe UI", Roboto, Arial, sans-serif',
 }
 
@@ -58,8 +59,8 @@ body { font-family: var(--font); color: var(--ink);
                overflow: hidden; text-overflow: ellipsis; }
 .page { font-size: 22px; color: var(--muted); flex: none; margin-left: 20px; }
 
-.kicker { align-self: flex-start; background: var(--accent); color: var(--accent-ink);
-          font-size: calc(21px * var(--fit)); font-weight: 700; letter-spacing: 0.14em;
+.kicker { align-self: flex-start; background: var(--accent-grad); color: var(--accent-ink);
+          font-size: calc(21px * var(--fit)); font-weight: 800; letter-spacing: 0.14em;
           text-transform: uppercase; padding: 12px 24px; border-radius: 999px; }
 .title { font-size: calc(44px * var(--fit)); line-height: 1.14; font-weight: 800;
          letter-spacing: -0.01em; text-wrap: balance; }
@@ -71,20 +72,21 @@ body { font-family: var(--font); color: var(--ink);
 .type-cover .subtitle { font-size: calc(29px * var(--fit)); line-height: 1.45; color: var(--muted); }
 
 .type-cta .fit { flex: 1; justify-content: center; align-items: center; gap: calc(44px * var(--fit)); }
-.type-cta .cta-chip { display: flex; flex-direction: column; align-items: center; gap: 30px; }
-.type-cta .cta-pill { background: var(--accent); color: var(--accent-ink);
+.type-cta .cta-chip { display: flex; flex-direction: column; align-items: center; gap: 34px; }
+.type-cta .cta-logo { width: calc(170px * var(--fit)); height: calc(170px * var(--fit));
+                      border-radius: 50%; object-fit: cover; }
+.type-cta .cta-pill { background: var(--accent-grad); color: var(--accent-ink);
                       font-size: calc(50px * var(--fit)); font-weight: 800; line-height: 1.2;
-                      padding: 30px 56px; border-radius: 999px; text-align: center;
-                      max-width: 100%; text-wrap: balance; }
-.type-cta .handle { display: flex; align-items: center; gap: 16px; color: var(--muted);
-                    font-size: calc(26px * var(--fit)); font-weight: 600; }
-.type-cta .handle img { width: 64px; height: 64px; border-radius: 50%; object-fit: cover;
-                        border: 2px solid var(--line); }
+                      padding: 32px 58px; border-radius: 999px; text-align: center;
+                      max-width: 100%; text-wrap: balance;
+                      box-shadow: 0 18px 60px rgba(216, 175, 95, 0.22); }
+.type-cta .handle { display: flex; align-items: center; gap: 16px; color: var(--ink);
+                    font-size: calc(27px * var(--fit)); font-weight: 600; }
 
 .list { display: flex; flex-direction: column; gap: calc(18px * var(--fit)); }
 .list .item { display: flex; align-items: flex-start; gap: 20px; }
 .list .badge { flex: none; width: calc(42px * var(--fit)); height: calc(42px * var(--fit));
-               border-radius: 50%; background: var(--accent); color: var(--accent-ink);
+               border-radius: 50%; background: var(--accent-grad); color: var(--accent-ink);
                font-size: calc(24px * var(--fit)); font-weight: 800;
                display: flex; align-items: center; justify-content: center; }
 .list .item p { font-size: calc(27px * var(--fit)); line-height: 1.4; padding-top: 6px; }
@@ -93,7 +95,7 @@ body { font-family: var(--font); color: var(--ink);
 .type-steps .item { align-items: center; }
 
 .table { width: 100%; border-collapse: collapse; }
-.table th { background: var(--accent); color: var(--accent-ink); text-align: left;
+.table th { background: var(--accent-grad); color: var(--accent-ink); text-align: left;
             font-size: calc(24px * var(--fit)); font-weight: 700;
             padding: calc(18px * var(--fit)) calc(22px * var(--fit)); }
 .table th:first-child { border-radius: 18px 0 0 0; }
@@ -118,7 +120,8 @@ body { font-family: var(--font); color: var(--ink);
 .compare .card.bad li::before { content: "—"; color: var(--muted); font-weight: 800; flex: none; }
 
 .type-stat .value { font-size: calc(140px * var(--fit)); line-height: 1.05; font-weight: 800;
-                    color: var(--accent); letter-spacing: -0.02em; text-wrap: balance; }
+                    color: var(--accent); letter-spacing: -0.02em; text-wrap: balance;
+                    text-shadow: 0 12px 48px rgba(216, 175, 95, 0.25); }
 .type-stat .caption { font-size: calc(28px * var(--fit)); line-height: 1.45; color: var(--muted); }
 
 .type-quote .mark { font-size: calc(120px * var(--fit)); line-height: 0.6; font-weight: 800;
@@ -203,8 +206,10 @@ def _slide_body(slide: dict) -> str:
         return (f'<div class="mark">«</div>'
                 + f'<p class="qtext">{_esc(slide["text"])}</p>' + author)
     if slide_type == "cta":
-        handle = f'<div class="handle"><img src="{logo_data_uri()}" alt=""><span>{_esc(slide.get("author") or "")}</span></div>' if slide.get("author") else ""
-        return (f'<div class="cta-chip">{handle}'
+        handle = f'<div class="handle"><span>{_esc(slide.get("author") or "")}</span></div>' if slide.get("author") else ""
+        return (f'<div class="cta-chip">'
+                f'<img class="cta-logo" src="{logo_data_uri()}" alt="">'
+                + handle +
                 f'<div class="cta-pill">{_esc(slide["cta"])}</div></div>')
     raise ValueError(f"Неизвестный тип слайда: {slide_type}")
 

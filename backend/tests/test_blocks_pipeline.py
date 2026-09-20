@@ -74,9 +74,10 @@ class BlocksPipelineTests(unittest.TestCase):
         self.assertIn("tiktok:3", carousel)
         self.assertEqual(set(story), set(carousel))
         self.assertEqual(len(carousel["instagram"]), 4)
-        self.assertEqual(texts["instagram"]["carousel"][0]["type"], "cover")
+        self.assertEqual(texts["instagram"]["carousel"]["slides"][0]["type"], "cover")
+        self.assertIn("frame", texts["instagram"]["carousel"])
         # caption builder input shape
-        self.assertEqual(texts["instagram"]["carousel"][-1]["cta"], CTA)
+        self.assertEqual(texts["instagram"]["carousel"]["slides"][-1]["cta"], CTA)
 
     def test_fallback_deck_after_overflow(self):
         calls = {"n": 0}
@@ -104,7 +105,7 @@ class BlocksPipelineTests(unittest.TestCase):
             self.assertGreaterEqual(calls["n"], 2)
             self.assertEqual(len(carousel["instagram"]), 3)
             self.assertTrue(carousel["instagram"][-1].endswith(".png"))
-            self.assertEqual(texts["instagram"]["carousel"][0]["type"], "cover")
+            self.assertEqual(texts["instagram"]["carousel"]["slides"][0]["type"], "cover")
         finally:
             _FakeRenderer.render_html = original
 

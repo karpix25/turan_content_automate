@@ -54,6 +54,18 @@ ITEM_LIMITS = {
 }
 SIDE_TITLE_LIMIT = "comparison_side_words"
 
+# фраза, заканчивающаяся на эти слова, почти всегда оборвана
+DANGLING_ENDINGS = {
+    "и", "а", "но", "или", "что", "чтобы", "который", "которая", "которые", "которое",
+    "в", "на", "с", "со", "к", "по", "за", "из", "у", "о", "об", "от", "до", "для",
+    "при", "под", "над", "без", "это", "как", "же", "бы", "ли", "то", "не", "по-",
+}
+
+
+def _is_dangling(text: str) -> bool:
+    words = re.findall(r"[а-яёa-z-]+", text.casefold())
+    return bool(words) and words[-1] in DANGLING_ENDINGS
+
 
 def _words(value: str) -> int:
     return len(value.split())
@@ -82,6 +94,8 @@ def _require_string(slide_type: str, field: str, value, limit_key: str, cyrillic
     limit = DECK_LIMITS[limit_key]
     if _words(text) > limit:
         raise ValueError(f"Слайд «{slide_type}»: поле {field} длиннее {limit} слов")
+    if _is_dangling(text):
+        raise ValueError(f"Слайд «{slide_type}»: поле {field} обрывается на предлоге или союзе — сократи мысль")
     return text
 
 
@@ -101,6 +115,8 @@ def _require_items(slide_type: str, field: str, value, word_limit: int, low: int
             raise ValueError(f"Слайд «{slide_type}»: пункт поля {field} не русский текст")
         if _words(text) > word_limit:
             raise ValueError(f"Слайд «{slide_type}»: пункт поля {field} длиннее {word_limit} слов")
+        if _is_dangling(text):
+            raise ValueError(f"Слайд «{slide_type}»: пункт поля {field} оборван — закончи мысль")
         result.append(text)
     folded = [item.casefold() for item in result]
     if len(set(folded)) != len(folded):
@@ -228,6 +244,9 @@ def validate_deck(raw: object, cta: str) -> list[dict]:
     body_types = [slide["type"] for slide in cleaned[1:-1]]
     if len(set(body_types)) < min(2, len(body_types)):
         raise ValueError("Содержательные слайды должны использовать минимум два разных блока")
+    titles = [slide.get("title", "").casefold() for slide in cleaned if slide.get("title")]
+    if len(titles) != len(set(titles)):
+        raise ValueError("Заголовки слайдов не должны повторяться")
     return cleaned
 
 
@@ -241,21 +260,29 @@ def parse_deck(raw: str | None, cta: str) -> list[dict]:
     return validate_deck(payload, cta)
 
 
-def build_deck_prompt(master_text: str, platform: str, slide_count: int, cta: str) -> list[dict]:
+def build_deck_prompt(master_text: str, platform: str, slide_count: int, cta: str, frame: dict | None = None) -> list[dict]:
     style = PLATFORM_COPY_RULES.get(platform, "короткая ясная подача для социальной сети")
     limits = DECK_LIMITS
     content_count = max(1, int(slide_count) - 2)
     example = {
         "slides": [
             {"type": "cover", "kicker": "Разбор", "title": "Главная мысль обложки", "subtitle": "Одно предложение с конкретикой"},
-            {"type": "stat", "title": "Заголовок слайда", "value": "72%", "caption": "Пояснение к цифре из источника"},
-            {"type": "checklist", "title": "Заголовок слайда", "items": ["Пункт до 10 слов", "Пункт до 10 слов", "Пункт до 10 слов"]},
+            {"type": "stat", "title": "Заголовок слайда", "value": "72%", "caption": "Пояснение к цифре из источника", "body": "Развёрнутое пояснение с конкретикой"},
+            {"type": "checklist", "title": "Заголовок слайда", "items": ["Пункт до 12 слов", "Пункт до 12 слов", "Пункт до 12 слов"]},
             {"type": "cta", "cta": ""},
         ]
     }
+    frame_block = ""
+    if frame:
+        roles = "\n".join(f"  {index}. {role}" for index, role in enumerate(frame["roles"], start=1))
+        frame_block = (
+            f"\nКОПИРАЙТ-ФРЕЙМ: «{frame['name']}» — {frame['description']}\n"
+            f"Драматургия слайдов по фрейму (адаптируй под {max(3, min(7, int(slide_count)))} слайдов, порядок сохраняй):\n{roles}\n"
+        )
     rules = (
         f"Площадка: {platform}. Стиль подачи: {style}.\n\n"
         f"Исходный текст:\n{master_text}\n\n"
+        + frame_block +
         "Собери карусель из типовых блоков. Верни JSON вида {\"slides\": [...]}, где каждый слайд — один из типов:\n"
         "- cover: {type, kicker?, title, subtitle?} — обложка, сильная первая фраза;\n"
         "- text: {type, title, body} — мысль, которую лучше раскрыть абзацем;\n"
@@ -277,6 +304,8 @@ def build_deck_prompt(master_text: str, platform: str, slide_count: int, cta: st
         " а не общие фразы. stat поддерживает поле body — раскрой цифру абзацем.\n"
         "- Не нумеруй пункты в checklist и steps — бейджи с цифрами рисует дизайн.\n"
         "- Каждый пункт — законченная фраза без обрывов и без висячих слов; не дели одну мысль на два пункта.\n"
+        "- ЗАГОЛОВКИ: у каждого слайда свой уникальный заголовок — законченная мысль; не дублируй заголовок\n"
+        "  обложки на содержательных слайдах и не обрывай фразу ради лимита — лучше сократи формулировку, сохранив смысл.\n"
         "- Не повторяй одну и ту же мысль на разных слайдах. Пиши только по-русски, без Markdown, без латиницы и ссылок.\n"
         "- Не выдумывай фактов и цифр, которых нет в исходном тексте.\n"
         "- Поля cta оставь пустыми строками. Верни только JSON без пояснений и без блока ```."
@@ -287,9 +316,9 @@ def build_deck_prompt(master_text: str, platform: str, slide_count: int, cta: st
     ]
 
 
-def build_deck(llm_client, master_text: str, platform: str, slide_count: int, cta: str) -> list[dict]:
+def build_deck(llm_client, master_text: str, platform: str, slide_count: int, cta: str, frame: dict | None = None) -> list[dict]:
     """LLM deck with retries; raises ValueError if every attempt fails."""
-    prompt = build_deck_prompt(master_text, platform, slide_count, cta)
+    prompt = build_deck_prompt(master_text, platform, slide_count, cta, frame)
     last_error: ValueError | None = None
     for temperature in (0.5, 0.25):
         try:
@@ -309,7 +338,12 @@ def _first_sentence(text: str, limit: int) -> str:
 
 
 def build_fallback_deck(master_text: str, slide_count: int, cta: str) -> list[dict]:
-    """Deterministic deck when the LLM fails; guaranteed to pass validation."""
+    """Deterministic deck when the LLM fails; guaranteed to pass validation.
+
+    Uses whole sentences and whole bullets only — never cuts a phrase
+    mid-word to satisfy a word limit (the renderer's auto-fit absorbs
+    slightly longer lines instead).
+    """
     limits = DECK_LIMITS
     text = normalize_master_text(master_text)
     blocks = [block.strip() for block in re.sub(r"\s*•\s*", "\n• ", text).splitlines() if block.strip()]
@@ -328,31 +362,29 @@ def build_fallback_deck(master_text: str, slide_count: int, cta: str) -> list[di
         deck[0]["subtitle"] = cover_subtitle
 
     if len(bullets) >= limits["checklist_min_items"]:
-        deck.append({"type": "checklist", "title": cover_title, "items": [
-            " ".join(item.split()[:limits["checklist_item_words"]])
-            for item in bullets[:limits["checklist_max_items"]]
-        ]})
+        deck.append({"type": "checklist", "title": "Что важно проверить", "items": bullets[:limits["checklist_max_items"]]})
         body_sentences = body_sentences or bullets[limits["checklist_max_items"]:]
     content_target = max(1, count - 2)
     chunks: list[list[str]] = [[] for _ in range(content_target)]
     for index, sentence in enumerate(body_sentences):
         chunks[index % content_target].append(sentence)
-    for chunk in chunks:
-        body = " ".join(chunk)
-        deck.append({"type": "text", "title": _first_sentence(body, limits["title_words"]),
-                     "body": " ".join(body.split()[:limits["body_words"]])})
+    for index, chunk in enumerate(chunks):
+        body = " ".join(chunk).strip()
+        if not body:
+            continue
+        deck.append({"type": "text", "body": body})
     deck.append({"type": "cta", "cta": cta})
     deck = deck[:limits["max_slides"]]
     deck[-1] = {"type": "cta", "cta": cta}
-    filler = {"type": "text", "title": cover_title, "body": cover_subtitle or " ".join(body_sentences)}
+    filler = {"type": "text", "body": cover_subtitle or " ".join(body_sentences)}
     while len(deck) < limits["min_slides"]:
         deck.insert(len(deck) - 1, dict(filler))
     return deck
 
 
-def build_platform_deck(llm_client, master_text: str, platform: str, slide_count: int, cta: str) -> list[dict]:
+def build_platform_deck(llm_client, master_text: str, platform: str, slide_count: int, cta: str, frame: dict | None = None) -> list[dict]:
     try:
-        return build_deck(llm_client, master_text, platform, slide_count, cta)
+        return build_deck(llm_client, master_text, platform, slide_count, cta, frame)
     except ValueError as exc:
         import logging
 

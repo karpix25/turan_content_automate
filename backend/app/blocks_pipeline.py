@@ -11,6 +11,7 @@ from pathlib import Path
 from .integrations.html_slide_renderer import HtmlSlideRenderer
 from .services.blocks_html import build_slide_html
 from .services.carousel_blocks import build_fallback_deck, build_platform_deck, deck_to_text
+from .services.copy_frames import pick_frame
 from .services.carousel_pipeline import suggest_slide_count
 
 logger = logging.getLogger(__name__)
@@ -62,8 +63,11 @@ def generate_blocks_outputs(
                 continue
             cta = str((ctas or {}).get(platform) or "")
             target_slide_count = suggest_slide_count(text, "carousel")
-            deck = build_platform_deck(llm_client, text, platform, target_slide_count, cta)
-            platform_texts[platform] = {"carousel": list(deck), "story": list(deck)}
+            frame = pick_frame()
+            logger.info("Copy frame for %s: %s", platform, frame["id"])
+            deck = build_platform_deck(llm_client, text, platform, target_slide_count, cta, frame)
+            platform_texts[platform] = {"carousel": {"frame": frame["id"], "slides": list(deck)},
+                                        "story": {"frame": frame["id"], "slides": list(deck)}}
             for account_id in account_ids:
                 author = account_handles.get(platform, {}).get(account_id, "")
                 avatar_url = account_avatars.get(account_id, "")
@@ -80,7 +84,8 @@ def generate_blocks_outputs(
                             platform, account_id, exc,
                         )
                         deck = build_fallback_deck(text, target_slide_count, cta)
-                        platform_texts[platform] = {"carousel": list(deck), "story": list(deck)}
+                        platform_texts[platform] = {"carousel": {"slides": list(deck)},
+                                                    "story": {"slides": list(deck)}}
                         target[variant_key] = _render_deck(
                             renderer, deck, design_format, platform, account_id,
                             author, avatar_url, cta, destination,
