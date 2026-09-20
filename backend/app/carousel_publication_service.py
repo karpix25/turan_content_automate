@@ -6,6 +6,7 @@ from .integrations.postmypost_carousel import create_media_publication
 from .publication_guard import verify_publication_payload
 from .publication_reconciler import reconcile_scheduled_publications
 from .publish_planner import get_min_publish_lead_delta, plan_next_publish_times_for_account_outputs
+from .services.carousel_blocks import deck_to_text
 from .services.carousel_copy import template_package_text
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,8 @@ def _publication_content(draft: models.CarouselDraft, platform: str, media_forma
         return variant
     if isinstance(variant, dict):
         package = variant.get(media_format)
+        if isinstance(package, dict) and "slides" in package and (text := deck_to_text(package)):
+            return text
         if isinstance(package, dict) and (text := template_package_text(package)):
             return text
     return str(draft.approved_text or draft.master_text)

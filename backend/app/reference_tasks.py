@@ -6,7 +6,7 @@ from . import models
 from .core.config import llm, pmp_client
 from .database import SessionLocal
 from .services.carousel_copy import build_reference_rewrite_prompt, fallback_reference_text, is_russian_text, strip_source_cta
-from .services.carousel_pipeline import normalize_master_text, suggest_package_slide_count
+from .services.carousel_pipeline import normalize_master_text, suggest_slide_count
 from .services.project_cta_settings import get_project_ctas
 from .services.reference_analysis import analysis_source_text, analyze_reference_post
 from .services.reference_sources import (
@@ -118,14 +118,13 @@ def _create_daily_draft(db, user: models.User, project_id: int, posts: list[mode
     except ValueError as exc:
         logger.warning("Skipping reference draft for project %s: %s", project_id, exc)
         return False
-    package_slide_count = suggest_package_slide_count(master_text)
     draft = models.CarouselDraft(
         user_id=user.id,
         project_id=project_id,
         master_text=master_text,
         status="awaiting_approval",
-        slide_count=package_slide_count,
-        story_slide_count=package_slide_count,
+        slide_count=suggest_slide_count(master_text, "carousel"),
+        story_slide_count=suggest_slide_count(master_text, "story"),
         reference_paths=[],
         story_reference_paths=[],
         platform_accounts=platform_accounts,

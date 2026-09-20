@@ -5,7 +5,7 @@ from pathlib import Path
 
 SUPPORTED_PLATFORMS = ("instagram", "tiktok", "vk", "telegram")
 DESIGN_PROFILES = {
-    "carousel": {"width": 1080, "height": 1350, "ratio": "4:5", "min_words": 5, "max_words": 20, "max_slides": 5},
+    "carousel": {"width": 1080, "height": 1350, "ratio": "4:5", "min_words": 5, "max_words": 30, "max_slides": 7},
     "story": {"width": 1080, "height": 1920, "ratio": "9:16", "min_words": 3, "max_words": 12, "max_slides": 5},
 }
 

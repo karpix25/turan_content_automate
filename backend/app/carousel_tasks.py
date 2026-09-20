@@ -1,6 +1,8 @@
 import logging
+import os
 
 from . import models
+from .blocks_pipeline import generate_blocks_outputs
 from .core.config import llm, pmp_client, scraper
 from .database import SessionLocal
 from .integrations.carousel_renderer import CarouselRendererClient
@@ -18,6 +20,108 @@ from .worker import celery_app
 logger = logging.getLogger(__name__)
 
 
+def carousel_engine() -> str:
+    """Slide engine: "karpix" (saved KARPIX templates) or "blocks" (HTML blocks)."""
+    return (os.getenv("CAROUSEL_ENGINE") or "karpix").strip().lower()
+
+
+def _safe_ctas(ctas: dict | None, platforms: list[str]) -> dict[str, str]:
+    safe: dict[str, str] = {}
+    for platform in platforms:
+        value = limit_words((ctas or {}).get(platform), 8)
+        if value and not is_russian_text(value):
+            logger.warning("Skipping non-Russian CTA for platform %s", platform)
+            value = ""
+        safe[platform] = value
+    return safe
+
+
+def _generate_karpix_draft(draft, text, platforms, account_handles, account_avatars):
+    renderer = CarouselRendererClient()
+    template_sets: dict[str, dict] = {"carousel": load_template_set(renderer, "carousel")}
+    try:
+        template_sets["story"] = load_template_set(renderer, "story")
+    except ValueError as exc:
+        logger.info("KARPIX Stories templates are not configured: %s", exc)
+    format_ctas: dict[str, dict[str, str]] = {}
+    format_packages: dict[str, dict[str, dict]] = {}
+    for design_format, slide_count in (
+        ("carousel", draft.slide_count),
+        ("story", draft.story_slide_count),
+    ):
+        if design_format not in template_sets:
+            continue
+        ctas = draft.ctas if design_format == "carousel" else (draft.story_ctas or {})
+        safe_ctas = _safe_ctas(ctas, platforms)
+        packages = {
+            platform: build_template_package(
+                llm,
+                text,
+                platform,
+                template_sets[design_format],
+                slide_count,
+                safe_ctas[platform],
+            )
+            for platform in platforms
+        }
+        format_ctas[design_format] = safe_ctas
+        format_packages[design_format] = packages
+
+    platform_packages = {
+        platform: {
+            design_format: packages[platform]
+            for design_format, packages in format_packages.items()
+            if platform in packages
+        }
+        for platform in platforms
+    }
+    generated: dict[str, list[str]] = {}
+    story_generated: dict[str, list[str]] = {}
+    destination = output_dir(draft.id)
+    for design_format, target in (
+        ("carousel", generated),
+        ("story", story_generated),
+    ):
+        if design_format not in template_sets:
+            continue
+        for platform in platforms:
+            account_ids = [int(account_id) for account_id in (draft.platform_accounts or {}).get(platform, [])]
+            for account_id in account_ids:
+                variant_key = platform if len(account_ids) == 1 else f"{platform}:{account_id}"
+                author = account_handles.get(platform, {}).get(account_id, "")
+                avatar_url = account_avatars.get(account_id, "")
+                target[variant_key] = render_account_carousel(
+                    renderer,
+                    template_sets[design_format],
+                    format_packages[design_format][platform],
+                    format_ctas[design_format][platform],
+                    author,
+                    avatar_url,
+                    destination,
+                    design_format,
+                    platform,
+                    account_id,
+                )
+
+    if not generated:
+        raise RuntimeError("Нет поддерживаемых социальных сетей для карусели")
+    return generated, story_generated, platform_packages
+
+
+def _generate_blocks_draft(draft, text, platforms, account_handles, account_avatars):
+    safe_ctas = _safe_ctas(draft.ctas, platforms)
+    destination = output_dir(draft.id)
+    return generate_blocks_outputs(
+        llm,
+        text,
+        draft.platform_accounts or {},
+        account_handles,
+        account_avatars,
+        safe_ctas,
+        destination,
+    )
+
+
 @celery_app.task(name="generate_carousel_task", soft_time_limit=3600, time_limit=3900)
 def generate_carousel_task(draft_id: int, schedule_after: bool | None = None) -> None:
     db = SessionLocal()
@@ -25,9 +129,6 @@ def generate_carousel_task(draft_id: int, schedule_after: bool | None = None) ->
         draft = db.query(models.CarouselDraft).filter(models.CarouselDraft.id == draft_id).first()
         if not draft:
             return
-        renderer = CarouselRendererClient()
-        destination = output_dir(draft.id)
-        destination.mkdir(parents=True, exist_ok=True)
         text = strip_source_cta(draft.approved_text or draft.master_text)
         if not is_russian_text(text):
             raise RuntimeError("Текст карусели содержит латинские слова: генерация остановлена")
@@ -67,86 +168,25 @@ def generate_carousel_task(draft_id: int, schedule_after: bool | None = None) ->
             ))
         except Exception:
             logger.exception("Failed to resolve account avatars for draft %s", draft.id)
-        template_sets: dict[str, dict] = {"carousel": load_template_set(renderer, "carousel")}
-        try:
-            template_sets["story"] = load_template_set(renderer, "story")
-        except ValueError as exc:
-            logger.info("KARPIX Stories templates are not configured: %s", exc)
-        format_packages: dict[str, dict[str, dict]] = {}
-        format_ctas: dict[str, dict[str, str]] = {}
-        for design_format, slide_count in (
-            ("carousel", draft.slide_count),
-            ("story", draft.story_slide_count),
-        ):
-            if design_format not in template_sets:
-                continue
-            ctas = draft.ctas if design_format == "carousel" else (draft.story_ctas or {})
-            safe_ctas = {}
-            packages = {}
-            for platform in platforms:
-                safe_cta = limit_words((ctas or {}).get(platform), 8)
-                if safe_cta and not is_russian_text(safe_cta):
-                    logger.warning("Skipping non-Russian CTA for platform %s", platform)
-                    safe_cta = ""
-                safe_ctas[platform] = safe_cta
-                packages[platform] = build_template_package(
-                    llm,
-                    text,
-                    platform,
-                    template_sets[design_format],
-                    slide_count,
-                    safe_cta,
-                )
-            format_ctas[design_format] = safe_ctas
-            format_packages[design_format] = packages
 
-        platform_packages = {
-            platform: {
-                design_format: packages[platform]
-                for design_format, packages in format_packages.items()
-                if platform in packages
-            }
-            for platform in platforms
-        }
-        generated: dict[str, list[str]] = {}
-        story_generated: dict[str, list[str]] = {}
-        for design_format, target in (
-            ("carousel", generated),
-            ("story", story_generated),
-        ):
-            if design_format not in template_sets:
-                continue
-            for platform in platforms:
-                account_ids = [int(account_id) for account_id in (draft.platform_accounts or {}).get(platform, [])]
-                for account_id in account_ids:
-                    variant_key = platform if len(account_ids) == 1 else f"{platform}:{account_id}"
-                    author = account_handles.get(platform, {}).get(account_id, "")
-                    avatar_url = account_avatars.get(account_id, "")
-                    target[variant_key] = render_account_carousel(
-                        renderer,
-                        template_sets[design_format],
-                        format_packages[design_format][platform],
-                        format_ctas[design_format][platform],
-                        author,
-                        avatar_url,
-                        destination,
-                        design_format,
-                        platform,
-                        account_id,
-                    )
+        if carousel_engine() == "blocks":
+            generated, story_generated, platform_texts = _generate_blocks_draft(
+                draft, text, platforms, account_handles, account_avatars,
+            )
+        else:
+            generated, story_generated, platform_texts = _generate_karpix_draft(
+                draft, text, platforms, account_handles, account_avatars,
+            )
 
-        if not generated:
-            raise RuntimeError("Нет поддерживаемых социальных сетей для карусели")
         draft.slides = generated
         draft.story_slides = story_generated
         draft.slide_count = max((len(paths) for paths in generated.values()), default=0)
         draft.story_slide_count = max((len(paths) for paths in story_generated.values()), default=0)
-        draft.platform_texts = platform_packages
+        draft.platform_texts = platform_texts
         draft.status = "ready"
         draft.error = None
         db.commit()
         send_carousel_ready_to_telegram(draft)
-        user = db.query(models.User).filter(models.User.id == draft.user_id).first()
         if user and (schedule_after if schedule_after is not None else user.auto_schedule_enabled):
             celery_app.send_task("schedule_carousel_publications_task", args=[draft.id])
     except Exception as exc:

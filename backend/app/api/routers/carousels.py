@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from ... import models, schemas
 from ...core.config import celery_client, pmp_client
 from ...carousel_publication_service import schedule_carousel_publications
-from ...services.carousel_pipeline import suggest_package_slide_count
+from ...services.carousel_pipeline import suggest_slide_count
 from ...services.project_cta_settings import get_project_ctas
 from ...services.reference_sources import resolve_project_platform_accounts
 from ...integrations.telegram_carousel import send_carousel_text_review_to_telegram
@@ -59,14 +59,13 @@ def create_carousel(
             status_code=400,
             detail="Заполните CTA карусели и Stories для: " + ", ".join(missing_ctas),
         )
-    package_slide_count = suggest_package_slide_count(master_text)
     draft = models.CarouselDraft(
         user_id=user.id,
         project_id=project_id,
         master_text=master_text,
         status="awaiting_approval",
-        slide_count=package_slide_count,
-        story_slide_count=package_slide_count,
+        slide_count=suggest_slide_count(master_text, "carousel"),
+        story_slide_count=suggest_slide_count(master_text, "story"),
         reference_paths=[],
         story_reference_paths=[],
         platform_accounts=platform_accounts,

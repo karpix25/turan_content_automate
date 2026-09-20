@@ -1,6 +1,7 @@
 import json
 import re
 
+from .carousel_pipeline import DESIGN_PROFILES
 from .karpix_carousel import template_variable_names
 from .reference_sources import reference_post_content
 
@@ -58,8 +59,9 @@ def build_reference_rewrite_prompt(posts: list[dict], author_style: str | None) 
             " по смыслу и не оставляй английские предложения, слова или латинские заголовки."
             " Если содержательного текста или транскрипции нет, верни ровно:"
             " НЕДОСТАТОЧНО ДАННЫХ ДЛЯ АНАЛИЗА."
-            " Напиши 20–60 слов, чтобы одну мысль можно было раскрыть на 1–5 слайдах"
-            " и поместить в лимиты карусели и Stories."
+            " Напиши 120–200 слов: возьми одну главную мысль источника и раскрой её плотно,"
+            " с конкретикой из источника — цифры, причины, примеры, выводы;"
+            " без воды и повторов, чтобы текст хватило на подробную карусель."
             " Не используй нумерацию вида 1., 2., 3.; для перечисления используй маркеры «•»."
             " Не добавляй CTA, ссылки и упоминание источника. Верни только готовый текст."
         ),
@@ -103,7 +105,13 @@ STORY_VARIABLE_WORD_LIMITS = {
 
 
 def _slide_count(value: int) -> int:
-    return max(3, min(5, int(value or 3)))
+    max_slides = DESIGN_PROFILES["carousel"]["max_slides"]
+    return max(3, min(max_slides, int(value or 3)))
+
+
+def _max_slide_words(template_set: dict[str, dict]) -> int:
+    is_story = int(template_set["cover"].get("height", 0)) == 1920
+    return 12 if is_story else DESIGN_PROFILES["carousel"]["max_words"]
 
 
 def _template_contract(template_set: dict[str, dict]) -> dict[str, list[str]]:
@@ -150,7 +158,7 @@ def build_template_package_prompt(
         "main": [_example_section(contract["content"], cta) for _ in range(count - 2)],
         "cta": _example_section(contract["cta"], cta),
     }
-    max_words = 12 if int(template_set["cover"].get("height", 0)) == 1920 else 20
+    max_words = _max_slide_words(template_set)
     story_limits = (
         ", ".join(f"{name} — до {limit} слов" for name, limit in STORY_VARIABLE_WORD_LIMITS.items())
         if max_words == 12 else ""
@@ -237,7 +245,7 @@ def parse_template_package(
         raise ValueError(f"main должен содержать {count - 2} слайда")
 
     contract = _template_contract(template_set)
-    max_words = 12 if int(template_set["cover"].get("height", 0)) == 1920 else 20
+    max_words = _max_slide_words(template_set)
 
     def clean_section(kind: str, section: object) -> dict[str, str]:
         expected = contract[kind]
