@@ -28,10 +28,17 @@ class BlocksHtmlTests(unittest.TestCase):
 
     def test_cta_slide_uses_backend_cta_and_author(self):
         html = build_slide_html(_deck(), 3, width=1080, height=1350,
-                                author="@turan", avatar_url="https://example.com/a.png", cta=CTA)
+                                author="@turan", cta=CTA)
         self.assertIn(CTA, html)
         self.assertIn("@turan", html)
-        self.assertIn("https://example.com/a.png", html)
+        self.assertIn("data:image/png;base64,", html)
+
+    def test_logo_replaces_avatar_in_footer_and_cta(self):
+        for index in (0, 3):
+            html = build_slide_html(_deck(), index, width=1080, height=1350,
+                                    author="@turan", avatar_url="https://example.com/a.png", cta=CTA)
+            self.assertIn("data:image/png;base64,", html)
+            self.assertNotIn("https://example.com/a.png", html)
 
     def test_cta_slide_prefers_deck_cta_over_default(self):
         deck = _deck()

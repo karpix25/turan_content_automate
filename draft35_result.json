@@ -1,0 +1,90 @@
+{
+ "deck": {
+  "vk": {
+   "story": [
+    {
+     "type": "cover",
+     "title": "Почему вашу заявку отклоняют до сравнения цен?",
+     "kicker": "Тендеры и закупки",
+     "subtitle": "Заказчики стали чаще отказывать на первом этапе из-за одной простой, но частой ошибки в документах."
+    },
+    {
+     "type": "stat",
+     "title": "Главная причина отказов — описание",
+     "value": "72%",
+     "caption": "отклонённых заявок спотыкаются на неверном описании, когда поставщик копирует формулировку из прошлой закупки."
+    },
+    {
+     "type": "checklist",
+     "items": [
+      "Проверяйте наименование объекта закупки по техзаданию заказчика.",
+      "Сверяйте сроки поставки с графиком исполнения контракта.",
+      "Готовьте обеспечение заявки заранее, а не в день дедлайна.",
+      "Храните актуальные сертификаты под одну дату подачи."
+     ],
+     "title": "Как избежать отказа на первом этапе"
+    },
+    {
+     "cta": "бесплатный урок по ссылке в профиле",
+     "type": "cta"
+    }
+   ],
+   "carousel": [
+    {
+     "type": "cover",
+     "title": "Почему вашу заявку отклоняют до сравнения цен?",
+     "kicker": "Тендеры и закупки",
+     "subtitle": "Заказчики стали чаще отказывать на первом этапе из-за одной простой, но частой ошибки в документах."
+    },
+    {
+     "type": "stat",
+     "title": "Главная причина отказов — описание",
+     "value": "72%",
+     "caption": "отклонённых заявок спотыкаются на неверном описании, когда поставщик копирует формулировку из прошлой закупки."
+    },
+    {
+     "type": "checklist",
+     "items": [
+      "Проверяйте наименование объекта закупки по техзаданию заказчика.",
+      "Сверяйте сроки поставки с графиком исполнения контракта.",
+      "Готовьте обеспечение заявки заранее, а не в день дедлайна.",
+      "Храните актуальные сертификаты под одну дату подачи."
+     ],
+     "title": "Как избежать отказа на первом этапе"
+    },
+    {
+     "cta": "бесплатный урок по ссылке в профиле",
+     "type": "cta"
+    }
+   ]
+  }
+ },
+ "slides": {
+  "vk:1812018": [
+   "/app/database/media/output/carousels/35/carousel-vk-1812018-1.png",
+   "/app/database/media/output/carousels/35/carousel-vk-1812018-2.png",
+   "/app/database/media/output/carousels/35/carousel-vk-1812018-3.png",
+   "/app/database/media/output/carousels/35/carousel-vk-1812018-4.png"
+  ],
+  "vk:1812019": [
+   "/app/database/media/output/carousels/35/carousel-vk-1812019-1.png",
+   "/app/database/media/output/carousels/35/carousel-vk-1812019-2.png",
+   "/app/database/media/output/carousels/35/carousel-vk-1812019-3.png",
+   "/app/database/media/output/carousels/35/carousel-vk-1812019-4.png"
+  ]
+ },
+ "story_slides": {
+  "vk:1812018": [
+   "/app/database/media/output/carousels/35/story-vk-1812018-1.png",
+   "/app/database/media/output/carousels/35/story-vk-1812018-2.png",
+   "/app/database/media/output/carousels/35/story-vk-1812018-3.png",
+   "/app/database/media/output/carousels/35/story-vk-1812018-4.png"
+  ],
+  "vk:1812019": [
+   "/app/database/media/output/carousels/35/story-vk-1812019-1.png",
+   "/app/database/media/output/carousels/35/story-vk-1812019-2.png",
+   "/app/database/media/output/carousels/35/story-vk-1812019-3.png",
+   "/app/database/media/output/carousels/35/story-vk-1812019-4.png"
+  ]
+ }
+}

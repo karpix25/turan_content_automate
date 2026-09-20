@@ -17,11 +17,11 @@ DECK_LIMITS = {
     "max_slides": 7,
     "kicker_words": 3,
     "title_words": 8,
-    "subtitle_words": 16,
-    "body_words": 44,
+    "subtitle_words": 20,
+    "body_words": 64,
     "checklist_min_items": 3,
     "checklist_max_items": 6,
-    "checklist_item_words": 10,
+    "checklist_item_words": 12,
     "table_min_columns": 2,
     "table_max_columns": 3,
     "table_min_rows": 2,
@@ -30,13 +30,14 @@ DECK_LIMITS = {
     "table_column_words": 3,
     "steps_min_items": 3,
     "steps_max_items": 5,
-    "steps_item_words": 12,
+    "steps_item_words": 14,
     "comparison_min_items": 2,
     "comparison_max_items": 4,
-    "comparison_item_words": 8,
+    "comparison_item_words": 10,
     "comparison_side_words": 3,
     "stat_value_words": 4,
-    "stat_caption_words": 14,
+    "stat_caption_words": 16,
+    "stat_body_words": 36,
     "quote_words": 28,
     "quote_author_words": 3,
     "cta_words": 8,
@@ -182,6 +183,9 @@ def _validate_content(slide_type: str, slide: dict) -> dict:
         value = _require_string("stat", "value", slide.get("value"), "stat_value_words", cyrillic=False)
         clean["value"] = value
         clean["caption"] = _require_string("stat", "caption", slide.get("caption"), "stat_caption_words")
+        body = slide.get("body")
+        if body not in (None, ""):
+            clean["body"] = _require_string("stat", "body", body, "stat_body_words")
     elif slide_type == "quote":
         clean["text"] = _require_string("quote", "text", slide.get("text"), "quote_words")
         author = slide.get("author")
@@ -267,6 +271,8 @@ def build_deck_prompt(master_text: str, platform: str, slide_count: int, cta: st
         f"- checklist: {limits['checklist_min_items']}–{limits['checklist_max_items']} пунктов до {limits['checklist_item_words']} слов; "
         f"steps: {limits['steps_min_items']}–{limits['steps_max_items']} пунктов до {limits['steps_item_words']} слов.\n"
         f"- Ячейки таблицы до {limits['table_cell_words']} слов; пункты сравнения до {limits['comparison_item_words']} слов.\n"
+        "- НАПОЛНЯЙ слайды плотно: в subtitle, body и caption — конкретика из источника (цифры, причины, примеры, следствия),"
+        " а не общие фразы. stat поддерживает поле body — раскрой цифру абзацем.\n"
         "- Каждый пункт — законченная фраза без обрывов и без висячих слов; не дели одну мысль на два пункта.\n"
         "- Не повторяй одну и ту же мысль на разных слайдах. Пиши только по-русски, без Markdown, без латиницы и ссылок.\n"
         "- Не выдумывай фактов и цифр, которых нет в исходном тексте.\n"

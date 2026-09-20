@@ -6,10 +6,27 @@ all type sizes are multiplied by a per-slide --fit factor that the embedded
 script shrinks until the content fits, so words are never cut off.
 """
 
+import base64
 import html
+from pathlib import Path
 from typing import Any
 
 TRANSPARENT_AVATAR = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
+
+_LOGO_PATH = Path(__file__).resolve().parents[1] / "assets" / "logo.png"
+_LOGO_CACHE: str | None = None
+
+
+def logo_data_uri() -> str:
+    """Brand logo (embedded, self-contained) used instead of account avatars."""
+    global _LOGO_CACHE
+    if _LOGO_CACHE is None:
+        try:
+            raw = base64.b64encode(_LOGO_PATH.read_bytes()).decode("ascii")
+            _LOGO_CACHE = f"data:image/png;base64,{raw}"
+        except OSError:
+            _LOGO_CACHE = TRANSPARENT_AVATAR
+    return _LOGO_CACHE
 
 DEFAULT_THEME = {
     "bg": "#FBF9F5",
@@ -175,16 +192,18 @@ def _slide_body(slide: dict) -> str:
                    + card("bad", slide["right_title"], slide["right_items"]))
         return _title_block(slide) + f'<div class="compare">{compare}</div>'
     if slide_type == "stat":
-        return (_title_block(slide)
-                + f'<div class="value">{_esc(slide["value"])}</div>'
-                + f'<p class="caption">{_esc(slide["caption"])}</p>')
+        parts = [_title_block(slide),
+                 f'<div class="value">{_esc(slide["value"])}</div>',
+                 f'<p class="caption">{_esc(slide["caption"])}</p>']
+        if slide.get("body"):
+            parts.append(f'<p class="body">{_esc(slide["body"])}</p>')
+        return "".join(parts)
     if slide_type == "quote":
         author = f'<div class="qauthor">— {_esc(slide["author"])}</div>' if slide.get("author") else ""
         return (f'<div class="mark">«</div>'
                 + f'<p class="qtext">{_esc(slide["text"])}</p>' + author)
     if slide_type == "cta":
-        avatar = f'<img src="{_esc(slide.get("avatar_url") or TRANSPARENT_AVATAR)}" alt="">' if slide.get("avatar_url") else ""
-        handle = f'<div class="handle">{avatar}<span>{_esc(slide.get("author") or "")}</span></div>' if slide.get("author") else ""
+        handle = f'<div class="handle"><img src="{logo_data_uri()}" alt=""><span>{_esc(slide.get("author") or "")}</span></div>' if slide.get("author") else ""
         return (f'<div class="cta-chip">{handle}'
                 f'<div class="cta-pill">{_esc(slide["cta"])}</div></div>')
     raise ValueError(f"Неизвестный тип слайда: {slide_type}")
@@ -216,10 +235,10 @@ def build_slide_html(
            .replace("WIDTH", str(int(width)))
            .replace("HEIGHT", str(int(height)))
            .replace("PADY", "96" if height > width else "72"))
-    avatar = _esc(avatar_url or TRANSPARENT_AVATAR)
+    avatar = logo_data_uri()
     author_html = ""
     if author:
-        author_html = f'<div class="author"><img src="{avatar}" alt="" onerror="this.style.display=\'none\'"><span>{_esc(author)}</span></div>'
+        author_html = f'<div class="author"><img src="{avatar}" alt=""><span>{_esc(author)}</span></div>'
     page = f'<div class="page">{index + 1} / {len(slides)}</div>'
     return (
         "<!DOCTYPE html><html lang=\"ru\"><head><meta charset=\"utf-8\">"
