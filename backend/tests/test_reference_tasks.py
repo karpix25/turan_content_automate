@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from app import models
 from app.services.reference_analysis import analyze_reference_post
-from app.services.reference_selection import pick_latest_unused_posts
+from app.services.reference_selection import pick_latest_unused_posts, pick_top_viewed_posts
 from app.services.reference_sources import extract_reference_post, prepare_reference_item
 
 
@@ -80,6 +80,40 @@ class ReferenceSelectionTests(unittest.TestCase):
         selected = pick_latest_unused_posts(posts, used_post_ids={2})
 
         self.assertEqual([post.id for post in selected], [5, 4, 3])
+
+    def test_top_viewed_takes_latest_window_per_channel_then_ranks_by_views(self):
+        posts = [
+            # канал 10: три последних (1 — старый, в окно не попадает, хоть и залайкан)
+            SimpleNamespace(id=1, channel_id=10, published_at=datetime.datetime(2026, 7, 1), created_at=None, view_count=9_999),
+            SimpleNamespace(id=2, channel_id=10, published_at=datetime.datetime(2026, 8, 3), created_at=None, view_count=500),
+            SimpleNamespace(id=3, channel_id=10, published_at=datetime.datetime(2026, 8, 2), created_at=None, view_count=100),
+            SimpleNamespace(id=4, channel_id=10, published_at=datetime.datetime(2026, 8, 1), created_at=None, view_count=50),
+            # канал 20
+            SimpleNamespace(id=5, channel_id=20, published_at=datetime.datetime(2026, 8, 5), created_at=None, view_count=4_000),
+            SimpleNamespace(id=6, channel_id=20, published_at=datetime.datetime(2026, 8, 4), created_at=None, view_count=10),
+            SimpleNamespace(id=7, channel_id=20, published_at=datetime.datetime(2026, 8, 3), created_at=None, view_count=5),
+            # канал 30: самый свежий уже использован — окно сдвигается на неиспользованные
+            SimpleNamespace(id=8, channel_id=30, published_at=datetime.datetime(2026, 8, 9), created_at=None, view_count=8_000),
+            SimpleNamespace(id=9, channel_id=30, published_at=datetime.datetime(2026, 8, 8), created_at=None, view_count=2_000),
+            SimpleNamespace(id=10, channel_id=30, published_at=datetime.datetime(2026, 8, 7), created_at=None, view_count=1),
+        ]
+
+        selected = pick_top_viewed_posts(posts, used_post_ids={8}, per_channel=3, limit=3)
+
+        self.assertEqual([post.id for post in selected], [5, 9, 2])
+
+    def test_top_viewed_excludes_used_and_caps_limit(self):
+        posts = [
+            SimpleNamespace(id=1, channel_id=10, published_at=datetime.datetime(2026, 8, 5), created_at=None, view_count=100),
+            SimpleNamespace(id=2, channel_id=10, published_at=datetime.datetime(2026, 8, 4), created_at=None, view_count=90),
+            SimpleNamespace(id=3, channel_id=20, published_at=datetime.datetime(2026, 8, 6), created_at=None, view_count=80),
+            SimpleNamespace(id=4, channel_id=20, published_at=datetime.datetime(2026, 8, 3), created_at=None, view_count=70),
+            SimpleNamespace(id=5, channel_id=30, published_at=datetime.datetime(2026, 8, 2), created_at=None, view_count=60),
+        ]
+
+        selected = pick_top_viewed_posts(posts, used_post_ids={1}, per_channel=3, limit=2)
+
+        self.assertEqual([post.id for post in selected], [2, 3])
 
     def test_analysis_uses_media_details_and_image_urls(self):
         post = models.ReferencePost(

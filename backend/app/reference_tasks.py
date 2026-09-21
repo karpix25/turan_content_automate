@@ -15,7 +15,7 @@ from .services.reference_sources import (
     reference_post_content,
     resolve_project_platform_accounts,
 )
-from .services.reference_selection import pick_latest_unused_posts
+from .services.reference_selection import pick_top_viewed_posts
 from .integrations.telegram_carousel import resolve_telegram_chat_id, send_carousel_text_review_to_telegram
 from .integrations.scrape_creators import ScrapeCreatorsClient
 from .worker import celery_app
@@ -96,16 +96,17 @@ def _build_master_text(user: models.User, posts: list[models.ReferencePost], scr
     return text
 
 
-def _create_daily_draft(db, user: models.User, project_id: int, posts: list[models.ReferencePost], scraper) -> bool:
+def _drafts_created_today(db, user_id: int, project_id: int) -> int:
     today = datetime.datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    existing = db.query(models.CarouselDraft).filter(
-        models.CarouselDraft.user_id == user.id,
+    return db.query(models.CarouselDraft).filter(
+        models.CarouselDraft.user_id == user_id,
         models.CarouselDraft.project_id == project_id,
         models.CarouselDraft.created_at >= today,
         models.CarouselDraft.status != "rejected",
-    ).first()
-    if existing:
-        return False
+    ).count()
+
+
+def _create_reference_draft(db, user: models.User, project_id: int, post: models.ReferencePost, scraper) -> bool:
     platform_accounts = resolve_project_platform_accounts(project_id, pmp_client, db, user.id)
     if not platform_accounts:
         return False
@@ -114,9 +115,9 @@ def _create_daily_draft(db, user: models.User, project_id: int, posts: list[mode
         logger.warning("Skipping daily reference draft: CTA is missing for project %s", project_id)
         return False
     try:
-        master_text = _build_master_text(user, posts, scraper)
+        master_text = _build_master_text(user, [post], scraper)
     except ValueError as exc:
-        logger.warning("Skipping reference draft for project %s: %s", project_id, exc)
+        logger.warning("Skipping reference draft for post %s: %s", post.id, exc)
         return False
     draft = models.CarouselDraft(
         user_id=user.id,
@@ -130,7 +131,7 @@ def _create_daily_draft(db, user: models.User, project_id: int, posts: list[mode
         platform_accounts=platform_accounts,
         ctas=carousel_ctas,
         story_ctas=story_ctas,
-        source_post_ids=[post.id for post in posts],
+        source_post_ids=[post.id],
         telegram_chat_id=resolve_telegram_chat_id(user.telegram_id),
     )
     db.add(draft)
@@ -164,19 +165,30 @@ def sync_reference_channels_task(user_id: int | None = None, project_id: int | N
                 logger.exception("Failed to sync reference channel %s", channel.id)
         for (owner_id, owner_project_id), posts in grouped.items():
             used_post_ids = _used_reference_post_ids(db, owner_id, owner_project_id)
-            top_posts = pick_latest_unused_posts(posts, used_post_ids)
+            per_channel = max(1, int(os.getenv("REFERENCE_LATEST_PER_CHANNEL", "3")))
+            drafts_per_day = max(1, int(os.getenv("REFERENCE_DRAFTS_PER_DAY", "3")))
+            top_posts = pick_top_viewed_posts(
+                posts,
+                used_post_ids,
+                per_channel=per_channel,
+                limit=drafts_per_day,
+            )
             logger.info(
                 "Reference selection project=%s profiles=%s used_posts=%s selected_posts=%s",
                 owner_project_id,
                 len({post.channel_id for post in posts}),
                 len(used_post_ids),
-                [post.id for post in top_posts],
+                [(post.id, int(getattr(post, "view_count", 0) or 0)) for post in top_posts],
             )
-            if len(top_posts) < 1:
+            if not top_posts:
                 continue
             user = db.query(models.User).filter(models.User.id == owner_id).first()
-            if user and _create_daily_draft(db, user, owner_project_id, top_posts, scraper):
-                created += 1
+            if not user:
+                continue
+            slots = drafts_per_day - _drafts_created_today(db, owner_id, owner_project_id)
+            for post in top_posts[:max(0, slots)]:
+                if _create_reference_draft(db, user, owner_project_id, post, scraper):
+                    created += 1
         return created
     finally:
         db.close()
