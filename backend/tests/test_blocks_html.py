@@ -1,6 +1,6 @@
 import unittest
 
-from app.services.blocks_html import DEFAULT_THEME, build_slide_html
+from app.services.blocks_html import DEFAULT_THEME, build_slide_html, _copy
 
 
 CTA = "Подпишись на канал"
@@ -29,7 +29,7 @@ class BlocksHtmlTests(unittest.TestCase):
     def test_cta_slide_uses_backend_cta_and_author(self):
         html = build_slide_html(_deck(), 3, width=1080, height=1350,
                                 author="@turan", cta=CTA)
-        self.assertIn(CTA, html)
+        self.assertIn(CTA, html.replace("\u00a0", " "))
         self.assertIn("@turan", html)
         self.assertIn("data:image/png;base64,", html)
 
@@ -44,7 +44,7 @@ class BlocksHtmlTests(unittest.TestCase):
         deck = _deck()
         deck[3]["cta"] = "Своя фраза"
         html = build_slide_html(deck, 3, width=1080, height=1350, cta=CTA)
-        self.assertIn("Своя фраза", html)
+        self.assertIn("Своя фраза", html.replace("\u00a0", " "))
         self.assertNotIn(f">{CTA}<", html)
 
     def test_page_counter_and_slide_types(self):
@@ -62,6 +62,40 @@ class BlocksHtmlTests(unittest.TestCase):
         html = build_slide_html(_deck(), 1, width=1080, height=1920)
         self.assertIn("height: 1920px", html)
         self.assertIn("width: 1080px", html)
+
+    def test_typography_keeps_short_links_and_numbers_together(self):
+        text = _copy('В жизни — 5 приёмов и 10 % результата')
+        self.assertIn('В\u00a0жизни\u00a0—', text)
+        self.assertIn('5\u00a0приёмов', text)
+        self.assertIn('и\u00a010\u00a0%', text)
+        self.assertNotIn('\x01', text)
+
+    def test_renderer_uses_model_paragraph_boundaries(self):
+        deck = [{"type": "text", "title": "Тема", "body": "Первое. Второе. Третье.",
+                 "paragraphs": ["Первое.", "Второе. Третье."]}]
+        markup = build_slide_html(deck, 0, width=1080, height=1350)
+        self.assertIn('<p>Первое.</p><p>Второе. Третье.</p>', markup.replace('\u00a0', ' '))
+        deck[0].pop('paragraphs')
+        markup = build_slide_html(deck, 0, width=1080, height=1350)
+        self.assertIn('<p>Первое. Второе. Третье.</p>', markup.replace('\u00a0', ' '))
+
+    def test_model_title_lines_render_without_word_splitting(self):
+        deck = [{"type": "cover", "title": "Пять приёмов разговора", "title_lines": ["Пять приёмов", "разговора"]}]
+        markup = build_slide_html(deck, 0, width=1080, height=1350)
+        self.assertIn('Пять приёмов<br>разговора', markup.replace('\u00a0', ' '))
+        self.assertIn('word-break: normal; hyphens: none', markup)
+        self.assertNotIn('overflow-wrap: anywhere', markup)
+
+    def test_numbered_checklist_uses_single_marker(self):
+        deck = [{"type": "checklist", "title": "Приёмы", "items": ["3. Первый приём", "4. Второй приём"]}]
+        markup = build_slide_html(deck, 0, width=1080, height=1350)
+        self.assertIn('<span class="badge">3</span>', markup)
+        self.assertIn('<span class="badge">4</span>', markup)
+        self.assertNotIn('<span class="badge">✓</span>', markup)
+        self.assertNotIn('<p>3.', markup)
+
+    def test_short_final_word_stays_with_preceding_word(self):
+        self.assertTrue(_copy('Чтобы показать интерес.').endswith('показать\u00a0интерес.'))
 
     def test_index_out_of_deck_raises(self):
         with self.assertRaises(ValueError):

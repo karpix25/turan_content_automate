@@ -89,7 +89,9 @@ def main() -> int:
         )
     elapsed = time.time() - started
 
-    deck = texts["instagram"]["carousel"]
+    payload = texts["instagram"]["carousel"]
+    deck = payload.get("slides", []) if isinstance(payload, dict) else payload
+    (out / "editorial.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     (out / "deck.json").write_text(json.dumps(deck, ensure_ascii=False, indent=2), encoding="utf-8")
     report = {
         "mode": mode,

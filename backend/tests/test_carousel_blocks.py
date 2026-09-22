@@ -50,7 +50,7 @@ class CarouselBlocksTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "frame"):
             validate_deck(deck, CTA)
 
-    def test_role_order_is_enforced(self):
+    def test_visual_types_do_not_force_narrative_order(self):
         deck = _deck()
         deck["slides"] = [
             {"type": "cover", "title": "Мысль"},
@@ -58,10 +58,10 @@ class CarouselBlocksTests(unittest.TestCase):
             {"type": "stat", "title": "Цифра", "value": "72%", "caption": "пояснение к цифре"},
             {"type": "cta", "cta": ""},
         ]
-        with self.assertRaisesRegex(ValueError, "порядок ролей"):
-            validate_deck(deck, CTA)
+        slides, _ = validate_deck(deck, CTA)
+        self.assertEqual(slides[1]["type"], "quote")
 
-    def test_three_same_blocks_in_a_row_rejected(self):
+    def test_continuous_text_story_is_allowed(self):
         deck = {
             "frame": "mistakes",
             "slides": [
@@ -72,8 +72,8 @@ class CarouselBlocksTests(unittest.TestCase):
                 {"type": "cta", "cta": ""},
             ],
         }
-        with self.assertRaisesRegex(ValueError, "подряд"):
-            validate_deck(deck, CTA)
+        slides, _ = validate_deck(deck, CTA)
+        self.assertEqual(len(slides), 5)
 
     def test_dangling_ending_is_rejected(self):
         deck = _deck()
@@ -93,6 +93,22 @@ class CarouselBlocksTests(unittest.TestCase):
         }
         slides, _ = validate_deck(deck, CTA)
         self.assertEqual(slides[2]["type"], "qa")
+
+    def test_two_real_checklist_items_do_not_require_a_third(self):
+        deck = _deck()
+        deck["slides"][2]["items"] = [
+            "Первый приём с самостоятельным объяснением и конкретной деталью из исходного материала",
+            "Второй приём с собственным объяснением без выдуманного дополнительного пункта",
+        ]
+        slides, _ = validate_deck(deck, CTA)
+        self.assertEqual(len(slides[2]["items"]), 2)
+
+    def test_single_real_question_does_not_require_an_invented_pair(self):
+        deck = _deck()
+        deck["slides"][2] = {"type": "qa", "title": "Один важный вопрос",
+                             "pairs": [{"q": "Как поступить?", "a": "Возьмите паузу перед ответом"}]}
+        slides, _ = validate_deck(deck, CTA)
+        self.assertEqual(len(slides[2]["pairs"]), 1)
 
     def test_fallback_keeps_sentences_whole(self):
         long_sentence = "Это очень длинное предложение, которое не должно обрываться посреди мысли ни при каких лимитах"
@@ -144,7 +160,7 @@ class CarouselBlocksTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ячеек"):
             validate_deck(deck, CTA)
 
-    def test_requires_two_different_content_blocks(self):
+    def test_two_text_slides_do_not_require_invented_checklist(self):
         deck = {
             "frame": "mistakes",
             "slides": [
@@ -154,8 +170,8 @@ class CarouselBlocksTests(unittest.TestCase):
                 {"type": "cta", "cta": ""},
             ]
         }
-        with self.assertRaisesRegex(ValueError, "минимум два разных"):
-            validate_deck(deck, CTA)
+        slides, _ = validate_deck(deck, CTA)
+        self.assertEqual([s["type"] for s in slides[1:-1]], ["text", "text"])
 
     def test_parse_deck_strips_code_fence(self):
         raw = "```json\n" + json.dumps(_deck(), ensure_ascii=False) + "\n```"
@@ -188,9 +204,29 @@ class CarouselBlocksTests(unittest.TestCase):
     def test_deck_prompt_contains_limits_and_platform(self):
         prompt = build_deck_prompt("Исходный текст", "instagram", 5, CTA)
         text = prompt[1]["content"]
-        self.assertIn("ровно 5", text)
+        self.assertIn("количество слайдов — 5", text)
         self.assertIn("instagram", text)
         self.assertIn("checklist", text)
+
+    def test_fallback_preserves_order_and_every_sentence(self):
+        sentences = [f"Мысль {i}: " + "связное объяснение причины и последствия для читателя " * 3 + "." for i in range(8)]
+        slides = build_fallback_deck(" ".join(sentences), 7, CTA)
+        flattened = deck_to_text(slides)
+        positions = [flattened.index(sentence) for sentence in sentences]
+        self.assertEqual(positions, sorted(positions))
+        self.assertNotIn("Что важно проверить", flattened)
+        self.assertTrue(all(s.get("title") for s in slides[1:-1]))
+
+    def test_fallback_combines_short_sentences(self):
+        slides = build_fallback_deck("Главная мысль. Первое пояснение. Второе пояснение. Итоговый вывод.", 7, CTA)
+        self.assertEqual(len(slides), 3)
+        self.assertEqual(slides[1]["body"], "Первое пояснение. Второе пояснение. Итоговый вывод.")
+
+    def test_takeaway_survives_validation_and_caption(self):
+        deck = _deck()
+        deck["slides"][1]["takeaway"] = "Сверяйте описание перед подачей заявки"
+        slides, _ = validate_deck(deck, CTA)
+        self.assertIn(deck["slides"][1]["takeaway"], deck_to_text(slides))
 
     def test_deck_to_text_skips_cta_and_duplicates(self):
         text = deck_to_text(_deck())

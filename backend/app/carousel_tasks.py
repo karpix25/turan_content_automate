@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 def carousel_engine() -> str:
     """Slide engine: "karpix" (saved KARPIX templates) or "blocks" (HTML blocks)."""
-    return (os.getenv("CAROUSEL_ENGINE") or "karpix").strip().lower()
+    return (os.getenv("CAROUSEL_ENGINE") or "blocks").strip().lower()
 
 
 def _safe_ctas(ctas: dict | None, platforms: list[str]) -> dict[str, str]:
@@ -119,6 +119,7 @@ def _generate_blocks_draft(draft, text, platforms, account_handles, account_avat
         account_avatars,
         safe_ctas,
         destination,
+        story_ctas=_safe_ctas(draft.story_ctas, platforms),
     )
 
 

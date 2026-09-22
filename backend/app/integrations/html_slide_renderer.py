@@ -36,6 +36,10 @@ def find_chromium_executable() -> Optional[str]:
     return found
 
 
+class SlideLayoutError(RuntimeError):
+    """Content needs LLM editing; distinct from browser/network failures."""
+
+
 class HtmlSlideRenderer:
     """Context manager: one browser instance renders any number of slides."""
 
@@ -93,6 +97,7 @@ class HtmlSlideRenderer:
             raise RuntimeError(f"Рендер слайда не удался: {exc}") from exc
         try:
             page.evaluate("() => document.fonts.ready")
+            page.evaluate("() => { if (window.fitSlides) window.fitSlides(); }")
             status = page.evaluate("() => document.documentElement.dataset.fitStatus || 'ok'")
         except Exception as exc:
             raise RuntimeError(f"Не удалось проверить слайд на переполнение: {exc}") from exc
@@ -101,7 +106,7 @@ class HtmlSlideRenderer:
                 "() => { const bad = document.querySelector('.slide[data-fit=\\'overflow\\']');"
                 " return bad ? bad.dataset.index : ''; }"
             )
-            raise RuntimeError(
+            raise SlideLayoutError(
                 f"Слайд {index}: текст не помещается даже после авто-подгонки — сократи текст"
             )
         screenshot = page.screenshot(type="png", clip={"x": 0, "y": 0, "width": int(width), "height": int(height)})

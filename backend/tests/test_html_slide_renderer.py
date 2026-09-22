@@ -55,6 +55,16 @@ class HtmlSlideRendererTests(unittest.TestCase):
         self.assertTrue(os.path.isfile(path))
         os.unlink(path)
 
+    def test_unbreakable_word_is_rejected_instead_of_split_or_cropped(self):
+        deck = [{"type": "text", "title": "Тема", "body": "Оченьдлинноеслово" * 30}]
+        markup = build_slide_html(deck, 0, width=1080, height=1350)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'never.png')
+            with HtmlSlideRenderer() as renderer:
+                with self.assertRaisesRegex(RuntimeError, 'не помещается'):
+                    renderer.render_html(markup, path, 1080, 1350)
+            self.assertFalse(os.path.exists(path))
+
     def test_unfitting_slide_raises_instead_of_cropping(self):
         deck = [
             {"type": "text", "title": "Переполненный слайд",

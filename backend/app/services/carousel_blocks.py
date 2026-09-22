@@ -1,4 +1,4 @@
-"""Block-based carousel deck: schema, validation, LLM prompt and fallbacks.
+"""Block-based carousel deck: schema, validation and writer prompt.
 
 A deck is a list of typed slides (cover, checklist, table, steps, comparison,
 stat, quote, text, cta). The LLM chooses block types and fills them with
@@ -19,10 +19,11 @@ DECK_LIMITS = {
     "kicker_words": 3,
     "title_words": 8,
     "subtitle_words": 20,
-    "body_words": 64,
-    "checklist_min_items": 3,
+    "body_words": 80,
+    "takeaway_words": 18,
+    "checklist_min_items": 2,
     "checklist_max_items": 6,
-    "checklist_item_words": 12,
+    "checklist_item_words": 24,
     "table_min_columns": 2,
     "table_max_columns": 3,
     "table_min_rows": 2,
@@ -41,7 +42,7 @@ DECK_LIMITS = {
     "stat_body_words": 36,
     "quote_words": 28,
     "quote_author_words": 3,
-    "qa_min_pairs": 2,
+    "qa_min_pairs": 1,
     "qa_max_pairs": 3,
     "qa_q_words": 10,
     "qa_a_words": 20,
@@ -117,7 +118,8 @@ def _require_items(slide_type: str, field: str, value, word_limit: int, low: int
             raise ValueError(f"Слайд «{slide_type}»: пункты поля {field} должны быть строками")
         text = polish_text(item)
         # списки рисуются с бейджами/маркерами — ручная нумерация пунктов задваивается
-        text = re.sub(r"^\s*\d+\s*[.)]\s*", "", text)
+        if slide_type == "steps":
+            text = re.sub(r"^\s*\d+\s*[.)]\s*", "", text)
         if not text or re.search(r"[A-Za-z]", text) or not is_russian_text(text):
             raise ValueError(f"Слайд «{slide_type}»: пункт поля {field} не русский текст")
         if _words(text) > word_limit:
@@ -151,7 +153,14 @@ def _validate_content(slide_type: str, slide: dict) -> dict:
     if slide_type == "text":
         if "title" not in clean:
             raise ValueError("Слайд «text»: нужен заголовок")
-        clean["body"] = _require_string("text", "body", slide.get("body"), "body_words")
+        if "paragraphs" in slide:
+            paragraphs = slide["paragraphs"]
+            if "body" in slide or not isinstance(paragraphs, list) or not 1 <= len(paragraphs) <= 3:
+                raise ValueError("text: передай 1–3 paragraphs вместо body")
+            clean["paragraphs"] = [_require_string("text", "paragraphs", value, "body_words") for value in paragraphs]
+            clean["body"] = _require_string("text", "body", " ".join(clean["paragraphs"]), "body_words")
+        else:
+            clean["body"] = _require_string("text", "body", slide.get("body"), "body_words")
     elif slide_type == "checklist":
         if "title" not in clean:
             raise ValueError("Слайд «checklist»: нужен заголовок")
@@ -234,6 +243,11 @@ def _validate_content(slide_type: str, slide: dict) -> dict:
         author = slide.get("author")
         if author not in (None, ""):
             clean["author"] = _require_string("quote", "author", author, "quote_author_words")
+    if slide.get("kicker"):
+        clean["kicker"] = _require_string(slide_type, "kicker", slide["kicker"], "kicker_words")
+    takeaway = slide.get("takeaway")
+    if takeaway not in (None, ""):
+        clean["takeaway"] = _require_string(slide_type, "takeaway", takeaway, "takeaway_words")
     return clean
 
 
@@ -271,31 +285,27 @@ def validate_deck(raw: object, cta: str) -> tuple[list[dict], dict]:
         else:
             cleaned.append(_validate_content(slide_type, slide))
     body_slides = cleaned[1:-1]
-    body_types = [slide["type"] for slide in body_slides]
-    for index in range(len(body_types) - 2):
-        if body_types[index] == body_types[index + 1] == body_types[index + 2]:
-            raise ValueError("Не ставь три одинаковых блока подряд — чередуй типы")
-    if len(set(body_types)) < min(2, len(body_types)):
-        raise ValueError("Содержательные слайды должны использовать минимум два разных блока")
-    _check_frame_roles(body_slides, frame)
+    # Visual block choice is not a narrative role: text can explain both a cause
+    # and its consequence. Do not force unrelated checklists just for variety.
+    fingerprints = [deck_to_text([slide]).casefold() for slide in body_slides]
+    if len(fingerprints) != len(set(fingerprints)):
+        raise ValueError("Содержательные слайды не должны повторяться")
     titles = [slide.get("title", "").casefold() for slide in cleaned if slide.get("title")]
     if len(titles) != len(set(titles)):
         raise ValueError("Заголовки слайдов не должны повторяться")
+    for original, slide in zip(slides, cleaned):
+        if "title_lines" in original:
+            lines = original["title_lines"]
+            if (not isinstance(lines, list) or not 2 <= len(lines) <= 3
+                    or any(not isinstance(line, str) or not line.strip() for line in lines)):
+                raise ValueError("title_lines: нужны 2–3 непустые смысловые строки")
+            lines = [polish_text(line) for line in lines]
+            if " ".join(lines) != slide.get("title"):
+                raise ValueError("title_lines должны точно сохранять текст title")
+            if any(_is_dangling(line) for line in lines):
+                raise ValueError("Не оставляй предлог или союз в конце строки заголовка")
+            slide["title_lines"] = lines
     return cleaned, frame
-
-
-def _check_frame_roles(content_slides: list[dict], frame: dict) -> None:
-    """Content slides must follow the frame's role order (skips allowed)."""
-    roles = frame.get("roles") or []
-    pointer = 0
-    for slide in content_slides:
-        slide_type = slide["type"]
-        while pointer < len(roles) and slide_type not in roles[pointer]["blocks"]:
-            pointer += 1
-        if pointer >= len(roles):
-            raise ValueError(
-                f"Фрейм «{frame['name']}»: блок «{slide_type}» нарушает порядок ролей фрейма"
-            )
 
 
 def parse_deck(raw: str | None, cta: str) -> tuple[list[dict], dict]:
@@ -312,30 +322,22 @@ def build_deck_prompt(master_text: str, platform: str, slide_count: int, cta: st
     style = PLATFORM_COPY_RULES.get(platform, "короткая ясная подача для социальной сети")
     limits = DECK_LIMITS
     content_count = max(1, int(slide_count) - 2)
-    example = {
-        "frame": "mistakes",
-        "slides": [
-            {"type": "cover", "kicker": "Разбор", "title": "Главная мысль обложки", "subtitle": "Одно предложение с конкретикой"},
-            {"type": "stat", "title": "Заголовок слайда", "value": "72%", "caption": "Пояснение к цифре из источника", "body": "Развёрнутое пояснение с конкретикой"},
-            {"type": "checklist", "title": "Заголовок слайда", "items": ["Пункт до 12 слов", "Пункт до 12 слов", "Пункт до 12 слов"]},
-            {"type": "cta", "cta": ""},
-        ]
-    }
     catalog = frames_catalog_text()
     forced_frame = ""
     if frame:
         forced_frame = f" Фрейм выбран заранее: \"{frame['id']}\" — используй именно его."
     frame_block = (
         f"\nБИБЛИОТЕКА КОПИРАЙТ-ФРЕЙМОВ (выбери ОДИН, лучше всего подходящий тексту):\n{catalog}\n"
-        "Поле frame в ответе — id выбранного фрейма. Содержательные слайды должны идти в порядке"
-        " ролей фрейма: роли можно пропускать, нельзя менять порядок и вставлять чужие блоки."
+        "Поле frame в ответе — id выбранного фрейма. Используй его как редакторскую подсказку. "
+        "Сохраняй ход мысли источника; пропускай роли, для которых в нём нет материала. "
+        "Типы блоков в каталоге — примеры оформления, а не обязательный порядок."
         + forced_frame + "\n"
     )
     rules = (
         f"Площадка: {platform}. Стиль подачи: {style}.\n\n"
         f"Исходный текст:\n{master_text}\n\n"
         + frame_block +
-        "Собери карусель из типовых блоков. Верни JSON вида {\"slides\": [...]}, где каждый слайд — один из типов:\n"
+        f"Собери карусель из типовых блоков. Верни JSON с обязательными полями frame и slides: frame=\"{frame['id'] if frame else 'insight'}\", slides=[...]. Каждый слайд — один из типов:\n"
         "- cover: {type, kicker?, title, subtitle?} — обложка, сильная первая фраза;\n"
         "- text: {type, title, body} — мысль, которую лучше раскрыть абзацем;\n"
         "- checklist: {type, title, items} — признаки, ошибки, правила, что сделать;\n"
@@ -343,19 +345,30 @@ def build_deck_prompt(master_text: str, platform: str, slide_count: int, cta: st
         "- steps: {type, title, items} — порядок действий по шагам;\n"
         "- comparison: {type, title, left_title, right_title, left_items, right_items} — «до/после», «так/не так»;\n"
         "- stat: {type, title, value, caption, body?} — одна яркая цифра или факт из источника;\n"
-        "- qa: {type, title, pairs} — 2–3 пары {q: вопрос до 10 слов, a: ответ до 20 слов};\n"
+        "- qa: {type, title, pairs} — 1–3 пары {q: вопрос до 10 слов, a: ответ до 20 слов};\n"
         "- quote: {type, text, author?} — цитата из исходного текста;\n"
         "- cta: {type, cta: \"\"} — последний слайд, текст CTA подставит бэкенд.\n\n"
         "Жесткие требования:\n"
-        f"- Количество слайдов — ровно {max(3, min(7, int(slide_count)))}: обложка, {content_count} содержательных, CTA.\n"
-        f"- Содержательные слайды — минимум два РАЗНЫХ типа; выбирай блок по смыслу, а не подряд одинаковые.\n"
+        f"- Целевое количество слайдов — {max(3, min(7, int(slide_count)))}: обложка, {content_count} содержательных, CTA. Если материала мало, сократи до 3–4 слайдов.\n"
+        "- Сначала выстрой связный рассказ: обещание обложки → раскрытие → объяснение или пример → вывод. "
+        "Каждый следующий слайд продолжает предыдущий; местоимения должны иметь понятный предмет. "
+        "Не меняй тему и не начинай практические советы до объяснения проблемы.\n"
+        "- Выбирай оформление после смысла. Несколько текстовых слайдов подряд допустимы. "
+        "Чек-лист нужен только для реального списка, сравнение — для сопоставления из источника. "
+        "Не придумывай проверки, шаги, цифры или цитаты ради шаблона. "
+        "Не используй универсальное «Что важно проверить», если это не тема материала.\n"
         f"- Заголовок до {limits['title_words']} слов, kicker до {limits['kicker_words']}, subtitle до {limits['subtitle_words']}, body до {limits['body_words']}.\n"
         f"- checklist: {limits['checklist_min_items']}–{limits['checklist_max_items']} пунктов до {limits['checklist_item_words']} слов; "
         f"steps: {limits['steps_min_items']}–{limits['steps_max_items']} пунктов до {limits['steps_item_words']} слов.\n"
         f"- Ячейки таблицы до {limits['table_cell_words']} слов; пункты сравнения до {limits['comparison_item_words']} слов.\n"
+        "- На основном слайде ориентируйся на 45–70 слов суммарно: тезис, объяснение и конкретика. "
+        "Обложка и CTA остаются короткими. Не растягивай одно предложение на отдельный слайд. "
+        "Если исходник короткий, используй меньше слайдов (минимум 3), не добавляй вымышленные факты.\n"
+        "- У любого содержательного блока можно добавить takeaway: вывод до 18 слов, "
+        "который следует из источника и не повторяет заголовок. Для text используй 2–3 связных предложения.\n"
         "- НАПОЛНЯЙ слайды плотно: в subtitle, body и caption — конкретика из источника (цифры, причины, примеры, следствия),"
         " а не общие фразы. stat поддерживает поле body — раскрой цифру абзацем.\n"
-        "- Не нумеруй пункты в checklist и steps — бейджи с цифрами рисует дизайн.\n"
+        "- В steps последовательность действий обозначена бейджами; в checklist можно явно обозначить номера обещанных пунктов.\n"
         "- Каждый пункт — законченная фраза без обрывов и без висячих слов; не дели одну мысль на два пункта.\n"
         "- ЗАГОЛОВКИ: у каждого слайда свой уникальный заголовок — законченная мысль; не дублируй заголовок\n"
         "  обложки на содержательных слайдах и не обрывай фразу ради лимита — лучше сократи формулировку, сохранив смысл.\n"
@@ -365,84 +378,51 @@ def build_deck_prompt(master_text: str, platform: str, slide_count: int, cta: st
     )
     return [
         {"role": "system", "content": "Ты арт-директор соцсетей и редактор. Собираешь карусели из типовых блоков и возвращаешь строгий JSON."},
-        {"role": "user", "content": rules + "\n\nПример структуры:\n" + json.dumps(example, ensure_ascii=False, indent=2)},
+        {"role": "user", "content": rules},
     ]
 
 
-def build_deck(llm_client, master_text: str, platform: str, slide_count: int, cta: str, frame: dict | None = None) -> tuple[list[dict], dict]:
-    """LLM deck with retries; raises ValueError if every attempt fails."""
-    prompt = build_deck_prompt(master_text, platform, slide_count, cta, frame)
-    last_error: ValueError | None = None
-    for temperature in (0.5, 0.25):
-        try:
-            return parse_deck(llm_client._complete(prompt, temperature=temperature), cta)
-        except ValueError as exc:
-            last_error = exc
-    raise ValueError(f"Не удалось собрать деку для {platform}: {last_error}")
-
-
-def _first_sentence(text: str, limit: int) -> str:
-    sentences = [part.strip() for part in re.split(r"(?<=[.!?…])\s+", text) if part.strip()]
-    if not sentences:
-        return " ".join(text.split()[:limit])
-    sentence = sentences[0]
-    words = sentence.split()
-    return " ".join(words[:limit]) if len(words) > limit else sentence
-
-
 def build_fallback_deck(master_text: str, slide_count: int, cta: str) -> list[dict]:
-    """Deterministic deck when the LLM fails; guaranteed to pass validation.
+    """Offline smoke-test fixture only; never called by production generation.
 
-    Uses whole sentences and whole bullets only — never cuts a phrase
-    mid-word to satisfy a word limit (the renderer's auto-fit absorbs
-    slightly longer lines instead).
+    Pack adjacent source sentences without truncation or round-robin reordering.
+
+    The fallback is intentionally editorially neutral: it adds no new claims.
+    A very long indivisible passage is left intact for the overflow guard.
     """
-    limits = DECK_LIMITS
     text = normalize_master_text(master_text)
-    blocks = [block.strip() for block in re.sub(r"\s*•\s*", "\n• ", text).splitlines() if block.strip()]
-    bullets = [block[2:].strip() for block in blocks if block.startswith("• ")]
-    sentences = []
-    for block in blocks:
-        if block.startswith("• "):
-            continue
-        sentences.extend(part.strip() for part in re.split(r"(?<=[.!?…])\s+", block) if part.strip())
-    cover_title = sentences[0] if sentences else " ".join(text.split()[:limits["title_words"]])
-    cover_subtitle = sentences[1] if len(sentences) > 1 else ""
-    body_sentences = sentences[2:] if len(sentences) > 2 else sentences
-    count = max(limits["min_slides"], min(limits["max_slides"], int(slide_count or limits["min_slides"])))
-    deck: list[dict] = [{"type": "cover", "title": cover_title}]
-    if cover_subtitle:
-        deck[0]["subtitle"] = cover_subtitle
-
-    if len(bullets) >= limits["checklist_min_items"]:
-        deck.append({"type": "checklist", "title": "Что важно проверить", "items": bullets[:limits["checklist_max_items"]]})
-        body_sentences = body_sentences or bullets[limits["checklist_max_items"]:]
-    content_target = max(1, count - 2)
-    chunks: list[list[str]] = [[] for _ in range(content_target)]
-    for index, sentence in enumerate(body_sentences):
-        chunks[index % content_target].append(sentence)
+    if not text:
+        raise ValueError("Текст карусели не может быть пустым")
+    units = [part.strip().removeprefix("•").strip()
+             for part in re.split(r"(?<=[.!?…])\s+|\s*•\s*|\n+", text) if part.strip()]
+    # Keep long opening sentences in the body instead of overflowing the cover.
+    short_opening = len(units) > 1 and len(units[0].split()) <= 16
+    cover = {"type": "cover", "kicker": "Разбор", "title": units[0] if short_opening else "Разбираем по существу"}
+    remaining = units[1:] if short_opening else units
+    chunks: list[list[str]] = []
+    for unit in remaining:
+        if not chunks or (len(" ".join(chunks[-1]).split()) + len(unit.split()) > 75
+                          and len(" ".join(chunks[-1]).split()) >= 35):
+            chunks.append([])
+        chunks[-1].append(unit)
+    # Fold a short tail into its neighbour when it remains readable.
+    if len(chunks) > 1 and len(" ".join(chunks[-1]).split()) < 25:
+        if len(" ".join(chunks[-2] + chunks[-1]).split()) <= 95:
+            chunks[-2].extend(chunks.pop())
+    if len(chunks) > DECK_LIMITS["max_slides"] - 2:
+        raise ValueError("Исходник слишком длинный для запасной карусели: нужно редакторское сокращение")
+    deck = [cover]
     for index, chunk in enumerate(chunks):
-        body = " ".join(chunk).strip()
-        if not body:
-            continue
-        deck.append({"type": "text", "body": body})
+        deck.append({"type": "text", "title": "Подробности" if len(chunks) == 1 else f"Разбор · {index + 1}",
+                     "body": " ".join(chunk)})
     deck.append({"type": "cta", "cta": cta})
-    deck = deck[:limits["max_slides"]]
-    deck[-1] = {"type": "cta", "cta": cta}
-    filler = {"type": "text", "body": cover_subtitle or " ".join(body_sentences)}
-    while len(deck) < limits["min_slides"]:
-        deck.insert(len(deck) - 1, dict(filler))
     return deck
 
 
-def build_platform_deck(llm_client, master_text: str, platform: str, slide_count: int, cta: str, frame: dict | None = None) -> tuple[list[dict], dict | None]:
-    try:
-        return build_deck(llm_client, master_text, platform, slide_count, cta, frame)
-    except ValueError as exc:
-        import logging
-
-        logging.getLogger(__name__).warning("Deck generation failed for %s, using fallback: %s", platform, exc)
-        return build_fallback_deck(master_text, slide_count, cta), None
+def build_platform_deck(llm_client, master_text: str, platform: str, cta: str) -> tuple[list[dict], dict | None]:
+    # The LLM owns both the outline and the writing; no production fallback.
+    from .carousel_editor import build_editorial_deck
+    return build_editorial_deck(llm_client, master_text, platform, cta)
 
 
 def deck_to_text(deck: object) -> str:
@@ -465,7 +445,7 @@ def deck_to_text(deck: object) -> str:
             continue
         if slide.get("type") == "cta":
             continue
-        for field in ("title", "subtitle", "body", "text", "caption", "value"):
+        for field in ("kicker", "title", "subtitle", "body", "text", "caption", "value", "takeaway"):
             add(slide.get(field, ""))
         for field in ("items", "left_items", "right_items"):
             for item in slide.get(field) or []:

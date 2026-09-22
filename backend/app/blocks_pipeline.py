@@ -8,10 +8,10 @@ publication scheduling and Telegram notifications stay unchanged.
 import logging
 from pathlib import Path
 
-from .integrations.html_slide_renderer import HtmlSlideRenderer
+from .integrations.html_slide_renderer import HtmlSlideRenderer, SlideLayoutError
 from .services.blocks_html import build_slide_html
-from .services.carousel_blocks import build_fallback_deck, build_platform_deck, deck_to_text
-from .services.carousel_pipeline import suggest_slide_count
+from .services.carousel_blocks import build_platform_deck, deck_to_text
+from .services.carousel_editor import compose_reviewed_deck
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,9 @@ def _deck_payload(deck: list[dict], frame: dict | None = None) -> dict:
     payload = {"slides": list(deck)}
     if frame:
         payload["frame"] = frame["id"]
+        if frame.get("editorial_plan"):
+            payload["editorial_plan"] = frame["editorial_plan"]
+            payload["editorial_review"] = frame["editorial_review"]
     return payload
 
 
@@ -53,6 +56,7 @@ def generate_blocks_outputs(
     ctas: dict,
     destination: Path,
     renderer_factory=HtmlSlideRenderer,
+    story_ctas: dict | None = None,
 ) -> tuple[dict, dict, dict]:
     """Render decks for every platform/account.
 
@@ -68,34 +72,42 @@ def generate_blocks_outputs(
             if not account_ids:
                 continue
             cta = str((ctas or {}).get(platform) or "")
-            target_slide_count = suggest_slide_count(text, "carousel")
-            deck, frame = build_platform_deck(llm_client, text, platform, target_slide_count, cta)
+            deck, frame = build_platform_deck(llm_client, text, platform, cta)
             if frame:
                 logger.info("Copy frame for %s: %s", platform, frame["id"])
-            platform_texts[platform] = {"carousel": _deck_payload(deck, frame),
-                                        "story": _deck_payload(deck, frame)}
-            for account_id in account_ids:
-                author = account_handles.get(platform, {}).get(account_id, "")
-                avatar_url = account_avatars.get(account_id, "")
-                for design_format, target in (("carousel", carousel_paths), ("story", story_paths)):
-                    variant_key = platform if len(account_ids) == 1 else f"{platform}:{account_id}"
-                    try:
-                        target[variant_key] = _render_deck(
-                            renderer, deck, design_format, platform, account_id,
-                            author, avatar_url, cta, destination,
-                        )
-                    except RuntimeError as exc:
-                        logger.warning(
-                            "Block deck overflow for %s/%s (%s); rebuilding deterministic deck",
-                            platform, account_id, exc,
-                        )
-                        deck = build_fallback_deck(text, target_slide_count, cta)
-                        platform_texts[platform] = {"carousel": _deck_payload(deck),
-                                                    "story": _deck_payload(deck)}
-                        target[variant_key] = _render_deck(
-                            renderer, deck, design_format, platform, account_id,
-                            author, avatar_url, cta, destination,
-                        )
+            # Retry the whole platform so all accounts, ratios and captions keep
+            # the same deck even if overflow occurred on a later image.
+            for attempt in range(2):
+                rendered = {"carousel": {}, "story": {}}
+                payloads = {}
+                try:
+                    for design_format in OUTPUT_FORMATS:
+                        format_cta = (str(story_ctas.get(platform) or "")
+                                      if design_format == "story" and story_ctas is not None else cta)
+                        format_deck = [dict(slide) for slide in deck]
+                        format_deck[-1]["cta"] = format_cta
+                        payloads[design_format] = _deck_payload(format_deck, frame)
+                        for account_id in account_ids:
+                            author = account_handles.get(platform, {}).get(account_id, "")
+                            avatar_url = account_avatars.get(account_id, "")
+                            variant_key = platform if len(account_ids) == 1 else f"{platform}:{account_id}"
+                            rendered[design_format][variant_key] = _render_deck(
+                                renderer, format_deck, design_format, platform, account_id,
+                                author, avatar_url, format_cta, destination,
+                            )
+                except SlideLayoutError as exc:
+                    if attempt:
+                        raise
+                    logger.warning("Block rendering failed for %s (%s); rebuilding all variants", platform, exc)
+                    deck, frame = compose_reviewed_deck(
+                        llm_client, text, platform, cta, frame["editorial_plan"],
+                        previous=deck, feedback=f"{design_format}, слайд с индексом от нуля: {exc}",
+                    )
+                    continue
+                carousel_paths.update(rendered["carousel"])
+                story_paths.update(rendered["story"])
+                platform_texts[platform] = payloads
+                break
     if not carousel_paths:
         raise RuntimeError("Нет поддерживаемых социальных сетей для карусели")
     return carousel_paths, story_paths, platform_texts

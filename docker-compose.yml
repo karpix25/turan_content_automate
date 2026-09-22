@@ -75,6 +75,7 @@ services:
       - KIE_CONCURRENCY=${KIE_CONCURRENCY:-3}
       - FFMPEG_X264_PRESET=${FFMPEG_X264_PRESET:-veryfast}
       - FFMPEG_X264_CRF=${FFMPEG_X264_CRF:-18}
+      - CAROUSEL_ENGINE=${CAROUSEL_ENGINE:-blocks}
       - PYTHONPATH=.
     depends_on:
       - db
@@ -122,6 +123,7 @@ services:
       - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY:-}
       - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET:-}
       - YANDEX_DISK_TOKEN=${YANDEX_DISK_TOKEN}
+      - CAROUSEL_ENGINE=${CAROUSEL_ENGINE:-blocks}
       - PYTHONPATH=.
     depends_on:
       - db
