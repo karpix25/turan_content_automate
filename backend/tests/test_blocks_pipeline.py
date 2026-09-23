@@ -82,12 +82,51 @@ class BlocksPipelineTests(unittest.TestCase):
         self.assertIn("instagram", carousel)
         self.assertIn("tiktok:2", carousel)
         self.assertIn("tiktok:3", carousel)
-        self.assertEqual(set(story), set(carousel))
+        self.assertEqual(set(story), {"instagram"})
+        self.assertNotIn("story", texts["tiktok"])
         self.assertEqual(len(carousel["instagram"]), 4)
         self.assertEqual(texts["instagram"]["carousel"]["slides"][0]["type"], "cover")
         self.assertIn("frame", texts["instagram"]["carousel"])
         # caption builder input shape
         self.assertEqual(texts["instagram"]["carousel"]["slides"][-1]["cta"], CTA)
+
+    def test_per_platform_formats_skip_disabled_rendering_and_llm_calls(self):
+        carousel, story, texts = generate_blocks_outputs(
+            None, "Исходник", {"telegram": [1, 2], "vk": [3], "instagram": [4]},
+            {}, {}, {"telegram": CTA}, Path(self.temp.name), renderer_factory=_FakeRenderer,
+            story_ctas={"vk": "Напишите нам"},
+            carousel_formats={
+                "telegram": {"carousel": True, "story": False},
+                "vk": {"carousel": False, "story": True},
+                "instagram": {"carousel": False, "story": False},
+            },
+        )
+        self.assertEqual(set(carousel), {"telegram:1", "telegram:2"})
+        self.assertEqual(set(story), {"vk"})
+        self.assertEqual(set(texts["telegram"]), {"carousel"})
+        self.assertEqual(set(texts["vk"]), {"story"})
+        self.assertEqual(self.initial.call_count, 2)
+        self.assertEqual(self.initial.call_args.args[-1], "Напишите нам")
+        self.assertEqual(len(_FakeRenderer.calls), 12)
+
+    def test_story_only_is_valid_output(self):
+        carousel, story, _ = generate_blocks_outputs(
+            None, "Исходник", {"telegram": [1]}, {}, {}, {}, Path(self.temp.name),
+            renderer_factory=_FakeRenderer, story_ctas={"telegram": CTA},
+            carousel_formats={"telegram": {"carousel": False, "story": True}},
+        )
+        self.assertEqual(carousel, {})
+        self.assertEqual(set(story), {"telegram"})
+
+    def test_all_disabled_does_not_call_llm(self):
+        with self.assertRaises(RuntimeError):
+            generate_blocks_outputs(
+                None, "Исходник", {"telegram": [1]}, {}, {}, {}, Path(self.temp.name),
+                renderer_factory=_FakeRenderer,
+                carousel_formats={"telegram": {"carousel": False, "story": False}},
+            )
+        self.initial.assert_not_called()
+        self.assertEqual(_FakeRenderer.calls, [])
 
     def test_llm_repairs_deck_after_overflow(self):
         calls = {"n": 0}

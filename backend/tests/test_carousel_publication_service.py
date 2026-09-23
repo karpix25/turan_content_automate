@@ -13,6 +13,9 @@ class FakeQuery:
     def filter(self, *_args):
         return self
 
+    def first(self):
+        return self.rows[0] if self.rows else None
+
     def all(self):
         return list(self.rows)
 
@@ -113,6 +116,39 @@ class CarouselPublicationServiceTests(unittest.TestCase):
                 (12, "story", "story-12"),
             },
         )
+
+    def test_current_settings_skip_existing_telegram_story_images(self):
+        db = FakeDb()
+        db.project_rows[0].carousel_formats = {"telegram": {"carousel": True, "story": False}}
+        draft = models.CarouselDraft(
+            id=3, user_id=1, project_id=7, master_text="Текст", status="ready",
+            platform_accounts={"telegram": [11, 12]},
+            slides={"telegram:11": ["c11"], "telegram:12": ["c12"]},
+            story_slides={"telegram:11": ["s11"], "telegram:12": ["s12"]},
+        )
+        client = FakeClient()
+        result = schedule_carousel_publications(
+            db, SimpleNamespace(id=1), draft, client,
+            manual_post_at=datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1),
+        )
+        self.assertEqual(len(result), 2)
+        self.assertTrue(all(row.media_format == "carousel" for row in result))
+        self.assertEqual([r["details"][0]["publication_type"] for r in client.requests], [1, 1])
+
+    def test_story_only_can_be_scheduled(self):
+        db = FakeDb()
+        db.project_rows[0].carousel_formats = {"telegram": {"carousel": False, "story": True}}
+        draft = models.CarouselDraft(
+            id=4, user_id=1, project_id=7, master_text="Текст", status="ready",
+            platform_accounts={"telegram": [11]}, slides={}, story_slides={"telegram": ["s11"]},
+        )
+        client = FakeClient()
+        result = schedule_carousel_publications(
+            db, SimpleNamespace(id=1), draft, client,
+            manual_post_at=datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1),
+        )
+        self.assertEqual([row.media_format for row in result], ["story"])
+        self.assertEqual(client.requests[0]["details"][0]["publication_type"], 2)
 
     def test_schedules_supported_formats_per_account_and_reuses_package_files(self):
         draft = models.CarouselDraft(

@@ -8,6 +8,7 @@ from ...core.config import celery_client, pmp_client
 from ...carousel_publication_service import schedule_carousel_publications
 from ...services.carousel_pipeline import suggest_slide_count
 from ...services.project_cta_settings import get_project_ctas
+from ...services.carousel_formats import get_project_carousel_formats, filter_platform_accounts, missing_enabled_ctas
 from ...services.reference_sources import resolve_project_platform_accounts
 from ...integrations.telegram_carousel import send_carousel_text_review_to_telegram
 from ...utils.postmypost_projects import resolve_user_postmypost_project_id
@@ -49,15 +50,16 @@ def create_carousel(
         logging.exception("Failed to prepare carousel draft")
         raise HTTPException(status_code=502, detail=f"Не удалось подготовить карусель: {exc}")
 
+    formats = get_project_carousel_formats(db, user.id, project_id)
+    platform_accounts = filter_platform_accounts(platform_accounts, formats)
+    if not platform_accounts:
+        raise HTTPException(status_code=400, detail="Включите карусели или сторис хотя бы для одной соцсети")
     carousel_ctas, story_ctas = get_project_ctas(db, user.id, project_id)
-    missing_ctas = [
-        platform for platform in platform_accounts
-        if not carousel_ctas.get(platform) or not story_ctas.get(platform)
-    ]
+    missing_ctas = missing_enabled_ctas(platform_accounts, formats, carousel_ctas, story_ctas)
     if missing_ctas:
         raise HTTPException(
             status_code=400,
-            detail="Заполните CTA карусели и Stories для: " + ", ".join(missing_ctas),
+            detail="Заполните CTA включённых форматов: " + ", ".join(missing_ctas),
         )
     draft = models.CarouselDraft(
         user_id=user.id,

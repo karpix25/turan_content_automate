@@ -245,6 +245,7 @@ class PostMyPostProjectSetting(Base):
     other_formats_limit_per_day = Column(Integer, default=3, nullable=False)
     instagram_post_5s_cta_text = Column(String, nullable=True)
     instagram_post_5s_image_prompt = Column(String, nullable=True)
+    carousel_formats = Column(JSON, nullable=True)
     carousel_ctas = Column(JSON, nullable=True)
     story_ctas = Column(JSON, nullable=True)
     carousel_image_prompt = Column(Text, nullable=True)

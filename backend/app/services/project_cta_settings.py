@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 
 from .. import models
+from .carousel_formats import normalize_formats
 
 SUPPORTED_CAROUSEL_PLATFORMS = ("instagram", "tiktok", "vk", "telegram")
 
@@ -31,6 +32,7 @@ def set_project_ctas(
     project_id: int,
     carousel_ctas: dict | None = None,
     story_ctas: dict | None = None,
+    carousel_formats: dict | None = None,
 ) -> None:
     row = db.query(models.PostMyPostProjectSetting).filter(
         models.PostMyPostProjectSetting.user_id == user_id,
@@ -43,3 +45,9 @@ def set_project_ctas(
         row.carousel_ctas = normalize_ctas(carousel_ctas)
     if story_ctas is not None:
         row.story_ctas = normalize_ctas(story_ctas)
+
+    if carousel_formats is not None:
+        current = normalize_formats(getattr(row, "carousel_formats", None))
+        for platform, settings in carousel_formats.items():
+            current[platform].update(settings)
+        row.carousel_formats = normalize_formats(current)

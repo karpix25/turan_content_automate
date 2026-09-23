@@ -12,14 +12,7 @@ from .services.carousel_copy import template_package_text
 logger = logging.getLogger(__name__)
 UTC = datetime.timezone.utc
 
-# PostMyPost documents Stories as type 2. VK receives the carousel package as
-# a regular multi-image post, which is VK's supported equivalent.
-SUPPORTED_PUBLICATION_FORMATS = {
-    "instagram": ("carousel", "story"),
-    "tiktok": ("carousel",),
-    "vk": ("carousel", "story"),
-    "telegram": ("carousel", "story"),
-}
+from .services.carousel_formats import SUPPORTED_PUBLICATION_FORMATS, enabled_formats, get_project_carousel_formats
 
 
 def _as_utc(value: datetime.datetime) -> datetime.datetime:
@@ -28,11 +21,11 @@ def _as_utc(value: datetime.datetime) -> datetime.datetime:
     return value.astimezone(UTC)
 
 
-def _targets(draft: models.CarouselDraft) -> list[dict]:
+def _targets(draft: models.CarouselDraft, formats: dict | None = None) -> list[dict]:
     result = []
     for platform, account_ids in (draft.platform_accounts or {}).items():
         platform = str(platform).strip().lower()
-        for media_format in SUPPORTED_PUBLICATION_FORMATS.get(platform, ()):
+        for media_format in enabled_formats(formats, platform):
             slides = draft.slides if media_format == "carousel" else draft.story_slides
             for account_id in account_ids or []:
                 variant_key = f"{platform}:{int(account_id)}"
@@ -84,7 +77,8 @@ def schedule_carousel_publications(
     client,
     manual_post_at: datetime.datetime | None = None,
 ) -> list[models.CarouselPublication]:
-    targets = _targets(draft)
+    formats = get_project_carousel_formats(db, user.id, draft.project_id)
+    targets = _targets(draft, formats)
     if not targets:
         raise ValueError("Для проекта нет поддерживаемых пакетов карусели или Stories")
 

@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, StrictBool
+from typing import Optional, Literal
 import datetime
 
 class UserSettingsUpdate(BaseModel):
@@ -113,7 +113,10 @@ class ChannelPreferenceUpdate(BaseModel):
     selected_plate_ids: Optional[dict[str, list[int]]] = None
     plate_start_percents: Optional[dict[str, int | None]] = None
 
+CarouselFormatSettings = dict[Literal["instagram", "tiktok", "vk", "telegram"], dict[Literal["carousel", "story"], StrictBool]]
+
 class PostMyPostProjectUpdate(BaseModel):
+    carousel_formats: Optional[CarouselFormatSettings] = None
     project_id: int
     uniqueization_mode: Optional[str] = None
     publish_limit_per_day: Optional[int] = None
@@ -123,6 +126,7 @@ class PostMyPostProjectUpdate(BaseModel):
     story_ctas: Optional[dict[str, str]] = None
 
 class PostMyPostProjectOut(BaseModel):
+    carousel_formats: CarouselFormatSettings = {}
     id: int
     name: str
     timezone_id: Optional[int] = None

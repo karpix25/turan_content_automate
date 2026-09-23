@@ -8,6 +8,7 @@ from .database import SessionLocal
 from .services.carousel_copy import build_reference_rewrite_prompt, fallback_reference_text, is_russian_text, strip_source_cta
 from .services.carousel_pipeline import normalize_master_text, suggest_slide_count
 from .services.project_cta_settings import get_project_ctas
+from .services.carousel_formats import get_project_carousel_formats, filter_platform_accounts, missing_enabled_ctas
 from .services.reference_analysis import analysis_source_text, analyze_reference_post
 from .services.reference_sources import (
     extract_reference_post,
@@ -110,8 +111,12 @@ def _create_reference_draft(db, user: models.User, project_id: int, post: models
     platform_accounts = resolve_project_platform_accounts(project_id, pmp_client, db, user.id)
     if not platform_accounts:
         return False
+    formats = get_project_carousel_formats(db, user.id, project_id)
+    platform_accounts = filter_platform_accounts(platform_accounts, formats)
+    if not platform_accounts:
+        return False
     carousel_ctas, story_ctas = get_project_ctas(db, user.id, project_id)
-    if any(not carousel_ctas.get(platform) or not story_ctas.get(platform) for platform in platform_accounts):
+    if missing_enabled_ctas(platform_accounts, formats, carousel_ctas, story_ctas):
         logger.warning("Skipping daily reference draft: CTA is missing for project %s", project_id)
         return False
     try:

@@ -104,7 +104,10 @@ export type PublishAccount = {
   plate_assets?: PlateAsset[];
 };
 
+export type CarouselFormats = Record<string, { carousel?: boolean; story?: boolean }>;
+
 export type PostMyPostProject = {
+  carousel_formats?: CarouselFormats;
   id: number;
   name: string;
   timezone_id?: number | null;

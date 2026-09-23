@@ -22,6 +22,7 @@ from ...services.project_cta_settings import (
     get_project_ctas,
     set_project_ctas,
 )
+from ...services.carousel_formats import get_project_carousel_formats
 from ...services.account_avatars import sync_missing_account_avatars
 from ..deps import get_db, ensure_admin_access, get_or_create_user
 from ..utils import normalize_percent
@@ -72,6 +73,7 @@ def build_project_out(
     )
     carousel_ctas, story_ctas = get_project_ctas(db, user_id, int(normalized_project["id"]))
     normalized_project.update(
+        carousel_formats=get_project_carousel_formats(db, user_id, int(normalized_project["id"])),
         carousel_ctas=carousel_ctas,
         story_ctas=story_ctas,
     )
@@ -354,13 +356,14 @@ def update_postmypost_project(
                     else current_limits["other"]
                 ),
             )
-        if payload.carousel_ctas is not None or payload.story_ctas is not None:
+        if payload.carousel_ctas is not None or payload.story_ctas is not None or payload.carousel_formats is not None:
             set_project_ctas(
                 db,
                 user_id=user.id,
                 project_id=selected_project_id,
                 carousel_ctas=payload.carousel_ctas,
                 story_ctas=payload.story_ctas,
+                carousel_formats=payload.carousel_formats,
             )
         selected_mode = get_project_uniqueization_mode(db, user.id, selected_project_id)
         disable_accounts_absent_from_project(db, user.id, valid_account_ids, selected_project_id)

@@ -5,7 +5,7 @@ import { apiClient } from '../../api/client';
 import { getApiErrorMessage } from '../../api/errors';
 import { usePostMyPostProject } from '../../context/PostMyPostProjectContext';
 import { useTelegram } from '../../context/TelegramContext';
-import { EndingClip, PublishAccount } from '../../types';
+import { CarouselFormats, EndingClip, PublishAccount } from '../../types';
 import { ChannelAccountCard } from './channels/ChannelAccountCard';
 import { ProjectCarouselCtaSettings } from './channels/ProjectCarouselCtaSettings';
 import { ReferenceChannelLibrary } from './channels/ReferenceChannelLibrary';
@@ -25,6 +25,7 @@ export const ChannelsTab: React.FC = () => {
   const [projectVizardLimit, setProjectVizardLimit] = useState(1);
   const [projectOtherFormatsLimit, setProjectOtherFormatsLimit] = useState(3);
   const [carouselCtas, setCarouselCtas] = useState<Record<string, string>>({});
+  const [carouselFormats, setCarouselFormats] = useState<CarouselFormats>({});
   const [storyCtas, setStoryCtas] = useState<Record<string, string>>({});
   const [selectedPlateIdsByAccount, setSelectedPlateIdsByAccount] = useState<Record<number, number[]>>({});
   const [plateStartPercentByAccount, setPlateStartPercentByAccount] = useState<Record<number, number>>({});
@@ -122,6 +123,7 @@ export const ChannelsTab: React.FC = () => {
     setProjectOtherFormatsLimit(Math.min(selectedProject?.other_formats_limit_per_day ?? total - vizard, total - vizard));
     setCarouselCtas(selectedProject?.carousel_ctas || {});
     setStoryCtas(selectedProject?.story_ctas || {});
+    setCarouselFormats(selectedProject?.carousel_formats || {});
   }, [selectedProjectId, selectedProject]);
 
   const buildChannelSettingsPayload = (
@@ -145,6 +147,7 @@ export const ChannelsTab: React.FC = () => {
       }, {
         carousel_ctas: carouselCtas,
         story_ctas: storyCtas,
+        carousel_formats: carouselFormats,
       });
       const data = await apiClient.updateChannels(telegramId, selectedProjectId, buildChannelSettingsPayload());
       applyChannelsData(data);
@@ -377,6 +380,11 @@ export const ChannelsTab: React.FC = () => {
             if (code.includes('telegram') || code.includes('tg')) return 'telegram';
             return '';
           }).filter(Boolean))]}
+          formats={carouselFormats}
+          disabled={savingChannelSettings || channelsLoading}
+          onFormatChange={(platform, format, enabled) => setCarouselFormats(prev => ({
+            ...prev, [platform]: { ...prev[platform], [format]: enabled },
+          }))}
           carouselCtas={carouselCtas}
           storyCtas={storyCtas}
           onCarouselChange={(platform, value) => setCarouselCtas(prev => ({ ...prev, [platform]: value }))}

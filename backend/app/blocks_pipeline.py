@@ -1,6 +1,6 @@
 """Generation pipeline for block-based carousels and stories.
 
-Builds one structured deck per platform, renders it into both aspect ratios
+Builds one structured deck per platform, renders enabled output formats
 and returns the same shape the classic pipeline produces, so drafts,
 publication scheduling and Telegram notifications stay unchanged.
 """
@@ -12,6 +12,7 @@ from .integrations.html_slide_renderer import HtmlSlideRenderer, SlideLayoutErro
 from .services.blocks_html import build_slide_html
 from .services.carousel_blocks import build_platform_deck, deck_to_text
 from .services.carousel_editor import compose_reviewed_deck
+from .services.carousel_formats import enabled_formats
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,7 @@ def generate_blocks_outputs(
     destination: Path,
     renderer_factory=HtmlSlideRenderer,
     story_ctas: dict | None = None,
+    carousel_formats: dict | None = None,
 ) -> tuple[dict, dict, dict]:
     """Render decks for every platform/account.
 
@@ -69,9 +71,12 @@ def generate_blocks_outputs(
     with renderer_factory() as renderer:
         for platform, account_ids_raw in (platform_accounts or {}).items():
             account_ids = [int(account_id) for account_id in account_ids_raw or []]
-            if not account_ids:
+            formats = enabled_formats(carousel_formats, platform)
+            if not account_ids or not formats:
                 continue
             cta = str((ctas or {}).get(platform) or "")
+            if "carousel" not in formats:
+                cta = str((story_ctas or {}).get(platform) or "")
             deck, frame = build_platform_deck(llm_client, text, platform, cta)
             if frame:
                 logger.info("Copy frame for %s: %s", platform, frame["id"])
@@ -81,7 +86,7 @@ def generate_blocks_outputs(
                 rendered = {"carousel": {}, "story": {}}
                 payloads = {}
                 try:
-                    for design_format in OUTPUT_FORMATS:
+                    for design_format in formats:
                         format_cta = (str(story_ctas.get(platform) or "")
                                       if design_format == "story" and story_ctas is not None else cta)
                         format_deck = [dict(slide) for slide in deck]
@@ -108,7 +113,7 @@ def generate_blocks_outputs(
                 story_paths.update(rendered["story"])
                 platform_texts[platform] = payloads
                 break
-    if not carousel_paths:
+    if not carousel_paths and not story_paths:
         raise RuntimeError("Нет поддерживаемых социальных сетей для карусели")
     return carousel_paths, story_paths, platform_texts
 
