@@ -172,16 +172,19 @@ def validate_assignment(payload, plan, cta):
     return deck, frame
 
 
-def review_deck(llm, source, plan, deck):
+def review_deck(llm, source, plan, deck, cta=""):
     prompt = [
         {"role": "system", "content": "Ты независимый выпускающий редактор. Проверяй готовые слайды по исходнику, а не доверяй утверждениям автора. Верни JSON."},
         {"role": "user", "content": (
-            f"Исходник:\n{source}\nПлан:\n{json.dumps(plan, ensure_ascii=False)}\n"
+            f"Исходник:\n{source}\nCTA, заданный проектом:\n{cta or 'не задан'}\n"
+            f"План:\n{json.dumps(plan, ensure_ascii=False)}\n"
             f"Слайды:\n{json.dumps(deck, ensure_ascii=False)}\n"
             "Проверь: выполнено ли обещание обложки; раскрыты ли все обещанные пункты в основных слайдах; "
             "видит ли читатель каждый пункт и его номер, когда обещано количество; "
             "не склеены ли два приёма под одной галочкой; нет ли потерянных продолжений, повторов, "
-            "необоснованных фактов, советов или гарантий. Проверь переходы, плотность без воды, "
+            "необоснованных фактов, советов или гарантий. CTA, заданный проектом, является разрешённой инструкцией: "
+            "не требуй подтверждения CTA в исходнике и не называй его выдуманным фактом; проверяй только, "
+            "что он не подменяет содержание карусели. Проверь переходы, плотность без воды, "
             "выбор форматов по смыслу, завершённость предложений, смысловые абзацы и короткие заголовки. "
             "Не требуй одинакового объёма у цитаты и объяснения. Короткий исходник не нужно дополнять выдумками. "
             "Проверь обещанное число и в финальном заголовке, даже если promised_count=null в плане. "
@@ -221,12 +224,26 @@ def review_deck(llm, source, plan, deck):
 
 def compose_reviewed_deck(llm, source, platform, cta, plan, *, previous=None, feedback=None):
     prompt = build_deck_prompt(source, platform, len(plan["beats"]) + 2, cta, FRAME_BY_ID[plan["frame"]])
+    count = plan.get("promised_count")
+    item_labels = {
+        item["id"]: f"Пункт {index + 1}/{count}"
+        for index, item in enumerate(plan["items"])
+    } if count else {}
+    beat_labels = [
+        {"beat_id": beat["id"], "items": [
+            {"item_id": item_id, "visible_label": item_labels[item_id]}
+            for item_id in beat["item_ids"] if item_id in item_labels
+        ]}
+        for beat in plan["beats"]
+    ]
     prompt.append({"role": "user", "content": (
         f"Утверждённый смысловой план:\n{json.dumps(plan, ensure_ascii=False)}\n"
+        f"Метки обещанных пунктов по порядку items (каждую метку покажи явно на соответствующем слайде):\n{json.dumps(beat_labels, ensure_ascii=False)}\n"
         f"Верни объект с обязательными полями frame=\"{plan['frame']}\" и slides. "
         "Реализуй ровно эти биты в этом порядке: обложка, по одному слайду на beat, CTA. "
         "Для каждого основного слайда верни beat_id из плана. Не переносить содержательные пункты на обложку. "
-        "Если обещано число, явно обозначь каждый пункт в видимом тексте: например kicker «Приём 1/5». "
+        "Если обещано число, явно обозначь каждый пункт его точной меткой из списка выше, например «Пункт 1/5»; "
+        "метка должна быть видна на назначенном слайде (kicker, заголовок или текст), цитата сама по себе меткой не считается. "
         "Если на слайде несколько пунктов, каждый должен быть отдельно обозначен и объяснён. "
         "Для text передавай paragraphs: массив из 1–3 смысловых абзацев вместо body, общий лимит 80 слов. "
         "Сам выбери границы абзацев. Не ставь ручные переносы посреди абзаца. "
@@ -245,7 +262,7 @@ def compose_reviewed_deck(llm, source, platform, cta, plan, *, previous=None, fe
         raw = llm._complete(prompt, temperature=0.35, response_format={"type": "json_object"})
         try:
             deck, frame = validate_assignment(_json(raw), plan, cta)
-            review = review_deck(llm, source, plan, deck)
+            review = review_deck(llm, source, plan, deck, cta)
             return deck, dict(frame, editorial_plan=plan, editorial_review=review)
         except ValueError as exc:
             error = exc
