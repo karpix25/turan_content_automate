@@ -79,6 +79,29 @@ def send_carousel_ready_to_telegram(draft) -> bool:
     return ok
 
 
+def send_carousel_generation_failed_to_telegram(draft, error: str) -> bool:
+    """Tell the reviewer when an approved carousel could not be generated."""
+    token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+    chat_id = resolve_telegram_chat_id(getattr(draft, "telegram_chat_id", None))
+    if not token or not chat_id:
+        return False
+    detail = " ".join(str(error or "").split())[:700]
+    keyboard = {"inline_keyboard": [[
+        {"text": "🔁 Повторить генерацию", "callback_data": f"carouseltext:retry:{draft.id}"},
+    ]]}
+    message = f"❌ Не удалось собрать слайды для карусели #{draft.id}.\nПричина: {detail}"
+    try:
+        with httpx.Client(timeout=httpx.Timeout(20.0, connect=5.0)) as client:
+            response = client.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat_id, "text": message, "reply_markup": keyboard},
+            )
+        return response.status_code < 400 and bool(response.json().get("ok"))
+    except Exception as exc:
+        logger.warning("Failed to send carousel generation failure for draft %s: %s", draft.id, exc)
+        return False
+
+
 def send_carousel_scheduled_to_telegram(draft, publications: Iterable) -> bool:
     token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
     chat_id = resolve_telegram_chat_id(getattr(draft, "telegram_chat_id", None))

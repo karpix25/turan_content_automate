@@ -126,6 +126,37 @@ def review_carousel(
     return draft
 
 
+@router.post("/{telegram_id}/{draft_id}/retry", response_model=schemas.CarouselDraftOut)
+def retry_carousel_generation(
+    telegram_id: str,
+    draft_id: int,
+    db: Session = Depends(get_db),
+):
+    """Retry only failed generations; duplicate retries are not queued."""
+    ensure_admin_access(telegram_id)
+    user = get_or_create_user(db, telegram_id)
+    draft = _get_draft(db, user.id, draft_id)
+    claimed = db.query(models.CarouselDraft).filter(
+        models.CarouselDraft.id == draft.id,
+        models.CarouselDraft.user_id == user.id,
+        models.CarouselDraft.status == "failed",
+    ).update({"status": "generating", "error": None}, synchronize_session=False)
+    if not claimed:
+        raise HTTPException(status_code=409, detail="Повторить можно только неудачную генерацию")
+    db.commit()
+    db.refresh(draft)
+    try:
+        celery_client.send_task("generate_carousel_task", args=[draft.id])
+    except Exception as exc:
+        draft.status = "failed"
+        draft.error = "Не удалось поставить повторную генерацию в очередь"
+        db.commit()
+        logger.exception("Failed to queue retry for carousel draft %s", draft_id)
+        raise HTTPException(status_code=503, detail=draft.error) from exc
+    db.refresh(draft)
+    return draft
+
+
 @router.post("/{telegram_id}/{draft_id}/publish", response_model=schemas.CarouselDraftOut)
 def publish_carousel(
     telegram_id: str,

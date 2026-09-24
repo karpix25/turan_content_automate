@@ -15,7 +15,10 @@ from .services.karpix_carousel import load_template_set, render_account_carousel
 from .services.reference_sources import resolve_project_account_handles
 from .services.carousel_formats import get_project_carousel_formats, enabled_formats, filter_platform_accounts
 from .services.account_avatars import sync_missing_account_avatars
-from .integrations.telegram_carousel import send_carousel_ready_to_telegram
+from .integrations.telegram_carousel import (
+    send_carousel_generation_failed_to_telegram,
+    send_carousel_ready_to_telegram,
+)
 from .worker import celery_app
 
 logger = logging.getLogger(__name__)
@@ -201,6 +204,7 @@ def generate_carousel_task(draft_id: int, schedule_after: bool | None = None) ->
             draft.status = "failed"
             draft.error = str(exc)[:1000]
             db.commit()
+            send_carousel_generation_failed_to_telegram(draft, draft.error)
         raise
     finally:
         db.close()

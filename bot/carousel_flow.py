@@ -23,6 +23,18 @@ def register_carousel_handlers(dispatcher: Dispatcher, bot, backend_api_url: str
             logging.error("Failed to review carousel %s: %s", draft_id, exc)
             return False
 
+    async def retry_generation(draft_id: int, user_id: str) -> bool:
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"{backend_api_url}/carousels/{user_id}/{draft_id}/retry",
+                )
+            response.raise_for_status()
+            return True
+        except Exception as exc:
+            logging.error("Failed to retry carousel generation %s: %s", draft_id, exc)
+            return False
+
     @dispatcher.message_handler(commands=["carousel"])
     async def carousel_command(message: types.Message):
         text = (message.get_args() or "").strip()
@@ -81,11 +93,21 @@ def register_carousel_handlers(dispatcher: Dispatcher, bot, backend_api_url: str
             await callback.answer("Отправьте новый текст следующим сообщением")
             await bot.send_message(callback.message.chat.id, f"✏️ Отправьте новый единый текст для карусели #{draft_id}.")
             return
-        if action not in {"approve", "reject"}:
+        if action not in {"approve", "reject", "retry"}:
             await callback.answer("Некорректное действие", show_alert=True)
             return
-        if not await review(draft_id, user_id, action):
+        succeeded = (
+            await retry_generation(draft_id, user_id)
+            if action == "retry"
+            else await review(draft_id, user_id, action)
+        )
+        if not succeeded:
             await callback.answer("Не удалось отправить решение", show_alert=True)
+            return
+        if action == "retry":
+            await remove_inline_keyboard(callback.message)
+            await callback.answer("Повторная генерация запущена")
+            await bot.send_message(callback.message.chat.id, f"🔁 Повторно запускаю генерацию слайдов #{draft_id}.")
             return
         await remove_inline_keyboard(callback.message)
         await callback.answer("Текст одобрен" if action == "approve" else "Карусель отклонена")
