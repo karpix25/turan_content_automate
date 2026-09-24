@@ -10,7 +10,7 @@ celery
 redis
 pydantic
 pydantic-settings
-sqlalchemy
+sqlalchemy<2.1
 python-multipart
 psycopg2-binary
 requests
