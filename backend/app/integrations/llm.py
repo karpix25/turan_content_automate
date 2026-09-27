@@ -8,6 +8,23 @@ from typing import Any, List, Dict, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
+class OpenRouterInsufficientCreditsError(RuntimeError):
+    """OpenRouter rejected a request because the account cannot pay for it."""
+
+    def __init__(self):
+        super().__init__("OpenRouter: недостаточно средств или требуется пополнить баланс (HTTP 402)")
+
+
+def _is_payment_required(error: Any) -> bool:
+    if not isinstance(error, dict):
+        return False
+    code = error.get("code") or error.get("status")
+    if str(code) == "402":
+        return True
+    message = str(error.get("message") or "").casefold()
+    return "402" in message or ("payment" in message and ("credit" in message or "balance" in message))
+
+
 def _format_social_description_paragraphs(text: str | None, *, max_length: int = 900) -> str | None:
     content = (text or "").strip()
     if not content:
@@ -130,6 +147,8 @@ class LLMClient:
                         continue
                     choice_error = choices[0].get("error") if isinstance(choices[0], dict) else None
                     if choice_error:
+                        if _is_payment_required(choice_error):
+                            raise OpenRouterInsufficientCreditsError()
                         logger.error("OpenRouter choice error via %s: %s", attempt_label, str(choice_error)[:1200])
                         continue
                     content = ((choices[0].get("message") or {}).get("content") or "").strip()
@@ -137,6 +156,14 @@ class LLMClient:
                         logger.error("OpenRouter response has empty content via %s: %s", attempt_label, str(data)[:1200])
                         continue
                     return content
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code == 402:
+                        # Every model fallback uses this same account balance.
+                        raise OpenRouterInsufficientCreditsError() from e
+                    logger.error("OpenRouter request failed via %s: %s", attempt_label, e)
+                    continue
+                except OpenRouterInsufficientCreditsError:
+                    raise
                 except Exception as e:
                     logger.error("OpenRouter request failed via %s: %s", attempt_label, e)
                     continue

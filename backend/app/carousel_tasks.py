@@ -6,6 +6,7 @@ from .blocks_pipeline import generate_blocks_outputs
 from .core.config import llm, pmp_client, scraper
 from .database import SessionLocal
 from .integrations.carousel_renderer import CarouselRendererClient
+from .integrations.llm import OpenRouterInsufficientCreditsError
 from .services.carousel_pipeline import (
     limit_words,
     output_dir,
@@ -17,11 +18,13 @@ from .services.carousel_formats import get_project_carousel_formats, enabled_for
 from .services.account_avatars import sync_missing_account_avatars
 from .integrations.telegram_carousel import (
     send_carousel_generation_failed_to_telegram,
+    send_carousel_openrouter_funding_to_telegram,
     send_carousel_ready_to_telegram,
 )
 from .worker import celery_app
 
 logger = logging.getLogger(__name__)
+CREDIT_AUTO_RETRY_DELAYS = (900, 1800, 3600, 7200, 14400, 21600, 21600)
 
 
 def carousel_engine() -> str:
@@ -127,13 +130,26 @@ def _generate_blocks_draft(draft, text, platforms, account_handles, account_avat
     )
 
 
-@celery_app.task(name="generate_carousel_task", soft_time_limit=3600, time_limit=3900)
-def generate_carousel_task(draft_id: int, schedule_after: bool | None = None) -> None:
+@celery_app.task(
+    name="generate_carousel_task",
+    bind=True,
+    max_retries=len(CREDIT_AUTO_RETRY_DELAYS),
+    soft_time_limit=3600,
+    time_limit=3900,
+)
+def generate_carousel_task(self, draft_id: int, schedule_after: bool | None = None) -> None:
     db = SessionLocal()
     try:
         draft = db.query(models.CarouselDraft).filter(models.CarouselDraft.id == draft_id).first()
         if not draft:
             return
+        if draft.status in {"ready", "rejected"}:
+            logger.info("Skipping carousel generation for draft %s with terminal status %s", draft_id, draft.status)
+            return
+        if draft.status == "waiting_for_credits":
+            draft.status = "generating"
+            draft.error = None
+            db.commit()
         text = strip_source_cta(draft.approved_text or draft.master_text)
         if not is_russian_text(text):
             raise RuntimeError("Текст карусели содержит латинские слова: генерация остановлена")
@@ -197,6 +213,28 @@ def generate_carousel_task(draft_id: int, schedule_after: bool | None = None) ->
         send_carousel_ready_to_telegram(draft)
         if user and (schedule_after if schedule_after is not None else user.auto_schedule_enabled):
             celery_app.send_task("schedule_carousel_publications_task", args=[draft.id])
+    except OpenRouterInsufficientCreditsError as exc:
+        logger.warning(
+            "OpenRouter balance is insufficient for carousel draft %s (retry %s/%s)",
+            draft_id,
+            self.request.retries,
+            self.max_retries,
+        )
+        draft = db.query(models.CarouselDraft).filter(models.CarouselDraft.id == draft_id).first()
+        if draft and self.request.retries < self.max_retries:
+            retry_seconds = CREDIT_AUTO_RETRY_DELAYS[self.request.retries]
+            draft.status = "waiting_for_credits"
+            draft.error = "Не хватает средств на балансе OpenRouter; ожидается автоматический повтор"
+            db.commit()
+            if self.request.retries == 0:
+                send_carousel_openrouter_funding_to_telegram(draft, retry_seconds)
+            raise self.retry(exc=exc, countdown=retry_seconds)
+        if draft:
+            draft.status = "failed"
+            draft.error = str(exc)[:1000]
+            db.commit()
+            send_carousel_generation_failed_to_telegram(draft, draft.error)
+        raise
     except Exception as exc:
         logger.exception("Carousel generation failed for draft %s", draft_id)
         draft = db.query(models.CarouselDraft).filter(models.CarouselDraft.id == draft_id).first()

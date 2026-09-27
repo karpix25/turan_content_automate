@@ -102,6 +102,32 @@ def send_carousel_generation_failed_to_telegram(draft, error: str) -> bool:
         return False
 
 
+def send_carousel_openrouter_funding_to_telegram(draft, next_retry_seconds: int) -> bool:
+    """Explain a depleted OpenRouter balance and the automatic recovery plan."""
+    token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+    chat_id = resolve_telegram_chat_id(getattr(draft, "telegram_chat_id", None))
+    if not token or not chat_id:
+        return False
+    minutes = max(1, round(next_retry_seconds / 60))
+    message = (
+        f"💳 Для карусели #{draft.id} OpenRouter отклонил запрос: недостаточно средств на балансе.\n"
+        "Пополните баланс OpenRouter или проверьте лимит API-ключа — я автоматически повторю генерацию, "
+        f"первый раз примерно через {minutes} мин., затем с увеличивающимися паузами. "
+        "Если баланс не восстановится в течение суток, черновик будет помечен как ошибка "
+        "и появится обычная кнопка повтора."
+    )
+    try:
+        with httpx.Client(timeout=httpx.Timeout(20.0, connect=5.0)) as client:
+            response = client.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat_id, "text": message},
+            )
+        return response.status_code < 400 and bool(response.json().get("ok"))
+    except Exception as exc:
+        logger.warning("Failed to send OpenRouter funding notice for draft %s: %s", draft.id, exc)
+        return False
+
+
 def send_carousel_scheduled_to_telegram(draft, publications: Iterable) -> bool:
     token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
     chat_id = resolve_telegram_chat_id(getattr(draft, "telegram_chat_id", None))
