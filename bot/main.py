@@ -569,6 +569,13 @@ async def handle_link(message: types.Message):
                 "inline_keyboard": [
                     [
                         {
+                            "text": "Пост в → REELS",
+                            "callback_data": f"five:igp:{instagram_shortcode_value}",
+                            "style": "danger",
+                        }
+                    ],
+                    [
+                        {
                             "text": "📌 5 сек. инфографика",
                             "callback_data": f"info:igp:{instagram_shortcode_value}",
                             "style": "primary",
