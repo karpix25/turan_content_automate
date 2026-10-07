@@ -425,35 +425,110 @@ def build_platform_deck(llm_client, master_text: str, platform: str, cta: str) -
     return build_editorial_deck(llm_client, master_text, platform, cta)
 
 
+_LIST_MARKER = re.compile(r"^(?:•|·|—|-|\*|\d+[.)])\s")
+
+
+def _clean_line(value: object) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _bullet(value: object) -> str:
+    text = str(value or "").strip()
+    return text if _LIST_MARKER.match(text) else f"• {text}"
+
+
+def _slide_blocks(slide: object, seen: set[str]) -> list[list[str]]:
+    """Caption paragraphs of one slide, mirroring the visible slide text."""
+    if not isinstance(slide, dict) or slide.get("type") == "cta":
+        return []
+
+    def collect(*values: object) -> list[str]:
+        lines: list[str] = []
+        for value in values:
+            for line in str(value or "").split("\n"):
+                text = _clean_line(line)
+                key = text.casefold()
+                if text and key not in seen:
+                    seen.add(key)
+                    lines.append(text)
+        return lines
+
+    def bullets(values: object) -> list[str]:
+        return collect(*[_bullet(item) for item in values or []])
+
+    def header(*fields: str) -> list[str]:
+        return collect(*[slide.get(field) for field in fields])
+
+    def emit(*parts: list[str]) -> None:
+        merged = [line for part in parts for line in part]
+        if merged:
+            blocks.append(merged)
+
+    slide_type = slide.get("type")
+    blocks: list[list[str]] = []
+    if slide_type == "cover":
+        emit(header("kicker", "title"))
+        emit(collect(slide.get("subtitle")))
+    elif slide_type == "text":
+        emit(header("kicker", "title"))
+        paragraphs = slide.get("paragraphs")
+        if isinstance(paragraphs, list) and paragraphs:
+            for paragraph in paragraphs:
+                emit(collect(paragraph))
+        else:
+            emit(collect(slide.get("body")))
+    elif slide_type in ("checklist", "steps"):
+        emit(header("kicker", "title"))
+        if slide_type == "steps":
+            numbered = [f"{index}. {item}" for index, item in enumerate(slide.get("items") or [], 1)]
+            emit(collect(*numbered))
+        else:
+            emit(bullets(slide.get("items")))
+    elif slide_type == "table":
+        emit(header("kicker", "title"))
+    elif slide_type == "comparison":
+        emit(header("kicker", "title"))
+        for side in ("left", "right"):
+            emit(header(f"{side}_title"), bullets(slide.get(f"{side}_items")))
+    elif slide_type == "stat":
+        emit(header("kicker", "title"))
+        emit(collect(slide.get("value"), slide.get("caption")))
+        emit(collect(slide.get("body")))
+    elif slide_type == "qa":
+        emit(header("kicker", "title"))
+        for pair in slide.get("pairs") or []:
+            if isinstance(pair, dict):
+                emit(collect(pair.get("q")), collect(pair.get("a")))
+    elif slide_type == "quote":
+        # quote slides render kicker and text, but no title
+        emit(header("kicker"), collect(slide.get("text")),
+             collect(f"— {slide.get('author')}" if slide.get("author") else ""))
+    else:
+        # Unknown or legacy slide shape: keep every known text field in order.
+        emit(collect(*[slide.get(field) for field in
+                       ("kicker", "title", "subtitle", "body", "text", "caption", "value")]))
+        emit(bullets(slide.get("items")))
+        emit(bullets(slide.get("left_items")))
+        emit(bullets(slide.get("right_items")))
+        emit(collect(*[slide.get(field) for field in ("left_title", "right_title", "author")]))
+        pairs = slide.get("pairs")
+        if isinstance(pairs, list):
+            for pair in pairs:
+                if isinstance(pair, dict):
+                    emit(collect(pair.get("q")), collect(pair.get("a")))
+    takeaway = collect(slide.get("takeaway"))
+    if takeaway:
+        emit([f"Главное: {takeaway[0]}"])
+    return blocks
+
+
 def deck_to_text(deck: object) -> str:
-    """Flat text of a deck for the publication caption."""
+    """Structured caption of a deck: slide blocks separated by blank lines."""
     slides = deck.get("slides") if isinstance(deck, dict) else deck
     if not isinstance(slides, list):
         return ""
-    parts: list[str] = []
     seen: set[str] = set()
-
-    def add(value: str) -> None:
-        text = re.sub(r"\s+", " ", str(value or "")).strip()
-        key = text.casefold()
-        if text and key not in seen:
-            seen.add(key)
-            parts.append(text)
-
+    blocks: list[list[str]] = []
     for slide in slides:
-        if not isinstance(slide, dict):
-            continue
-        if slide.get("type") == "cta":
-            continue
-        for field in ("kicker", "title", "subtitle", "body", "text", "caption", "value", "takeaway"):
-            add(slide.get(field, ""))
-        for field in ("items", "left_items", "right_items"):
-            for item in slide.get(field) or []:
-                add(item)
-        for pair in slide.get("pairs") or []:
-            if isinstance(pair, dict):
-                add(pair.get("q", ""))
-                add(pair.get("a", ""))
-        for field in ("left_title", "right_title", "author"):
-            add(slide.get(field, ""))
-    return "\n".join(parts)
+        blocks.extend(block for block in _slide_blocks(slide, seen) if block)
+    return "\n\n".join("\n".join(block) for block in blocks)

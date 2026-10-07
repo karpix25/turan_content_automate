@@ -233,6 +233,53 @@ class CarouselBlocksTests(unittest.TestCase):
         self.assertIn("Три ошибки в закупках", text)
         self.assertNotIn("Подпишись", text)
 
+    def test_deck_to_text_structures_paragraphs(self):
+        deck = {
+            "slides": [
+                {"type": "cover", "kicker": "Разбор", "title": "Три ошибки в закупках",
+                 "subtitle": "Почему заявки отклоняют на первом этапе"},
+                {"type": "text", "title": "Ошибка первая",
+                 "paragraphs": ["Первый абзац пояснения.", "Второй абзац пояснения."]},
+                {"type": "checklist", "title": "Что проверить",
+                 "items": ["Наименование объекта закупки", "Сроки поставки по графику"]},
+                {"type": "steps", "title": "Как подать заявку",
+                 "items": ["Собрать документы", "Подать через кабинет"]},
+                {"type": "stat", "title": "Сколько теряют", "value": "72%",
+                 "caption": "заявок отклоняют", "body": "Пояснение к цифре."},
+                {"type": "quote", "text": "Ключевая формулировка", "author": "Иван"},
+                {"type": "cta", "cta": "Подпишись"},
+            ]
+        }
+        blocks = deck_to_text(deck).split("\n\n")
+        self.assertEqual(blocks[0], "Разбор\nТри ошибки в закупках")
+        self.assertEqual(blocks[1], "Почему заявки отклоняют на первом этапе")
+        self.assertEqual(blocks[2], "Ошибка первая")
+        self.assertEqual(blocks[3], "Первый абзац пояснения.")
+        self.assertEqual(blocks[4], "Второй абзац пояснения.")
+        self.assertIn("• Наименование объекта закупки\n• Сроки поставки по графику", blocks)
+        self.assertIn("1. Собрать документы\n2. Подать через кабинет", blocks)
+        self.assertIn("72%\nзаявок отклоняют", blocks)
+        self.assertIn("Пояснение к цифре.", blocks)
+        self.assertIn("Ключевая формулировка\n— Иван", blocks)
+        self.assertNotIn("Подпишись", "\n".join(blocks))
+
+    def test_deck_to_text_paragraphs_beat_body_without_duplication(self):
+        deck = {"slides": [
+            {"type": "text", "title": "Заголовок",
+             "paragraphs": ["Первый абзац.", "Второй абзац."],
+             "body": "Первый абзац. Второй абзац."},
+        ]}
+        text = deck_to_text(deck)
+        self.assertEqual(text, "Заголовок\n\nПервый абзац.\n\nВторой абзац.")
+
+    def test_deck_to_text_keeps_existing_bullets(self):
+        deck = {"slides": [
+            {"type": "checklist", "title": "Чек-лист",
+             "items": ["• Уже с маркером", "Без маркера"]},
+        ]}
+        text = deck_to_text(deck)
+        self.assertIn("• Уже с маркером\n• Без маркера", text)
+
 
 if __name__ == "__main__":
     unittest.main()
