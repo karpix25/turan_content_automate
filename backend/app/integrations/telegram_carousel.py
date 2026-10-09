@@ -6,6 +6,8 @@ from collections.abc import Iterable
 import httpx
 
 from ..api.utils import _parse_csv_env, get_telegram_admin_ids
+from ..services.carousel_blocks import deck_to_text
+from ..services.carousel_copy import template_package_text
 from ..utils.telegram_formatting import escape_markdown_v2, markdown_v2_code_block
 
 
@@ -60,7 +62,10 @@ def send_carousel_ready_to_telegram(draft) -> bool:
     if not token or not chat_id or (not slides and not story_slides):
         return False
     ok = True
+    platform_texts = getattr(draft, "platform_texts", None)
     for label, package in (("Карусель", slides), ("Stories", story_slides)):
+        media_format = "carousel" if label == "Карусель" else "story"
+        content = _ready_publication_content(platform_texts, media_format)
         sent_paths: set[str] = set()
         paths = []
         for platform_paths in package.values():
@@ -69,14 +74,77 @@ def send_carousel_ready_to_telegram(draft) -> bool:
                     sent_paths.add(path)
                     paths.append(path)
         for chunk_start in range(0, len(paths), 10):
+            group_caption = f"{label} #{draft.id}"
+            if chunk_start == 0 and content:
+                group_caption = f"{group_caption}\n\n{content}"
+                if len(group_caption) > 1024:
+                    # Telegram limits photo captions to 1024 characters. Keep
+                    # the full publication copy intact in a companion message.
+                    sent_text = _send_telegram_text(token, chat_id, content)
+                    ok = sent_text and ok
+                    group_caption = f"{label} #{draft.id}"
             sent, _ = _send_telegram_media_group(
                 token,
                 chat_id,
                 paths[chunk_start:chunk_start + 10],
-                f"{label} #{draft.id}",
+                group_caption,
             )
             ok = sent and ok
     return ok
+
+
+def _ready_publication_content(platform_texts, media_format: str) -> str:
+    if not isinstance(platform_texts, dict):
+        return ""
+    # Prefer Telegram's rendered copy, then another platform's same-format
+    # package when Telegram itself is not a publication target.
+    variants = []
+    telegram_variant = platform_texts.get("telegram")
+    if isinstance(telegram_variant, dict):
+        variants.append(telegram_variant)
+    variants.extend(
+        value for key, value in platform_texts.items()
+        if key != "telegram" and isinstance(value, dict)
+    )
+    for variant in variants:
+        package = variant.get(media_format)
+        if isinstance(package, dict) and "slides" in package:
+            if text := deck_to_text(package):
+                return text
+        if isinstance(package, dict):
+            if text := template_package_text(package):
+                return text
+    return ""
+
+
+def _send_telegram_text(token: str, chat_id: str, text: str) -> bool:
+    # Telegram's sendMessage limit is 4096 characters. Split on paragraph
+    # boundaries where possible so long captions are still delivered intact.
+    chunks = []
+    remaining = text.strip()
+    while len(remaining) > 4096:
+        split_at = remaining.rfind("\n\n", 0, 4096)
+        if split_at < 1:
+            split_at = remaining.rfind("\n", 0, 4096)
+        if split_at < 1:
+            split_at = 4096
+        chunks.append(remaining[:split_at].strip())
+        remaining = remaining[split_at:].strip()
+    if remaining:
+        chunks.append(remaining)
+    ok = True
+    try:
+        with httpx.Client(timeout=httpx.Timeout(20.0, connect=5.0)) as client:
+            for chunk in chunks:
+                response = client.post(
+                    f"https://api.telegram.org/bot{token}/sendMessage",
+                    json={"chat_id": chat_id, "text": chunk},
+                )
+                ok = response.status_code < 400 and bool(response.json().get("ok")) and ok
+        return ok
+    except Exception as exc:
+        logger.warning("Failed to send carousel publication text: %s", exc)
+        return False
 
 
 def send_carousel_generation_failed_to_telegram(draft, error: str) -> bool:
