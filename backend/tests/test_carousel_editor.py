@@ -34,9 +34,11 @@ class SequenceLlm:
     def __init__(self, *responses):
         self.responses = iter(responses)
         self.calls = []
+        self.options = []
 
     def _complete(self, prompt, **kwargs):
         self.calls.append(copy.deepcopy(prompt))
+        self.options.append(copy.deepcopy(kwargs))
         return json.dumps(next(self.responses), ensure_ascii=False)
 
 
@@ -80,6 +82,57 @@ class EditorialTests(unittest.TestCase):
         deck, _ = build_editorial_deck(llm, SOURCE, 'vk', '')
         self.assertEqual(len(deck), 7)
         self.assertIn('пятый не объяснён', llm.calls[3][-1]['content'])
+
+    def test_long_title_and_wrong_format_are_repaired_without_rewriting_other_slides(self):
+        original = deck_fixture()
+        invalid = copy.deepcopy(original)
+        invalid['slides'][1]['title'] = 'Заголовок оказался слишком длинным поэтому его нужно сейчас сократить'
+        invalid['slides'][3] = {
+            'type': 'checklist', 'beat_id': 'b2', 'title': 'Уточните смысл',
+            'items': ['Уточните смысл.', 'Переспросите собеседника.'],
+        }
+        # Assignment checks detect the wrong type first, then the long title.
+        llm = SequenceLlm(plan_fixture(), invalid, original['slides'][3],
+                          original['slides'][1], review_fixture())
+        deck, _ = build_editorial_deck(llm, SOURCE, 'vk', '')
+        self.assertEqual([s['title'] for s in deck[:-1]], [s['title'] for s in original['slides'][:-1]])
+        self.assertEqual(deck[2]['paragraphs'], original['slides'][2]['paragraphs'])
+        self.assertEqual(deck[4]['paragraphs'], original['slides'][4]['paragraphs'])
+        self.assertEqual(len(llm.calls), 5)
+        for call_index, beat_id in ((2, 'b2'), (3, 'b0')):
+            schema = llm.options[call_index]['response_format']['json_schema']['schema']
+            self.assertEqual(schema['properties']['type']['enum'], ['text'])
+            self.assertEqual(schema['properties']['beat_id']['enum'], [beat_id])
+        self.assertIn('максимум 8', llm.calls[3][-1]['content'])
+
+    def test_malformed_slide_repair_is_retried_locally(self):
+        original = deck_fixture()
+        invalid = copy.deepcopy(original)
+        invalid['slides'][1]['title'] = 'Заголовок оказался слишком длинным поэтому его нужно сейчас сократить'
+        llm = SequenceLlm(plan_fixture(), invalid, 'Не объект', original['slides'][1], review_fixture())
+        deck, _ = build_editorial_deck(llm, SOURCE, 'vk', '')
+        self.assertEqual(deck[1]['title'], original['slides'][1]['title'])
+        self.assertEqual(len(llm.calls), 5)
+        self.assertEqual(llm.options[2]['response_format']['type'], 'json_schema')
+        self.assertEqual(llm.options[3]['response_format']['type'], 'json_schema')
+
+    def test_missing_beat_ids_are_restored(self):
+        payload = deck_fixture()
+        for slide in payload['slides'][1:-1]:
+            slide.pop('beat_id')
+        deck, _ = validate_assignment(payload, plan_fixture(), '')
+        self.assertEqual([s['beat_id'] for s in deck[1:-1]], [f'b{i}' for i in range(5)])
+
+    def test_failed_slide_repairs_have_a_bounded_budget(self):
+        invalid = deck_fixture()
+        invalid['slides'][1]['title'] = 'Заголовок оказался слишком длинным поэтому его нужно сейчас сократить'
+        responses = [plan_fixture()]
+        for _ in range(3):
+            responses.extend([invalid, invalid['slides'][1], invalid['slides'][1]])
+        llm = SequenceLlm(*responses)
+        with self.assertRaisesRegex(ValueError, 'длиннее 8 слов'):
+            build_editorial_deck(llm, SOURCE, 'vk', '')
+        self.assertEqual(len(llm.calls), 10)
 
     def test_approved_without_evidence_is_rejected(self):
         review = review_fixture()

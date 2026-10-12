@@ -251,6 +251,48 @@ def _validate_content(slide_type: str, slide: dict) -> dict:
     return clean
 
 
+class SlideValidationError(ValueError):
+    """A repairable slide error, with its zero-based position in the deck."""
+
+    def __init__(self, index: int, reason: str):
+        self.index = index
+        self.reason = reason
+        super().__init__(f"Слайд {index + 1}: {reason}")
+
+
+def validate_slide(slide: object, index: int, total: int, cta: str) -> dict:
+    """Apply the same content and layout contracts to a single slide."""
+    if not isinstance(slide, dict):
+        raise ValueError("должен быть объектом")
+    slide_type = slide.get("type")
+    if slide_type not in BLOCK_TYPES:
+        raise ValueError(f"неизвестный тип «{slide_type}»")
+    if index == 0 and slide_type != "cover":
+        raise ValueError("Первый слайд должен быть обложкой")
+    if index == total - 1 and slide_type != "cta":
+        raise ValueError("Последний слайд должен быть CTA")
+    if index not in (0, total - 1) and slide_type not in CONTENT_TYPES:
+        raise ValueError(f"тип «{slide_type}» допустим только последним слайдом (CTA)")
+    if slide_type == "cover":
+        clean = _validate_cover(slide)
+    elif slide_type == "cta":
+        clean = {"type": "cta", "cta": cta}
+    else:
+        clean = _validate_content(slide_type, slide)
+    if "title_lines" in slide:
+        lines = slide["title_lines"]
+        if (not isinstance(lines, list) or not 2 <= len(lines) <= 3
+                or any(not isinstance(line, str) or not line.strip() for line in lines)):
+            raise ValueError("title_lines: нужны 2–3 непустые смысловые строки")
+        lines = [polish_text(line) for line in lines]
+        if " ".join(lines) != clean.get("title"):
+            raise ValueError("title_lines должны точно сохранять текст title")
+        if any(_is_dangling(line) for line in lines):
+            raise ValueError("Не оставляй предлог или союз в конце строки заголовка")
+        clean["title_lines"] = lines
+    return clean
+
+
 def validate_deck(raw: object, cta: str) -> tuple[list[dict], dict]:
     """Validate an LLM deck against block limits; returns cleaned slides and frame."""
     if not isinstance(raw, dict) or not isinstance(raw.get("slides"), list):
@@ -265,25 +307,10 @@ def validate_deck(raw: object, cta: str) -> tuple[list[dict], dict]:
         raise ValueError(f"В деке должно быть {limits['min_slides']}–{limits['max_slides']} слайдов")
     cleaned = []
     for index, slide in enumerate(slides):
-        if not isinstance(slide, dict):
-            raise ValueError(f"Слайд {index + 1} должен быть объектом")
-        slide_type = slide.get("type")
-        if slide_type not in BLOCK_TYPES:
-            raise ValueError(f"Слайд {index + 1}: неизвестный тип «{slide_type}»")
-        if index == 0 and slide_type != "cover":
-            raise ValueError("Первый слайд должен быть обложкой")
-        if index == len(slides) - 1 and slide_type != "cta":
-            raise ValueError("Последний слайд должен быть CTA")
-        if index not in (0, len(slides) - 1) and slide_type not in CONTENT_TYPES:
-            raise ValueError(
-                f"Слайд {index + 1}: тип «{slide_type}» допустим только последним слайдом (CTA)"
-            )
-        if slide_type == "cover":
-            cleaned.append(_validate_cover(slide))
-        elif slide_type == "cta":
-            cleaned.append({"type": "cta", "cta": cta})
-        else:
-            cleaned.append(_validate_content(slide_type, slide))
+        try:
+            cleaned.append(validate_slide(slide, index, len(slides), cta))
+        except ValueError as exc:
+            raise SlideValidationError(index, str(exc)) from exc
     body_slides = cleaned[1:-1]
     # Visual block choice is not a narrative role: text can explain both a cause
     # and its consequence. Do not force unrelated checklists just for variety.
@@ -293,18 +320,6 @@ def validate_deck(raw: object, cta: str) -> tuple[list[dict], dict]:
     titles = [slide.get("title", "").casefold() for slide in cleaned if slide.get("title")]
     if len(titles) != len(set(titles)):
         raise ValueError("Заголовки слайдов не должны повторяться")
-    for original, slide in zip(slides, cleaned):
-        if "title_lines" in original:
-            lines = original["title_lines"]
-            if (not isinstance(lines, list) or not 2 <= len(lines) <= 3
-                    or any(not isinstance(line, str) or not line.strip() for line in lines)):
-                raise ValueError("title_lines: нужны 2–3 непустые смысловые строки")
-            lines = [polish_text(line) for line in lines]
-            if " ".join(lines) != slide.get("title"):
-                raise ValueError("title_lines должны точно сохранять текст title")
-            if any(_is_dangling(line) for line in lines):
-                raise ValueError("Не оставляй предлог или союз в конце строки заголовка")
-            slide["title_lines"] = lines
     return cleaned, frame
 
 
