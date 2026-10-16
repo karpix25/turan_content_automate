@@ -184,6 +184,30 @@ class EditorialTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'promised_count'):
             validate_plan(plan, SOURCE)
 
+    def test_count_mismatch_repairs_only_the_cover_promise(self):
+        invalid = plan_fixture()
+        invalid['promised_count'] = 3
+        invalid['promise'] = 'Три приёма для разговора'
+        for count, promise in ((5, 'Пять приёмов для разговора'), (None, 'Как вести разговор')):
+            with self.subTest(count=count):
+                llm = SequenceLlm(invalid, {'promise': promise, 'promised_count': count})
+                result = build_plan(llm, SOURCE, 'vk')
+                self.assertEqual(result['promise'], promise)
+                self.assertEqual(result['promised_count'], count)
+                self.assertEqual(result['items'], invalid['items'])
+                self.assertEqual(result['beats'], invalid['beats'])
+                schema = llm.options[1]['response_format']['json_schema']['schema']
+                self.assertEqual(schema['properties']['promised_count']['enum'], [5, None])
+
+    def test_invalid_promise_repairs_have_bounded_budget(self):
+        invalid = plan_fixture()
+        invalid['promised_count'] = 3
+        repair = {'promise': 'Три приёма', 'promised_count': 3}
+        llm = SequenceLlm(invalid, repair, invalid, repair)
+        with self.assertRaisesRegex(ValueError, 'promised_count'):
+            build_plan(llm, SOURCE, 'vk')
+        self.assertEqual(len(llm.calls), 4)
+
     def test_slide_assignment_cannot_reorder_beats(self):
         deck = deck_fixture()
         deck['slides'][1], deck['slides'][2] = deck['slides'][2], deck['slides'][1]
@@ -253,14 +277,14 @@ class EditorialTests(unittest.TestCase):
         review['coverage'].pop()
         deck, _ = validate_assignment(deck_fixture(), plan_fixture(), '')
         with self.assertRaisesRegex(ValueError, 'Не все пункты'):
-            review_deck(SequenceLlm(review), SOURCE, plan_fixture(), deck)
+            review_deck(SequenceLlm(review, review), SOURCE, plan_fixture(), deck)
 
     def test_editor_cannot_invent_visible_evidence(self):
         review = review_fixture()
         review['coverage'][0]['evidence'] = 'Этой фразы нет на слайде'
         deck, _ = validate_assignment(deck_fixture(), plan_fixture(), '')
         with self.assertRaisesRegex(ValueError, 'отсутствует'):
-            review_deck(SequenceLlm(review), SOURCE, plan_fixture(), deck)
+            review_deck(SequenceLlm(review, review), SOURCE, plan_fixture(), deck)
 
     def test_repeated_editor_rejection_stops_generation(self):
         rejected = {'approved': False, 'issues': ['Обещанные пункты не раскрыты'], 'coverage': []}
@@ -273,7 +297,34 @@ class EditorialTests(unittest.TestCase):
         review['coverage'][0]['slide_index'] = 1
         deck, _ = validate_assignment(deck_fixture(), plan_fixture(), '')
         with self.assertRaisesRegex(ValueError, 'основном слайде'):
-            review_deck(SequenceLlm(review), SOURCE, plan_fixture(), deck)
+            review_deck(SequenceLlm(review, review), SOURCE, plan_fixture(), deck)
+
+    def test_review_metadata_is_repaired_without_rewriting_deck(self):
+        review = review_fixture()
+        review['coverage'][0]['evidence'] = 'Пересказ вместо дословной цитаты'
+        llm = SequenceLlm(plan_fixture(), deck_fixture(), review, review_fixture())
+        deck, frame = build_editorial_deck(llm, SOURCE, 'vk', '')
+        self.assertEqual(len(llm.calls), 4)
+        self.assertEqual(llm.options[2]['response_format'], llm.options[3]['response_format'])
+        self.assertTrue(frame['editorial_review']['approved'])
+        self.assertEqual(deck[1]['paragraphs'], deck_fixture()['slides'][1]['paragraphs'])
+
+    def test_review_selects_exact_visible_excerpts_by_id(self):
+        review = review_fixture()
+        for index, entry in enumerate(review['coverage'], 2):
+            del entry['evidence']
+            entry['evidence_id'] = f'slide_{index}_part_2'
+        deck, _ = validate_assignment(deck_fixture(), plan_fixture(), '')
+        result = review_deck(SequenceLlm(review), SOURCE, plan_fixture(), deck)
+        self.assertEqual([entry['evidence'] for entry in result['coverage']],
+                         [phrase.capitalize() + '.' for phrase in PHRASES])
+
+    def test_evidence_reference_cannot_point_at_another_slide(self):
+        review = review_fixture()
+        review['coverage'][0]['evidence_id'] = 'slide_3_part_2'
+        deck, _ = validate_assignment(deck_fixture(), plan_fixture(), '')
+        with self.assertRaisesRegex(ValueError, 'назначенном слайде'):
+            review_deck(SequenceLlm(review, review), SOURCE, plan_fixture(), deck)
 
     def test_failed_editorial_does_not_call_mechanical_fallback(self):
         llm = SequenceLlm({}, {})
