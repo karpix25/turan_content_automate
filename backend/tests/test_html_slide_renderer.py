@@ -4,6 +4,7 @@ import unittest
 
 from app.integrations.html_slide_renderer import HtmlSlideRenderer, find_chromium_executable
 from app.services.blocks_html import build_slide_html
+from app.services.carousel_blocks import validate_deck
 
 try:
     import playwright  # noqa: F401
@@ -25,6 +26,32 @@ def _short_deck() -> list[dict]:
 
 @unittest.skipUnless(PLAYWRIGHT_AVAILABLE and CHROMIUM_AVAILABLE, "playwright/chromium недоступен")
 class HtmlSlideRendererTests(unittest.TestCase):
+    def test_all_content_types_render_at_both_production_sizes(self):
+        content_slides = [
+            {'type': 'text', 'title': 'Смысловой абзац', 'paragraphs': ['Первый самостоятельный тезис.', 'Второе пояснение с примером.']},
+            {'type': 'checklist', 'title': 'Что проверить', 'items': ['Сверьте условия', 'Проверьте сроки']},
+            {'type': 'steps', 'title': 'Последовательность действий', 'items': ['Изучите источник', 'Выделите главное', 'Проверьте результат']},
+            {'type': 'table', 'title': 'Числовые значения', 'columns': ['Карты', 'Значение'], 'rows': [['От 2 до 6', '+1'], ['От 7 до 9', '0']]},
+            {'type': 'comparison', 'title': 'Сравнение вариантов', 'left_title': 'Первый', 'right_title': 'Второй',
+             'left_items': ['Вероятность 50%', 'Одна попытка'], 'right_items': ['Вероятность 1 к 1 000 000', 'Много повторений']},
+            {'type': 'stat', 'title': 'Основное число', 'value': '50%', 'caption': 'вероятность одной попытки'},
+            {'type': 'quote', 'text': 'Главное — сохранять смысл источника.', 'author': 'Редактор'},
+            {'type': 'qa', 'title': 'Вопрос и ответ', 'pairs': [{'q': 'Что проверить?', 'a': 'Факты и исходные числа.'}]},
+        ]
+        with tempfile.TemporaryDirectory() as tmp, HtmlSlideRenderer() as renderer:
+            for content in content_slides:
+                deck, _ = validate_deck({'frame': 'insight', 'slides': [
+                    {'type': 'cover', 'title': 'Проверка формата'}, content, {'type': 'cta'},
+                ]}, 'Сохраните')
+                for width, height in ((1080, 1350), (1080, 1920)):
+                    with self.subTest(slide_type=content['type'], height=height):
+                        path = os.path.join(tmp, f"{content['type']}-{height}.png")
+                        markup = build_slide_html(deck, 1, width=width, height=height)
+                        renderer.render_html(markup, path, width, height)
+                        with open(path, 'rb') as handle:
+                            header = handle.read(24)
+                        self.assertEqual((int.from_bytes(header[16:20], 'big'), int.from_bytes(header[20:24], 'big')), (width, height))
+
     def _render(self, deck: list[dict], index: int, width: int = 1080, height: int = 1350) -> str:
         html = build_slide_html(deck, index, width=width, height=height)
         handle, path = tempfile.mkstemp(suffix=".png")

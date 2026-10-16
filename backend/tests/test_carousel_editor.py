@@ -3,7 +3,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from app.services.carousel_editor import build_editorial_deck, validate_plan, validate_assignment, review_deck
+from app.services.carousel_editor import PLAN_FORMAT, build_editorial_deck, build_plan, validate_plan, validate_assignment, review_deck
 from app.services.carousel_blocks import build_platform_deck, validate_deck
 
 SOURCE = 'Первый приём: сделайте паузу. Второй приём: задайте вопрос. Третий приём: уточните смысл. Четвёртый приём: приведите пример. Пятый приём: подведите итог.'
@@ -30,6 +30,10 @@ def review_fixture():
         {'item_id': f'i{i}', 'slide_index': i+2, 'evidence': phrase.capitalize() + '.'} for i, phrase in enumerate(PHRASES)]}
 
 
+def assignments_fixture():
+    return {'assignments': [{'beat_id': f'b{i}', 'item_ids': [f'i{i}']} for i in range(5)]}
+
+
 class SequenceLlm:
     def __init__(self, *responses):
         self.responses = iter(responses)
@@ -43,6 +47,109 @@ class SequenceLlm:
 
 
 class EditorialTests(unittest.TestCase):
+    def test_plan_schema_requires_nonempty_assignments(self):
+        properties = PLAN_FORMAT['json_schema']['schema']['properties']
+        self.assertEqual(properties['items']['minItems'], 1)
+        self.assertEqual(properties['beats']['minItems'], 1)
+        self.assertEqual(properties['beats']['maxItems'], 5)
+        self.assertEqual(properties['beats']['items']['properties']['item_ids']['minItems'], 1)
+
+    def test_invalid_plan_assignments_are_repaired_without_rewriting_content(self):
+        for invalid_ids in (None, [], 'i0', [0], [''], ['unknown'], ['i1']):
+            with self.subTest(item_ids=invalid_ids):
+                invalid = plan_fixture()
+                invalid['beats'][0]['item_ids'] = invalid_ids
+                llm = SequenceLlm(invalid, assignments_fixture())
+                self.assertEqual(build_plan(llm, SOURCE, 'vk'), plan_fixture())
+                self.assertEqual(len(llm.calls), 2)
+                schema = llm.options[1]['response_format']['json_schema']['schema']
+                entry = schema['properties']['assignments']['items']['properties']
+                self.assertEqual(entry['item_ids']['items']['enum'], [f'i{i}' for i in range(5)])
+                self.assertEqual(entry['beat_id']['enum'], [f'b{i}' for i in range(5)])
+
+    def test_missing_item_ids_are_repaired_and_deck_still_passes_review(self):
+        invalid = plan_fixture()
+        del invalid['beats'][0]['item_ids']
+        llm = SequenceLlm(invalid, assignments_fixture(), deck_fixture(), review_fixture())
+        deck, frame = build_editorial_deck(llm, SOURCE, 'vk', '')
+        self.assertEqual(len(deck), 7)
+        self.assertEqual(frame['editorial_plan'], plan_fixture())
+        self.assertTrue(frame['editorial_review']['approved'])
+
+    def test_assignment_repair_preserves_grouped_items(self):
+        expected = plan_fixture()
+        expected['beats'][0]['item_ids'] = ['i0', 'i1']
+        expected['beats'].pop(1)
+        invalid = copy.deepcopy(expected)
+        invalid['beats'][0]['item_ids'] = []
+        repair = {'assignments': [{'beat_id': b['id'], 'item_ids': b['item_ids']} for b in expected['beats']]}
+        self.assertEqual(build_plan(SequenceLlm(invalid, repair), SOURCE, 'vk'), expected)
+
+    def test_failed_assignment_repairs_have_a_bounded_budget(self):
+        invalid = plan_fixture()
+        invalid['beats'][0]['item_ids'] = []
+        bad_repair = assignments_fixture()
+        bad_repair['assignments'][0]['item_ids'] = ['unknown']
+        llm = SequenceLlm(invalid, bad_repair, invalid, bad_repair)
+        with self.assertRaisesRegex(ValueError, 'смысловой план'):
+            build_plan(llm, SOURCE, 'vk')
+        self.assertEqual(len(llm.calls), 4)
+
+    def test_malformed_assignment_repairs_trigger_full_replanning(self):
+        invalid = plan_fixture()
+        invalid['beats'][0]['item_ids'] = []
+        reordered = assignments_fixture()
+        reordered['assignments'].reverse()
+        missing = assignments_fixture()
+        missing['assignments'].pop()
+        for repair in ({}, {'assignments': [None]}, reordered, missing, 'not an object'):
+            with self.subTest(repair=repair):
+                llm = SequenceLlm(invalid, repair, plan_fixture())
+                self.assertEqual(build_plan(llm, SOURCE, 'vk'), plan_fixture())
+                self.assertEqual(len(llm.calls), 3)
+
+    def test_invalid_source_evidence_shape_requires_full_replanning(self):
+        invalid = plan_fixture()
+        invalid['items'][4]['source_quote'] = None
+        llm = SequenceLlm(invalid, plan_fixture())
+        self.assertEqual(build_plan(llm, SOURCE, 'vk'), plan_fixture())
+        self.assertEqual(llm.options[1]['response_format'], PLAN_FORMAT)
+
+    def test_inexact_source_quotes_are_reselected_without_changing_ideas(self):
+        invalid = plan_fixture()
+        invalid['items'][0]['source_quote'] = 'Сначала сделайте паузу'
+        quotes = SOURCE.split('. ')
+        quotes = [quote if quote.endswith('.') else quote + '.' for quote in quotes]
+        evidence = {'evidence': [{'item_id': f'i{i}', 'quote_id': f'quote_{i+1}'} for i in range(5)]}
+        llm = SequenceLlm(invalid, evidence)
+        repaired = build_plan(llm, SOURCE, 'vk')
+        self.assertEqual(repaired['beats'], invalid['beats'])
+        self.assertEqual([item['idea'] for item in repaired['items']], PHRASES)
+        self.assertEqual([item['source_quote'] for item in repaired['items']], quotes)
+        schema = llm.options[1]['response_format']['json_schema']['schema']
+        self.assertEqual(schema['properties']['evidence']['items']['properties']['quote_id']['enum'],
+                         [f'quote_{i+1}' for i in range(5)])
+
+    def test_evidence_and_assignment_can_both_be_repaired_in_one_plan(self):
+        invalid = plan_fixture()
+        invalid['items'][0]['source_quote'] = 'Выдумка'
+        invalid['beats'][0]['item_ids'] = []
+        quotes = [part.strip() + '.' for part in SOURCE.rstrip('.').split('. ')]
+        evidence = {'evidence': [{'item_id': f'i{i}', 'quote_id': f'quote_{i+1}'} for i in range(5)]}
+        llm = SequenceLlm(invalid, evidence, assignments_fixture())
+        repaired = build_plan(llm, SOURCE, 'vk')
+        self.assertEqual(repaired['beats'], plan_fixture()['beats'])
+        self.assertEqual(len(llm.calls), 3)
+
+    def test_invented_repair_evidence_is_not_accepted(self):
+        invalid = plan_fixture()
+        invalid['items'][0]['source_quote'] = 'Выдумка'
+        evidence = {'evidence': [{'item_id': f'i{i}', 'quote_id': 'invented'} for i in range(5)]}
+        llm = SequenceLlm(invalid, evidence, invalid, evidence)
+        with self.assertRaisesRegex(ValueError, 'дословно выбрать'):
+            build_plan(llm, SOURCE, 'vk')
+        self.assertEqual(len(llm.calls), 4)
+
     def test_llm_selects_five_beats_even_for_short_source(self):
         llm = SequenceLlm(plan_fixture(), deck_fixture(), review_fixture())
         deck, frame = build_platform_deck(llm, SOURCE, 'vk', 'Сохраните')
@@ -51,6 +158,13 @@ class EditorialTests(unittest.TestCase):
         self.assertEqual(len(llm.calls), 3)
         self.assertTrue(frame['editorial_review']['approved'])
         self.assertEqual(frame['editorial_plan']['promised_count'], 5)
+        schema = llm.options[1]['response_format']['json_schema']['schema']
+        self.assertEqual(schema['properties']['frame']['enum'], ['instruction'])
+        self.assertEqual(schema['properties']['slides']['minItems'], 7)
+        self.assertEqual(schema['properties']['slides']['maxItems'], 7)
+        variants = schema['properties']['slides']['items']['anyOf']
+        self.assertEqual([v['properties']['type']['enum'][0] for v in variants],
+                         ['cover', 'text', 'text', 'text', 'text', 'text', 'cta'])
 
     def test_plan_cannot_lose_a_promised_item(self):
         plan = plan_fixture()
@@ -182,3 +296,9 @@ class EditorialTests(unittest.TestCase):
         deck['slides'][0]['title_lines'] = ['Пять приёмов для', 'разговора']
         with self.assertRaisesRegex(ValueError, 'предлог'):
             validate_deck(deck, '')
+
+    def test_null_title_lines_use_renderer_balancing(self):
+        deck = deck_fixture()
+        deck['slides'][0]['title_lines'] = None
+        slides, _ = validate_deck(deck, '')
+        self.assertNotIn('title_lines', slides[0])

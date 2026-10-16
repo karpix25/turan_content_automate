@@ -23,15 +23,20 @@ def _as_utc(value: datetime.datetime) -> datetime.datetime:
 
 def _targets(draft: models.CarouselDraft, formats: dict | None = None) -> list[dict]:
     result = []
+    seen = set()
     for platform, account_ids in (draft.platform_accounts or {}).items():
         platform = str(platform).strip().lower()
         for media_format in enabled_formats(formats, platform):
             slides = draft.slides if media_format == "carousel" else draft.story_slides
             for account_id in account_ids or []:
+                target_key = (platform, int(account_id), media_format)
+                if target_key in seen:
+                    continue
                 variant_key = f"{platform}:{int(account_id)}"
                 paths = (slides or {}).get(variant_key) or (slides or {}).get(platform) or []
                 if not paths:
                     continue
+                seen.add(target_key)
                 result.append({
                     "platform": platform,
                     "account_id": int(account_id),

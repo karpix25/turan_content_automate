@@ -141,6 +141,8 @@ class LLMClient:
                     response = client.post(f"{self.BASE_URL}/chat/completions", headers=self.headers, json=payload)
                     response.raise_for_status()
                     data = response.json()
+                    if _is_payment_required(data.get("error")):
+                        raise OpenRouterInsufficientCreditsError()
                     choices = data.get("choices") or []
                     if not choices:
                         logger.error("OpenRouter response has no choices via %s: %s", attempt_label, str(data)[:1200])

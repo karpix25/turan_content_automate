@@ -143,8 +143,8 @@ def generate_carousel_task(self, draft_id: int, schedule_after: bool | None = No
         draft = db.query(models.CarouselDraft).filter(models.CarouselDraft.id == draft_id).first()
         if not draft:
             return
-        if draft.status in {"ready", "rejected"}:
-            logger.info("Skipping carousel generation for draft %s with terminal status %s", draft_id, draft.status)
+        if draft.status not in {"generating", "waiting_for_credits"}:
+            logger.info("Skipping carousel generation for draft %s with status %s", draft_id, draft.status)
             return
         if draft.status == "waiting_for_credits":
             draft.status = "generating"
@@ -210,10 +210,19 @@ def generate_carousel_task(self, draft_id: int, schedule_after: bool | None = No
         draft.status = "ready"
         draft.error = None
         db.commit()
-        send_carousel_ready_to_telegram(draft)
+        # Delivery/scheduling failures must not destroy a successfully saved deck.
+        # It remains ready for review or manual scheduling in the application.
+        try:
+            send_carousel_ready_to_telegram(draft)
+        except Exception:
+            logger.exception("Ready notification failed for carousel draft %s", draft.id)
         if user and (schedule_after if schedule_after is not None else user.auto_schedule_enabled):
-            celery_app.send_task("schedule_carousel_publications_task", args=[draft.id])
+            try:
+                celery_app.send_task("schedule_carousel_publications_task", args=[draft.id])
+            except Exception:
+                logger.exception("Could not queue scheduling for ready carousel draft %s", draft.id)
     except OpenRouterInsufficientCreditsError as exc:
+        db.rollback()
         logger.warning(
             "OpenRouter balance is insufficient for carousel draft %s (retry %s/%s)",
             draft_id,
@@ -237,6 +246,7 @@ def generate_carousel_task(self, draft_id: int, schedule_after: bool | None = No
         raise
     except Exception as exc:
         logger.exception("Carousel generation failed for draft %s", draft_id)
+        db.rollback()
         draft = db.query(models.CarouselDraft).filter(models.CarouselDraft.id == draft_id).first()
         if draft:
             draft.status = "failed"

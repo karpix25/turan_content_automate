@@ -71,7 +71,9 @@ DANGLING_ENDINGS = {
 
 
 def _is_dangling(text: str) -> bool:
-    words = re.findall(r"[а-яёa-z-]+", text.casefold())
+    # Numbers complete phrases too: "до 20%", "в 2026", "от 1 до 5".
+    # Dropping them incorrectly leaves the preceding preposition at the end.
+    words = re.findall(r"[а-яёa-z0-9]+(?:-[а-яёa-z0-9]+)*", text.casefold())
     return bool(words) and words[-1] in DANGLING_ENDINGS
 
 
@@ -107,7 +109,8 @@ def _require_string(slide_type: str, field: str, value, limit_key: str, cyrillic
     return text
 
 
-def _require_items(slide_type: str, field: str, value, word_limit: int, low: int, high: int) -> list[str]:
+def _require_items(slide_type: str, field: str, value, word_limit: int, low: int, high: int,
+                   *, allow_numeric: bool = False) -> list[str]:
     if not isinstance(value, list) or not value:
         raise ValueError(f"Слайд «{slide_type}»: поле {field} должно быть непустым списком")
     if not (low <= len(value) <= high):
@@ -120,7 +123,8 @@ def _require_items(slide_type: str, field: str, value, word_limit: int, low: int
         # списки рисуются с бейджами/маркерами — ручная нумерация пунктов задваивается
         if slide_type == "steps":
             text = re.sub(r"^\s*\d+\s*[.)]\s*", "", text)
-        if not text or re.search(r"[A-Za-z]", text) or not is_russian_text(text):
+        numeric = allow_numeric and bool(re.fullmatch(r"[\d\s.,:;/%+−–—×₽€$°()-]+", text)) and bool(re.search(r"\d", text))
+        if not text or re.search(r"[A-Za-z]", text) or not (is_russian_text(text) or numeric):
             raise ValueError(f"Слайд «{slide_type}»: пункт поля {field} не русский текст")
         if _words(text) > word_limit:
             raise ValueError(f"Слайд «{slide_type}»: пункт поля {field} длиннее {word_limit} слов")
@@ -186,7 +190,8 @@ def _validate_content(slide_type: str, slide: dict) -> dict:
             if not isinstance(row, list) or len(row) != len(columns):
                 raise ValueError("Слайд «table»: в каждой строке должно быть столько ячеек, сколько колонок")
             clean_rows.append([
-                _require_items("table", "ячейка", [cell], DECK_LIMITS["table_cell_words"], 1, 1)[0]
+                _require_items("table", "ячейка", [cell], DECK_LIMITS["table_cell_words"], 1, 1,
+                               allow_numeric=True)[0]
                 for cell in row
             ])
         clean["rows"] = clean_rows
@@ -279,7 +284,7 @@ def validate_slide(slide: object, index: int, total: int, cta: str) -> dict:
         clean = {"type": "cta", "cta": cta}
     else:
         clean = _validate_content(slide_type, slide)
-    if "title_lines" in slide:
+    if slide.get("title_lines") is not None:
         lines = slide["title_lines"]
         if (not isinstance(lines, list) or not 2 <= len(lines) <= 3
                 or any(not isinstance(line, str) or not line.strip() for line in lines)):
@@ -298,7 +303,7 @@ def validate_deck(raw: object, cta: str) -> tuple[list[dict], dict]:
     if not isinstance(raw, dict) or not isinstance(raw.get("slides"), list):
         raise ValueError("Дека должна быть объектом со списком slides")
     frame_id = raw.get("frame")
-    if not frame_id or frame_id not in FRAME_BY_ID:
+    if not isinstance(frame_id, str) or frame_id not in FRAME_BY_ID:
         raise ValueError("Укажи поле frame — id подходящего фрейма из библиотеки")
     frame = FRAME_BY_ID[frame_id]
     slides = raw["slides"]
